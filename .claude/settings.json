@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git add:*)",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { [ -f pyproject.toml ] || exit 0; } && { uv run ruff check . || { echo 'Blocked: ruff check 실패. lint 에러를 고치고 다시 시도하세요.' >&2; exit 2; }; } && { uv run mypy app || { echo 'Blocked: mypy 실패. 타입 에러를 고치고 다시 시도하세요.' >&2; exit 2; }; } && { uv run pytest; rc=$?; [ \"$rc\" -eq 0 ] || [ \"$rc\" -eq 5 ] || { echo 'Blocked: pytest 실패. 실패한 테스트를 고치고 다시 시도하세요.' >&2; exit 2; }; }",
+            "timeout": 180,
+            "statusMessage": "Running ruff & mypy & pytest before git add..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git commit:*)",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { [ -f pyproject.toml ] || exit 0; } && { uv run ruff check . || { echo 'Blocked: ruff check 실패. lint 에러를 고치고 커밋하세요.' >&2; exit 2; }; } && { uv run mypy app || { echo 'Blocked: mypy 실패. 타입 에러를 고치고 커밋하세요.' >&2; exit 2; }; } && { uv run pytest; rc=$?; [ \"$rc\" -eq 0 ] || [ \"$rc\" -eq 5 ] || { echo 'Blocked: pytest 실패. 실패한 테스트를 고치고 커밋하세요.' >&2; exit 2; }; }",
+            "timeout": 180,
+            "statusMessage": "Running ruff & mypy & pytest before git commit..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push:*)",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { [ -f pyproject.toml ] || exit 0; } && { uv run ruff check . 1>&2 || { echo 'Blocked: ruff 실패로 push 차단. CI lint 부터 통과시키세요.' >&2; exit 2; }; }",
+            "timeout": 180,
+            "statusMessage": "Running ruff lint before git push..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/db_schema_changelog.py\"",
+            "timeout": 20,
+            "statusMessage": "Checking DB schema sync for model changes..."
+          }
+        ]
+      }
+    ]
+  }
+}

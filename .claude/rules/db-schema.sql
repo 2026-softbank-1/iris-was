@@ -1,0 +1,2 @@
+-- 물리 DB 스키마(DDL) 단일 출처 — PostgreSQL.
+-- app/models/*.py, alembic/versions/ 와 일치시킨다 (.claude/rules/db-migration.md).

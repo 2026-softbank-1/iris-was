@@ -1,0 +1,216 @@
+# AnyDeploy 개발자 용어 사전 (Developer Term Dictionary)
+
+> Railway 와 비슷한 배포 서비스 **AnyDeploy** 의 Control Plane(이 레포)에서 쓰는 용어·식별자 사전이다. 용어 → 코드 식별자(case·타입·Enum) 매핑과 도메인 모델을 다룬다.
+> - **근거 문서**: [control-plane-build-deploy-flow.md](../docs/control-plane-build-deploy-flow.md) (이하 "원문")
+> - **물리 스키마**: [db-schema.sql](db-schema.sql) 이 DDL 단일 출처다. 이 문서와 어긋나면 둘을 함께 고친다.
+> - **`*` 표시**: 원문에 없어서 새로 제안한 항목이다. 구현하면서 확정되면 `*` 를 지운다.
+
+---
+
+## 1. 표기 규칙
+
+- **하나의 표준 영문 용어**를 정하고, 언어별로 **표기법(case)만** 바꾼다. Python·SQL 은 `snake_case`, API JSON 은 `camelCase`(스키마 alias)를 쓴다.
+- **테이블명은 `snake_case` 복수형**(`jobs`, `builds`)이다. 원문 테이블명을 따르며, backend-conventions §2.5 의 단수형 규칙보다 이 규칙이 우선한다. Model 클래스명은 `PascalCase` 단수형(`Job`)이다.
+- **Enum 코드** 규칙
+  - 내부 상태·종류: `UPPER_SNAKE` (`QUEUED`, `BUILD`)
+  - 사용자 설정 파일에서 온 값: 설정 파일 표기 그대로 소문자 (`dockerfile`)
+  - 외부 시스템 값(Argo CD 상태): 원본 표기 그대로 저장 (`Healthy`)
+- **시각** 필드는 `*_at` 이름에 `timestamptz`(UTC) 타입을 쓴다.
+- **외부 시스템 ID** 는 `{시스템}_{대상}_id` 형식이다 (`codebuild_build_id`). Git SHA 필드는 `*_sha` 로 끝난다 (`source_sha`, `gitops_commit_sha`).
+- **이미지 참조**
+  - `image_digest`: `sha256:...` 값만 담는다.
+  - `image_repository`\*: ECR 저장소 URI 를 담는다.
+  - 둘을 합친 배포 참조가 `image_ref`\* = `{image_repository}@{image_digest}` 다.
+  - **tag 필드는 두지 않는다.**
+
+---
+
+## 2. 컴포넌트
+
+| 용어 | 코드 위치 | 비고 |
+|---|---|---|
+| Control Plane | 이 레포 전체 | Control API + Build Worker + Deploy Worker |
+| Control API | `app/main.py`, `app/routers/` | 원문 §8 의 `deploy-api` 와 같은 것. 이름을 Control API 로 통일한다 |
+| Build Worker | `app/workers/build_worker.py` | 원문 §8 의 `build-dispatcher` 와 같은 것. 이름을 Build Worker 로 통일한다 |
+| Deploy Worker | `app/workers/deploy_worker.py` | DEPLOY·ROLLBACK·RECONCILE job 처리 |
+| Master Cluster | — | Control Plane·Argo CD 가 도는 EKS |
+| Prod Cluster | — | 사용자 서비스가 도는 EKS. Argo CD 만 접근한다 |
+| GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 manifest. image digest 만 바뀐다 |
+
+---
+
+## 3. 도메인 모델
+
+```mermaid
+erDiagram
+  services ||--o{ deployment_requests : "배포 요청"
+  deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
+  deployment_requests ||--o| builds : "빌드 결과"
+  deployment_requests ||--o| releases : "배포 결과"
+  releases |o--o| releases : "previous_good_release_id"
+```
+
+---
+
+## 4. 엔티티·테이블
+
+### 4.1 서비스 (Service) — `services`\*
+
+사용자가 배포하는 앱 하나다. 원문은 "서비스 등록 시 빌더를 확정해 저장"한다고만 하고 테이블은 정의하지 않는다. 빌더 필드는 서비스 저장소의 `.anydeploy/build.yaml` 에서 가져온다.
+
+| 필드 | 설명 |
+|---|---|
+| `name`\* | 서비스 식별 이름 (slug) |
+| `source_repository_url`\* | 서비스 소스 저장소 |
+| `builder` | `builder` Enum (§5) |
+| `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
+| `platform` | 빌드 플랫폼 (`linux/amd64`) |
+| `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
+
+### 4.2 배포 요청 (DeploymentRequest) — `deployment_requests`
+
+사용자의 배포 요청 1건이다. 빌드부터 배포 완료까지 전체 흐름의 최상위 단위다.
+
+| 필드 | 설명 |
+|---|---|
+| `service_id` | 대상 서비스 |
+| `environment` | `environment` Enum (§5) |
+| `source_sha` | 빌드할 소스 커밋 SHA |
+| `idempotency_key` | 중복 요청 차단 키. unique 제약을 건다\* |
+| `requested_by`\* | 요청자 |
+| `status` | `deployment_status` Enum (§5). 원문의 "최종 상태" |
+| `failure_code`\* | 실패 사유 코드 (§5) |
+
+### 4.3 작업 (Job) — `jobs`
+
+PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
+
+| 필드 | 설명 |
+|---|---|
+| `deployment_request_id`\* | 소속 배포 요청 |
+| `kind` | `job_kind` Enum (§5) |
+| `status` | `job_status` Enum (§5) |
+| `payload` | 작업 입력 (jsonb\*). 스키마는 `app/schemas/` 에 정의한다 |
+| `priority` | 높을수록 먼저 선점된다 |
+| `run_after` | 이 시각 이후에만 선점할 수 있다. 재시도 백오프에 쓴다 |
+| `attempts` | 선점될 때마다 +1 |
+| `max_attempts`\* | 재시도 한도. 넘으면 `FAILED` |
+| `locked_by` | 선점한 Worker 식별자 |
+| `locked_until` | lease 만료 시각 |
+| `external_id`\* | 외부 작업 ID (CodeBuild ID·commit SHA). **외부 호출 직후 먼저 기록**한다 |
+| `last_error`\* | 마지막 실패 메시지 |
+
+### 4.4 빌드 (Build) — `builds`
+
+| 필드 | 설명 |
+|---|---|
+| `deployment_request_id`\* | 소속 배포 요청 |
+| `builder` | 실제로 사용한 빌더 |
+| `codebuild_build_id` | CodeBuild 빌드 ID |
+| `image_repository`\* | ECR 저장소 URI |
+| `image_digest` | 빌드 결과 digest |
+| `log_url` | CodeBuild 로그 URL |
+
+원문 §6 은 SBOM·스캔 결과도 저장한다고 한다. 해당 필드는 구현 순서 7단계(SBOM·이미지 서명)에서 정한다.
+
+### 4.5 릴리스 (Release) — `releases`
+
+GitOps 에 반영된 배포 결과 1건이다.
+
+| 필드 | 설명 |
+|---|---|
+| `deployment_request_id`\* | 소속 배포 요청 |
+| `service_id`\*, `environment`\* | 대상. `last_known_good` 조회 기준 |
+| `image_digest` | 배포한 digest |
+| `gitops_commit_sha` | digest 를 바꾼 GitOps 커밋 |
+| `argo_sync_status` | Argo CD Sync 상태 (외부 값) |
+| `argo_health_status` | Argo CD Health 상태 (외부 값) |
+| `previous_good_release_id` | 이 릴리스 직전의 정상 릴리스. 원문의 "이전 정상 release" |
+| `status`\* | `release_status` Enum (§5) |
+
+---
+
+## 5. Enum 값 정의
+
+### 작업 종류 (`job_kind`) — `jobs.kind`
+
+| 코드 | 처리 주체 | 의미 |
+|---|---|---|
+| `BUILD` | Build Worker | CodeBuild 를 시작하고 결과(digest)를 기록한다 |
+| `DEPLOY` | Deploy Worker | GitOps manifest 의 digest 를 바꾸는 PR·commit 을 만든다 |
+| `RECONCILE` | Deploy Worker | Argo CD 상태를 수집해 release 상태를 맞춘다\* |
+| `ROLLBACK` | Deploy Worker | 실패한 digest 를 되돌리는 revert commit 을 만든다 |
+
+### 작업 상태 (`job_status`) — `jobs.status`
+
+| 코드 | 의미 |
+|---|---|
+| `QUEUED` | 선점 대기 |
+| `RUNNING` | Worker 가 lease 를 잡고 실행 중 |
+| `SUCCEEDED` | 성공 |
+| `RETRY_WAIT` | 재시도 가능한 실패. `run_after` 이후 `QUEUED` 로 돌아간다 |
+| `FAILED` | 재시도를 소진했거나 정책 오류 |
+| `MANUAL_INTERVENTION` | 비가역 변경이나 복구 불가 상황. 운영자 판단이 필요하다 |
+
+### 빌더 (`builder`) — `services.builder`, `builds.builder`
+
+`dockerfile`(지정한 Dockerfile 로 BuildKit 빌드) · `railpack`(Railpack + BuildKit 으로 이미지 생성)
+
+### 환경 (`environment`)
+
+`prod` (원문에는 prod 만 있다. staging 등은 필요할 때 추가한다)
+
+### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
+
+`QUEUED` → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION`
+
+### 릴리스 상태 (`release_status`)\* — `releases.status`
+
+`PENDING`(Git 반영, 동기화 대기) · `SUCCEEDED`(원문. Sync·Health·smoke test 모두 통과) · `FAILED` · `ROLLED_BACK`
+
+### 실패 코드 (`failure_code`) — `deployment_requests.failure_code`\*
+
+| 코드 | 의미 |
+|---|---|
+| `BUILD_CONFIG_REQUIRED` | 빌더 설정이 없거나 소스와 맞지 않는다 (원문 §4) |
+| `BUILD_FAILED` | 빌드·테스트·스캔 실패. GitOps 는 바꾸지 않는다 (원문 §6) |
+| `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
+
+### Argo CD 상태 (외부 값, 원본 표기 그대로 저장)
+
+- `argo_sync_status`: `Synced` · `OutOfSync` · `Unknown`
+- `argo_health_status`: `Healthy` · `Progressing` · `Degraded` · `Suspended` · `Missing` · `Unknown`
+
+---
+
+## 6. 동작·개념 용어
+
+| 용어 | 코드 식별자 | 정의 |
+|---|---|---|
+| 선점 (claim) | `claim_next_job`\* | `FOR UPDATE SKIP LOCKED` 로 job 1건을 `RUNNING` 으로 바꾸고 lease 를 잡는다 |
+| lease | `locked_by`, `locked_until` | 선점한 Worker 의 작업 점유 기한 |
+| lease 갱신 | `renew_lease`\* | 실행 중인 Worker 가 `locked_until` 을 주기적으로 연장한다 |
+| lease 회수 | `reclaim_expired_jobs`\* | lease 가 만료된 작업을 다른 Worker 가 다시 가져간다 |
+| 멱등성 키 | `idempotency_key` | 같은 요청을 다시 보내도 이미지·release 가 중복 생성되지 않게 하는 키 |
+| image digest | `image_digest` | 이미지 내용 해시 (`sha256:...`). 배포의 유일한 기준 |
+| desired state | — | GitOps 저장소 manifest 의 내용. Argo CD 가 Prod 를 이 상태로 맞춘다 |
+| Sync | `argo_sync_status` | Argo CD 가 desired state 를 클러스터에 적용하는 것. Control Plane 은 직접 호출하지 않고 Git 변경으로 유도한다 |
+| lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념) |
+| revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
+| 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
+| 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
+
+---
+
+## 7. 혼동 주의 (동음이의어)
+
+| 단어 | 이 레포에서의 뜻 | 헷갈리기 쉬운 대상 | 코드 규칙 |
+|---|---|---|---|
+| Service | 사용자 앱 (`Service` 모델) | 레이어 접미사 `Service`, K8s `Service` | 도메인 서비스 레이어 클래스는 `ServiceRegistryService`\*. K8s 리소스는 `k8s_service` |
+| Deployment | 배포 요청 (`DeploymentRequest`) | K8s `Deployment` 리소스 | 도메인은 항상 `deployment_request`. K8s 리소스는 `k8s_deployment` |
+| Deploy | job 종류 `DEPLOY` (GitOps 변경 단계) | 배포 요청 전체 | 전체 흐름을 가리킬 때는 `deployment_request` |
+| Application | Argo CD `Application` 리소스 | 사용자 앱 | `argo_application`. 사용자 앱은 Service |
+| Build | `Build` 레코드 | CodeBuild 의 빌드 실행 | 외부 ID 는 `codebuild_build_id` |
+| Release | GitOps 반영 결과 (`Release`) | Helm release | Helm 쪽은 `helm_release` |
+| Environment | 배포 대상 환경 (`prod`) | 환경변수 | 환경변수는 `env_vars` |
+| Rollback | job `ROLLBACK` = revert commit | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분 |
