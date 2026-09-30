@@ -45,13 +45,28 @@ flowchart LR
 
 ## 개발 환경
 
-요구 사항: Python 3.13, [uv](https://docs.astral.sh/uv/), PostgreSQL
+요구 사항: Python 3.13, [uv](https://docs.astral.sh/uv/), PostgreSQL (로컬 검증: 18)
 
 ```bash
 uv sync
-cp .env.example .env               # DATABASE_URL 입력 (postgresql+asyncpg://...)
+
+# 로컬 DB 생성 (DB 이름은 softbank_iris 로 통일)
+createdb -h localhost -U <USER> softbank_iris
+
+cp .env.example .env               # DATABASE_URL 입력
 uv run alembic upgrade head
+uv run alembic current             # 접속·적용 revision 확인
 ```
+
+`.env` 예:
+
+```dotenv
+DATABASE_URL=postgresql+asyncpg://<USER>:<PASSWORD>@localhost:5432/softbank_iris
+LOG_LEVEL=INFO
+```
+
+- `DATABASE_URL` 이 없으면 Control API·Worker 는 시작하자마자 설정 오류로 종료한다.
+- `pytest` 는 DB 없이 돈다(`tests/conftest.py` 가 접속되지 않는 URL 을 넣는다). 실제 DB 연결은 서버를 띄워 `GET /readyz` 가 204 인지로 확인한다.
 
 | 환경변수 | 설명 |
 |---|---|
@@ -102,6 +117,15 @@ spec:
         - name: migrate
           image: <ECR_REPO>@sha256:<DIGEST>
           command: ["alembic", "upgrade", "head"]
+```
+
+새 revision 은 로컬 DB 에서 아래 순서로 검증한 뒤 커밋한다.
+
+```bash
+uv run alembic revision --autogenerate -m "..."   # 생성 후 파일을 열어 검토
+uv run alembic upgrade head
+uv run alembic check                              # "No new upgrade operations detected" 여야 한다
+uv run alembic downgrade -1 && uv run alembic upgrade head
 ```
 
 마이그레이션 작성 규칙은 [.claude/rules/db-migration.md](.claude/rules/db-migration.md) 를 따른다.
