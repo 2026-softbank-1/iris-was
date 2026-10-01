@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 from itertools import count
 
 from app.clients.oauth_client import InstallationInfo, OAuthUser
-from app.clients.source_repository_client import BranchInfo, InstallationToken, RepositoryInfo
+from app.clients.source_repository_client import (
+    BranchInfo,
+    CommitInfo,
+    InstallationToken,
+    RepositoryInfo,
+)
 from app.models.user import GithubInstallation, User
 
 
@@ -92,11 +97,15 @@ class FakeOAuthClient:
 
 
 class FakeSourceRepositoryClient:
-    """installation_id → 저장소 목록. 브랜치는 `branches[full_name]` 로 지정한다."""
+    """installation_id → 저장소 목록.
+
+    브랜치는 `branches[full_name]`, 브랜치 최신 커밋은 `heads[(full_name, branch)]` 로 지정한다.
+    """
 
     def __init__(self, repositories_by_installation: dict[int, list[RepositoryInfo]]) -> None:
         self.repositories_by_installation = repositories_by_installation
         self.branches: dict[str, list[BranchInfo]] = {}
+        self.heads: dict[tuple[str, str], CommitInfo] = {}
         self.token_requests: list[int] = []
 
     async def create_installation_token(self, installation_id: int) -> InstallationToken:
@@ -118,6 +127,11 @@ class FakeSourceRepositoryClient:
 
     async def fetch_branches(self, installation_id: int, full_name: str) -> list[BranchInfo]:
         return self.branches.get(full_name, [])
+
+    async def find_branch_head(
+        self, installation_id: int, full_name: str, branch: str
+    ) -> CommitInfo | None:
+        return self.heads.get((full_name, branch))
 
 
 def make_installation(

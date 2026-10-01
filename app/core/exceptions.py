@@ -79,9 +79,25 @@ class ServiceNotFoundError(NotFoundError):
     code = "SERVICE_NOT_FOUND"
 
 
+class DeploymentRequestNotFoundError(NotFoundError):
+    code = "DEPLOYMENT_REQUEST_NOT_FOUND"
+
+
 class ProjectNameConflictError(ConflictError):
     code = "PROJECT_NAME_CONFLICT"
 
 
 class ServiceNameConflictError(ConflictError):
     code = "SERVICE_NAME_CONFLICT"
+
+
+class DeploymentInProgressError(ConflictError):
+    """같은 서비스·환경에 진행 중인 배포가 있어 새 배포 요청을 만들 수 없다."""
+
+    code = "DEPLOYMENT_IN_PROGRESS"
+
+
+class InvalidStatusTransitionError(ConflictError):
+    """배포 요청 상태 전이 표에 없는 이동. 현재 상태와 요청한 상태를 fields 에 담는다."""
+
+    code = "INVALID_STATUS_TRANSITION"

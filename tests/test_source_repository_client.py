@@ -4,7 +4,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app.clients.source_repository_client import GithubSourceRepositoryClient
+from app.clients.source_repository_client import CommitInfo, GithubSourceRepositoryClient
 from app.core.exceptions import ExternalError, UnauthorizedError
 
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -130,3 +130,53 @@ async def test_unauthorized_app_credentials_raise_unauthorized() -> None:
 
     with pytest.raises(UnauthorizedError):
         await _client(handler).create_installation_token(9)
+
+
+async def test_find_branch_head_returns_latest_commit() -> None:
+    commit = {"sha": "abc123", "commit": {"message": "feat: x"}}
+    client = _client(
+        _github(
+            {
+                ("GET", "/repos/iris-org/web/branches/main"): httpx.Response(
+                    200, json={"name": "main", "commit": commit}
+                )
+            }
+        )
+    )
+
+    head = await client.find_branch_head(9, "iris-org/web", "main")
+
+    assert head == CommitInfo(sha="abc123", message="feat: x")
+
+
+async def test_find_branch_head_with_slash_in_branch_name_keeps_the_path() -> None:
+    commit = {"sha": "def456", "commit": {"message": "wip"}}
+    client = _client(
+        _github(
+            {
+                ("GET", "/repos/iris-org/web/branches/feature/login"): httpx.Response(
+                    200, json={"commit": commit}
+                )
+            }
+        )
+    )
+
+    head = await client.find_branch_head(9, "iris-org/web", "feature/login")
+
+    assert head is not None
+    assert head.sha == "def456"
+
+
+async def test_find_branch_head_missing_branch_returns_none() -> None:
+    head = await _client(_github({})).find_branch_head(9, "iris-org/web", "gone")
+
+    assert head is None
+
+
+async def test_find_branch_head_on_server_error_raises_external_error() -> None:
+    client = _client(
+        _github({("GET", "/repos/iris-org/web/branches/main"): httpx.Response(500, json={})})
+    )
+
+    with pytest.raises(ExternalError):
+        await client.find_branch_head(9, "iris-org/web", "main")

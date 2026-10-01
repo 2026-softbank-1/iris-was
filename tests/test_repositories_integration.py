@@ -8,19 +8,33 @@ import os
 from collections.abc import AsyncIterator
 
 import pytest
+from sqlalchemy import text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.enums import DeploymentStatus, DeploymentTrigger, Environment, ReleaseStatus
+from app.core.exceptions import InvalidStatusTransitionError
+from app.enums import (
+    DeploymentStatus,
+    DeploymentTrigger,
+    Environment,
+    FailureCode,
+    ReleaseStatus,
+)
 from app.models.deployment_request import DeploymentRequest
 from app.models.project import Project
 from app.models.release import Release
 from app.models.service import Service
 from app.models.user import GithubInstallation, User
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
+from app.repositories.deployment_status_history_repository import (
+    DeploymentStatusHistoryRepository,
+)
+from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository, ServiceCounts
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
+from app.services.deployment_request_service import DeploymentRequestService
+from app.services.deployment_status_service import DeploymentStatusService
 
 pytestmark = [
     pytest.mark.integration,
@@ -228,3 +242,122 @@ async def test_search_latest_by_service_ids_returns_newest_request_per_service(
     latest = await repository.search_latest_by_service_ids([web.id, api.id, idle.id])
 
     assert {k: v.id for k, v in latest.items()} == {web.id: newest_web.id, api.id: only_api.id}
+
+
+async def _queued_request(session: AsyncSession, service: Service) -> DeploymentRequest:
+    request = await DeploymentRequestService(
+        DeploymentRequestRepository(session),
+        JobRepository(session),
+        DeploymentStatusHistoryRepository(session),
+    ).create_deployment_request(
+        service,
+        source_sha="c" * 40,
+        source_commit_message="feat: x",
+        trigger_type=DeploymentTrigger.MANUAL,
+        idempotency_key=f"it-flow-{service.id}",
+    )
+    assert request is not None
+    return request
+
+
+async def test_transition_status_full_flow_and_rejected_step(session: AsyncSession) -> None:
+    _, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    request = await _queued_request(session, service)
+    history = DeploymentStatusHistoryRepository(session)
+    status_service = DeploymentStatusService(DeploymentRequestRepository(session), history)
+
+    await status_service.transition_status(request.id, DeploymentStatus.BUILDING)
+    with pytest.raises(InvalidStatusTransitionError):
+        await status_service.transition_status(request.id, DeploymentStatus.SUCCEEDED)
+    await status_service.transition_status(request.id, DeploymentStatus.DEPLOYING)
+    await status_service.transition_status(
+        request.id, DeploymentStatus.FAILED, failure_code=FailureCode.DEPLOY_FAILED
+    )
+    await status_service.transition_status(request.id, DeploymentStatus.ROLLED_BACK)
+
+    rows = await history.search_by_deployment_request_id(request.id)
+    assert [(r.from_status, r.to_status) for r in rows] == [
+        (None, DeploymentStatus.QUEUED),
+        (DeploymentStatus.QUEUED, DeploymentStatus.BUILDING),
+        (DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING),
+        (DeploymentStatus.DEPLOYING, DeploymentStatus.FAILED),
+        (DeploymentStatus.FAILED, DeploymentStatus.ROLLED_BACK),
+    ]
+    assert rows[3].failure_code == FailureCode.DEPLOY_FAILED
+    stored = await DeploymentRequestRepository(session).get_by_id_for_update(request.id)
+    assert (stored.status, stored.failure_code) == (
+        DeploymentStatus.ROLLED_BACK,
+        FailureCode.DEPLOY_FAILED,
+    )
+
+
+async def test_get_by_id_for_update_refreshes_status_changed_elsewhere(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    request = await _queued_request(session, service)
+    await session.execute(
+        update(DeploymentRequest)
+        .where(DeploymentRequest.id == request.id)
+        .values(status=DeploymentStatus.BUILDING)
+    )
+
+    locked = await DeploymentRequestRepository(session).get_by_id_for_update(request.id)
+
+    assert locked.status == DeploymentStatus.BUILDING
+
+
+async def test_search_by_service_id_orders_newest_first_and_counts(session: AsyncSession) -> None:
+    _, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    web = await services.save(_service(project, installation, "web"))
+    api = await services.save(_service(project, installation, "api"))
+    repository = DeploymentRequestRepository(session)
+    created_ids: list[int] = []
+    for index in range(3):
+        request = DeploymentRequest(
+            service_id=web.id,
+            environment=Environment.PROD,
+            source_sha=str(index).ljust(40, "0"),
+            trigger_type=DeploymentTrigger.PUSH,
+            idempotency_key=f"search-{web.id}-{index}",
+            status=DeploymentStatus.SUCCEEDED,
+        )
+        session.add(request)
+        await session.flush()
+        created_ids.append(request.id)
+    other = DeploymentRequest(
+        service_id=api.id,
+        environment=Environment.PROD,
+        source_sha="e" * 40,
+        trigger_type=DeploymentTrigger.PUSH,
+        idempotency_key=f"search-{api.id}",
+    )
+    session.add(other)
+    await session.flush()
+
+    first_page = await repository.search_by_service_id(web.id, page=0, size=2)
+    second_page = await repository.search_by_service_id(web.id, page=1, size=2)
+
+    assert [r.id for r in first_page] == [created_ids[2], created_ids[1]]
+    assert [r.id for r in second_page] == [created_ids[0]]
+    assert await repository.count_by_service_id(web.id) == 3
+    assert await repository.find_by_id_and_service_id(other.id, web.id) is None
+
+
+async def test_deployment_status_history_rejects_unknown_status(session: AsyncSession) -> None:
+    _, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    request = await _queued_request(session, service)
+
+    with pytest.raises(IntegrityError):
+        async with session.begin_nested():
+            await session.execute(
+                text(
+                    "INSERT INTO deployment_status_histories (deployment_request_id, to_status) "
+                    "VALUES (:id, 'CRASHED')"
+                ),
+                {"id": request.id},
+            )

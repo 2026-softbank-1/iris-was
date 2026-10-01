@@ -1,6 +1,120 @@
 {
   "components": {
     "schemas": {
+      "ApiResponse_DeploymentDetailResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeploymentDetailResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[DeploymentDetailResponse]",
+        "type": "object"
+      },
+      "ApiResponse_DeploymentResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeploymentResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[DeploymentResponse]",
+        "type": "object"
+      },
       "ApiResponse_NoneType_": {
         "properties": {
           "code": {
@@ -50,6 +164,63 @@
           }
         },
         "title": "ApiResponse[NoneType]",
+        "type": "object"
+      },
+      "ApiResponse_Page_DeploymentResponse__": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Page_DeploymentResponse_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[Page[DeploymentResponse]]",
         "type": "object"
       },
       "ApiResponse_Page_ProjectResponse__": {
@@ -721,6 +892,288 @@
         "title": "Builder",
         "type": "string"
       },
+      "CreateDeploymentRequest": {
+        "description": "배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백에 쓴다.",
+        "properties": {
+          "sourceDeploymentId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "REDEPLOY·ROLLBACK 에서 필수. 같은 서비스의 이전 배포 id. ROLLBACK 은 SUCCEEDED 여야 한다.",
+            "examples": [
+              12
+            ],
+            "title": "Sourcedeploymentid"
+          },
+          "sourceSha": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 7,
+                "pattern": "^[0-9a-fA-F]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MANUAL 에서만 쓴다. 없으면 서비스 브랜치의 최신 커밋을 서버가 조회한다.",
+            "examples": [
+              "9f2c1ab"
+            ],
+            "title": "Sourcesha"
+          },
+          "triggerType": {
+            "description": "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 배포한다. REDEPLOY: sourceDeploymentId 의 커밋을 다시 배포한다. ROLLBACK: 성공했던 sourceDeploymentId 의 커밋으로 되돌려 배포한다.",
+            "enum": [
+              "MANUAL",
+              "REDEPLOY",
+              "ROLLBACK"
+            ],
+            "examples": [
+              "MANUAL"
+            ],
+            "title": "Triggertype",
+            "type": "string"
+          }
+        },
+        "required": [
+          "triggerType"
+        ],
+        "title": "CreateDeploymentRequest",
+        "type": "object"
+      },
+      "DeploymentDetailResponse": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "failureCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FAILED 일 때만 있다. 원인 구분은 상태가 아니라 이 코드로 한다."
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/DeploymentStatusHistoryResponse"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "isActive": {
+            "description": "QUEUED·BUILDING·DEPLOYING 이면 진행 중이다.",
+            "title": "Isactive",
+            "type": "boolean"
+          },
+          "requestedBy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "요청한 사용자 id. 푸시 웹훅이 만든 요청은 없다.",
+            "title": "Requestedby"
+          },
+          "serviceId": {
+            "title": "Serviceid",
+            "type": "integer"
+          },
+          "sourceCommitMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcecommitmessage"
+          },
+          "sourceSha": {
+            "title": "Sourcesha",
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/DeploymentStageResponse"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeploymentStatus"
+          },
+          "triggerType": {
+            "$ref": "#/components/schemas/DeploymentTrigger"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "serviceId",
+          "status",
+          "sourceSha",
+          "triggerType",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+          "history",
+          "stages"
+        ],
+        "title": "DeploymentDetailResponse",
+        "type": "object"
+      },
+      "DeploymentResponse": {
+        "description": "배포 요청 1건. 상태 이름: QUEUED=Initializing, SUCCEEDED=Active.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "failureCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FAILED 일 때만 있다. 원인 구분은 상태가 아니라 이 코드로 한다."
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "isActive": {
+            "description": "QUEUED·BUILDING·DEPLOYING 이면 진행 중이다.",
+            "title": "Isactive",
+            "type": "boolean"
+          },
+          "requestedBy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "요청한 사용자 id. 푸시 웹훅이 만든 요청은 없다.",
+            "title": "Requestedby"
+          },
+          "serviceId": {
+            "title": "Serviceid",
+            "type": "integer"
+          },
+          "sourceCommitMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcecommitmessage"
+          },
+          "sourceSha": {
+            "title": "Sourcesha",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeploymentStatus"
+          },
+          "triggerType": {
+            "$ref": "#/components/schemas/DeploymentTrigger"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "serviceId",
+          "status",
+          "sourceSha",
+          "triggerType",
+          "isActive",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "DeploymentResponse",
+        "type": "object"
+      },
+      "DeploymentStageResponse": {
+        "description": "한 상태에 머문 구간. 마지막 구간은 finishedAt·durationSeconds 가 없다.",
+        "properties": {
+          "durationSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "finishedAt - startedAt (초). 아직 끝나지 않았으면 없다.",
+            "title": "Durationseconds"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "title": "Startedat",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeploymentStatus"
+          }
+        },
+        "required": [
+          "status",
+          "startedAt"
+        ],
+        "title": "DeploymentStageResponse",
+        "type": "object"
+      },
       "DeploymentStatus": {
         "enum": [
           "QUEUED",
@@ -733,6 +1186,46 @@
         ],
         "title": "DeploymentStatus",
         "type": "string"
+      },
+      "DeploymentStatusHistoryResponse": {
+        "description": "상태가 바뀐 기록 1건. 첫 기록은 fromStatus 가 없다.",
+        "properties": {
+          "createdAt": {
+            "description": "상태가 바뀐 시각",
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "failureCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fromStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeploymentStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "toStatus": {
+            "$ref": "#/components/schemas/DeploymentStatus"
+          }
+        },
+        "required": [
+          "toStatus",
+          "createdAt"
+        ],
+        "title": "DeploymentStatusHistoryResponse",
+        "type": "object"
       },
       "DeploymentTrigger": {
         "enum": [
@@ -854,6 +1347,37 @@
           "updatedAt"
         ],
         "title": "LatestDeploymentResponse",
+        "type": "object"
+      },
+      "Page_DeploymentResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DeploymentResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "Page[DeploymentResponse]",
         "type": "object"
       },
       "Page_ProjectResponse_": {
@@ -2238,7 +2762,7 @@
                 }
               }
             },
-            "description": "이미 있는 이름이다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -2301,7 +2825,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -2369,7 +2893,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -2447,7 +2971,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -2457,7 +2981,7 @@
                 }
               }
             },
-            "description": "이미 있는 이름이다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -2527,7 +3051,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -2625,7 +3149,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -2635,7 +3159,7 @@
                 }
               }
             },
-            "description": "이미 있는 이름이다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -2718,7 +3242,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -2796,7 +3320,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -2884,7 +3408,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -2894,7 +3418,7 @@
                 }
               }
             },
-            "description": "이미 있는 이름이다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -2938,6 +3462,307 @@
         "summary": "서비스 설정 수정",
         "tags": [
           "services"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/deployments": {
+      "get": {
+        "operationId": "search_deployment_requests_api_v1_services__service_id__deployments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "0부터 시작",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "0부터 시작",
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_Page_DeploymentResponse__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포 요청 목록 (최신순)",
+        "tags": [
+          "deployments"
+        ]
+      },
+      "post": {
+        "operationId": "create_deployment_request_api_v1_services__service_id__deployments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "같은 값으로 다시 보내면 새로 만들지 않고 처음 만든 배포 요청을 돌려준다.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "같은 값으로 다시 보내면 새로 만들지 않고 처음 만든 배포 요청을 돌려준다.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_DeploymentResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포 요청 생성 (수동·재배포·롤백)",
+        "tags": [
+          "deployments"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}": {
+      "get": {
+        "operationId": "get_deployment_request_api_v1_services__service_id__deployments__deployment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_DeploymentDetailResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포 요청 상세 (상태 이력·단계별 소요 시간)",
+        "tags": [
+          "deployments"
         ]
       }
     },
@@ -3128,6 +3953,10 @@
     {
       "description": "저장소와 연결된 서비스(사용자 앱)",
       "name": "services"
+    },
+    {
+      "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)",
+      "name": "deployments"
     },
     {
       "description": "배포 타깃(aws · local)",

@@ -52,8 +52,14 @@ class Page[T](ApiModel):
 _ERROR_DESCRIPTIONS = {
     401: "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)",
     403: "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)",
-    404: "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)",
-    409: "이미 있는 이름이다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT)",
+    404: (
+        "대상을 찾을 수 없다 "
+        "(NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+    ),
+    409: (
+        "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 "
+        "(CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+    ),
     422: "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)",
     502: "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)",
     503: "필요한 설정이 없다 (NOT_CONFIGURED)",
