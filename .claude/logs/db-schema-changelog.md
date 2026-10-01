@@ -6,3 +6,12 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
+- 2026-10-01T02:33Z · app/models/release.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/build.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/job.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/deployment_request.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/service.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/target.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/project.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/user.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/base.py (Write) · created_at, updated_at, is_deleted, deleted_at 컬럼 추가
