@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +12,32 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
 
+class BuildWorkerSettings(BaseSettings):
+    """Build Worker 전용. Control API 는 이 값(GitHub App 키·AWS 리소스)을 갖지 않는다."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    github_app_id: int
+    github_app_private_key: SecretStr
+    # 앱을 설치하지 않은 공개 레포는 우리 조직 설치의 토큰으로 받는다.
+    github_public_installation_id: int
+    aws_region: str
+    # iris-infra foundation stack 출력값(build_codebuild_project_name·build_artifact_bucket_name)
+    codebuild_project: str
+    artifact_bucket: str
+
+    concurrency: int = 4
+    user_concurrent_build_limit: int = 2
+    build_timeout_minutes: int = 15
+    snapshot_max_bytes: int = 250 * 1024 * 1024
+    poll_interval_seconds: float = 10.0
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_build_worker_settings() -> BuildWorkerSettings:
+    return BuildWorkerSettings()
