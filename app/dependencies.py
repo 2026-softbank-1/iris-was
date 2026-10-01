@@ -170,6 +170,7 @@ def get_service_registry_service(
         TargetRepository(session),
         GithubInstallationRepository(session),
         source_repository_service,
+        DeploymentRequestRepository(session),
     )
 
 

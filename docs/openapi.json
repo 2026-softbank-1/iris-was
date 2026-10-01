@@ -721,6 +721,30 @@
         "title": "Builder",
         "type": "string"
       },
+      "DeploymentStatus": {
+        "enum": [
+          "QUEUED",
+          "BUILDING",
+          "DEPLOYING",
+          "SUCCEEDED",
+          "FAILED",
+          "ROLLED_BACK",
+          "MANUAL_INTERVENTION"
+        ],
+        "title": "DeploymentStatus",
+        "type": "string"
+      },
+      "DeploymentTrigger": {
+        "enum": [
+          "MANUAL",
+          "PUSH",
+          "CLI",
+          "REDEPLOY",
+          "ROLLBACK"
+        ],
+        "title": "DeploymentTrigger",
+        "type": "string"
+      },
       "ErrorDetail": {
         "description": "필드별 검증 실패 사유. field 는 camelCase 필드 경로다.",
         "properties": {
@@ -739,6 +763,15 @@
         ],
         "title": "ErrorDetail",
         "type": "object"
+      },
+      "FailureCode": {
+        "enum": [
+          "BUILD_CONFIG_REQUIRED",
+          "BUILD_FAILED",
+          "DEPLOY_FAILED"
+        ],
+        "title": "FailureCode",
+        "type": "string"
       },
       "InstallationResponse": {
         "properties": {
@@ -761,6 +794,66 @@
           "accountType"
         ],
         "title": "InstallationResponse",
+        "type": "object"
+      },
+      "LatestDeploymentResponse": {
+        "description": "서비스 카드에 보여줄 가장 최근 배포 요청. 서비스 상태는 `status` 로 읽는다.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "failureCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "sourceCommitMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcecommitmessage"
+          },
+          "sourceSha": {
+            "title": "Sourcesha",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeploymentStatus"
+          },
+          "triggerType": {
+            "$ref": "#/components/schemas/DeploymentTrigger"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "sourceSha",
+          "triggerType",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "LatestDeploymentResponse",
         "type": "object"
       },
       "Page_ProjectResponse_": {
@@ -1087,6 +1180,17 @@
           "isAutoDeploy": {
             "title": "Isautodeploy",
             "type": "boolean"
+          },
+          "latestDeployment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatestDeploymentResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "가장 최근 배포 요청. 배포한 적이 없으면 없다."
           },
           "name": {
             "title": "Name",

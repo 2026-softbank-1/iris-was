@@ -1,5 +1,5 @@
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.deployment_request import DeploymentRequest
@@ -12,6 +12,22 @@ class DeploymentRequestRepository:
     async def find_by_idempotency_key(self, idempotency_key: str) -> DeploymentRequest | None:
         stmt = select(DeploymentRequest).where(DeploymentRequest.idempotency_key == idempotency_key)
         return (await self._session.scalars(stmt)).one_or_none()
+
+    async def search_latest_by_service_ids(
+        self, service_ids: list[int]
+    ) -> dict[int, DeploymentRequest]:
+        """서비스별 가장 최근 배포 요청. 요청이 없는 서비스는 빠진다."""
+        stmt = (
+            select(DeploymentRequest)
+            .where(DeploymentRequest.service_id.in_(service_ids))
+            .ext(distinct_on(DeploymentRequest.service_id))
+            .order_by(
+                DeploymentRequest.service_id,
+                DeploymentRequest.created_at.desc(),
+                DeploymentRequest.id.desc(),
+            )
+        )
+        return {r.service_id: r for r in (await self._session.scalars(stmt)).all()}
 
     async def add_if_absent(self, request: DeploymentRequest) -> DeploymentRequest | None:
         """멱등성 키가 겹치거나 같은 서비스·환경에 진행 중인 요청이 있으면 만들지 않고 None 이다.

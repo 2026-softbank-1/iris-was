@@ -13,7 +13,9 @@ from app.core.exceptions import (
     ServiceNotFoundError,
 )
 from app.enums import Builder
+from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
+from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.service_repository import ServiceRepository
@@ -35,6 +37,7 @@ _NON_NULL_FIELDS = frozenset({"name", "source_branch", "is_auto_deploy", "target
 class ServiceDetail:
     service: Service
     target_ids: list[int]
+    latest_deployment: DeploymentRequest | None = None
 
 
 def slugify_service_name(value: str) -> str:
@@ -65,6 +68,7 @@ class ServiceRegistryService:
         target_repository: TargetRepository,
         installation_repository: GithubInstallationRepository,
         source_repository_service: SourceRepositoryService,
+        deployment_request_repository: DeploymentRequestRepository,
     ) -> None:
         self._session = session
         self._project_repository = project_repository
@@ -72,6 +76,7 @@ class ServiceRegistryService:
         self._target_repository = target_repository
         self._installation_repository = installation_repository
         self._source_repository_service = source_repository_service
+        self._deployment_request_repository = deployment_request_repository
 
     async def create_service(
         self,
@@ -160,14 +165,11 @@ class ServiceRegistryService:
                 value = Builder(value)
             setattr(service, field, value)
 
-        target_ids: list[int] | None = None
         if "target_ids" in changes:
             target_ids = await self._resolve_target_ids(changes["target_ids"])
             await self._service_repository.replace_targets(service.id, set(target_ids))
         await self._session.commit()
-        if target_ids is None:
-            return (await self._detail([service]))[0]
-        return ServiceDetail(service, target_ids)
+        return (await self._detail([service]))[0]
 
     async def delete_service(self, owner_id: int, service_id: int) -> None:
         """소프트 삭제한다. 실행 중인 리소스 정리는 후속 단계(엔진 작업)에서 이어진다."""
@@ -212,7 +214,10 @@ class ServiceRegistryService:
         target_ids = await self._service_repository.search_target_ids_by_service_ids(
             [s.id for s in services]
         )
-        return [ServiceDetail(s, target_ids.get(s.id, [])) for s in services]
+        latest = await self._deployment_request_repository.search_latest_by_service_ids(
+            [s.id for s in services]
+        )
+        return [ServiceDetail(s, target_ids.get(s.id, []), latest.get(s.id)) for s in services]
 
 
 def _full_name(repository_url: str) -> str:
