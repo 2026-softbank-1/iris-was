@@ -185,3 +185,7 @@ uv run mypy app                                       # 타입 검사
 uv run pytest                                         # 테스트
 uv run alembic revision --autogenerate -m "..."       # 마이그레이션 생성
 ```
+
+## 빌드 입력 준비
+
+소스 분석 뒤 기존 Dockerfile을 보존하거나 지원 프로파일의 Dockerfile을 생성하는 Worker 연동은 [빌드 준비 단계](docs/build-preparation.md)를 참조합니다. 고정 소스와 검증한 아카이브를 기존 CodeBuild 흐름에 연결하는 모듈입니다.
