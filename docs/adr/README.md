@@ -43,3 +43,4 @@
 | [0005](0005-soft-delete-and-deferred-cleanup.md) | 프로젝트·서비스 삭제는 소프트 삭제로 하고 리소스 정리는 미룬다 | 수락됨 |
 | [0006](0006-service-creation-defaults.md) | 서비스 생성 기본값과 이름 규칙 | 수락됨 |
 | [0007](0007-api-documentation-with-openapi.md) | API 문서는 OpenAPI(Swagger)로 하고 테스트로 최신 상태를 강제한다 | 수락됨 |
+| [0008](0008-branch-strategy.md) | 브랜치 전략: develop 통합, release 에서 검증 후 main 병합 | 수락됨 |

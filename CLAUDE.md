@@ -17,7 +17,7 @@ Railway 처럼 무엇이든 간단히 배포해 주는 배포 서비스 **AnyDep
 | [.claude/rules/db-schema.sql](.claude/rules/db-schema.sql) | 테이블·컬럼·타입·제약·인덱스 등 **물리 DB 스키마(DDL)의 단일 출처**. `app/models/*.py` 모델은 이 스키마와 일치해야 하며, 모델 변경은 자동으로 [.claude/logs/db-schema-changelog.md](.claude/logs/db-schema-changelog.md) 에 기록된다 |
 | [.claude/rules/db-migration.md](.claude/rules/db-migration.md) | 스키마를 바꿀 때 — Alembic revision 생성·검토·downgrade 규칙, PostgreSQL 주의점 |
 | [.claude/rules/backend-conventions.md](.claude/rules/backend-conventions.md) | 백엔드 코드(레이어·네이밍·비동기·예외·로깅·설정·테스트·린터)를 작성할 때 |
-| [.claude/rules/git-conventions.md](.claude/rules/git-conventions.md) | 커밋 메시지·브랜치명을 정할 때 — Conventional Commits 규칙 |
+| [.claude/rules/git-conventions.md](.claude/rules/git-conventions.md) | 커밋 메시지·브랜치명·브랜치 전략(develop → release → main, 워크트리, 머지 방식)을 정할 때 |
 
 ## 동작 흐름 문서
 

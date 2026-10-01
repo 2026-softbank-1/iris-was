@@ -6,7 +6,7 @@ allowed-tools: "Bash, Read, Grep, Glob, Write, Edit"
 
 # PR 본문 작성 스킬 (WAS)
 
-작업 브랜치의 `main` 대비 변경사항을 분석해, 이 프로젝트의 PR 템플릿 구조에 맞춰 `docs/PR.md` 로 **핵심만 간결하게** 작성하고, 변경에 맞춰 README.md·CLAUDE.md 를 동기화한다.
+작업 브랜치의 `develop` 대비 변경사항(릴리스 PR 은 `main` 대비)을 분석해, 이 프로젝트의 PR 템플릿 구조에 맞춰 `docs/PR.md` 로 **핵심만 간결하게** 작성하고, 변경에 맞춰 README.md·CLAUDE.md 를 동기화한다.
 
 > 실제 GitHub PR(`gh pr create`)은 생성하지 않는다. 본문 문서와 문서 동기화 커밋만 만든다 — 푸시·PR 생성은 사용자가 직접 한다.
 
@@ -20,22 +20,22 @@ allowed-tools: "Bash, Read, Grep, Glob, Write, Edit"
 git rev-parse --show-toplevel   # git 레포 아니면 중단
 git branch --show-current
 git status --short
-git diff main...HEAD --stat
+git diff develop...HEAD --stat
 ```
 
 - git 레포가 아니면 중단.
-- 현재 브랜치가 `main` 이면 중단하고 새 브랜치 생성 여부를 사용자에게 확인.
-- `main` 대비 변경(diff/커밋)이 없으면 중단하고 보고.
+- 현재 브랜치가 `main`·`develop` 이면 중단하고 새 브랜치 생성 여부를 사용자에게 확인.
+- `develop` 대비 변경(diff/커밋)이 없으면 중단하고 보고.
 
 ### Step 2: 변경 내용 분석
 
 ```bash
-git log main..HEAD --oneline
-git diff main...HEAD --stat
+git log develop..HEAD --oneline
+git diff develop...HEAD --stat
 ```
 
 - 커밋 메시지와 변경 파일로 **무엇을·왜** 바꿨는지 파악한다.
-- 핵심이 불명확하면 주요 파일의 diff(`git diff main...HEAD -- <file>`)를 읽어 보강한다.
+- 핵심이 불명확하면 주요 파일의 diff(`git diff develop...HEAD -- <file>`)를 읽어 보강한다.
 - **코드 워크플로우**를 그릴 수 있도록, 변경된 흐름의 진입점(엔트리)과 그 흐름을 처리하는 public 함수·메서드를 식별한다.
 
 ### Step 3: 템플릿 구조 읽기
