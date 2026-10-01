@@ -43,6 +43,7 @@
 
 ```mermaid
 erDiagram
+  users ||--o{ services : "소유"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o| builds : "빌드 결과"
@@ -54,18 +55,26 @@ erDiagram
 
 ## 4. 엔티티·테이블
 
+### 4.0 사용자 (User) — `users`\*
+
+GitHub 로그인 사용자. `github_user_id`(unique), `login`.
+
 ### 4.1 서비스 (Service) — `services`\*
 
-사용자가 배포하는 앱 하나다. 원문은 "서비스 등록 시 빌더를 확정해 저장"한다고만 하고 테이블은 정의하지 않는다. 빌더 필드는 서비스 저장소의 `.anydeploy/build.yaml` 에서 가져온다.
+사용자가 배포하는 앱 하나다. 빌더는 등록 때 확정하지 않고 빌드마다 정한다(원문 §4 와 다름). 우선순위는 코드 설정(`{root_directory}/iris.json`) > 서비스 설정 > 자동 감지다. 플랫폼(`linux/amd64`)·Railpack 버전은 CodeBuild buildspec(iris-infra)에 고정한다.
 
 | 필드 | 설명 |
 |---|---|
-| `name`\* | 서비스 식별 이름 (slug) |
-| `source_repository_url`\* | 서비스 소스 저장소 |
-| `builder` | `builder` Enum (§5) |
-| `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
-| `platform` | 빌드 플랫폼 (`linux/amd64`) |
-| `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
+| `owner_user_id`\* | 소유 사용자. 사용자별 동시 빌드 한도의 기준 |
+| `name`\* | 표시 이름 |
+| `slug`\* | 고유 식별 이름 |
+| `github_repository_id`\* | 소스 레포 ID. 레포 이름이 바뀌어도 유지된다 |
+| `repository_full_name`\* | `{owner}/{repo}` |
+| `github_installation_id`\* | GitHub App installation ID. 없으면 공개 레포로 보고 우리 조직 설치 토큰을 쓴다 |
+| `root_directory`\* | 모노레포 안 서비스 경로 (기본 `.`) |
+| `builder` | `builder` Enum (§5). 기본 `auto` |
+| `dockerfile_path` | Dockerfile 경로 (`root_directory` 기준, 기본 `Dockerfile`) |
+| `auto_deploy`\* | default 브랜치 push 때 자동 배포 |
 
 ### 4.2 배포 요청 (DeploymentRequest) — `deployment_requests`
 
@@ -75,11 +84,13 @@ erDiagram
 |---|---|
 | `service_id` | 대상 서비스 |
 | `environment` | `environment` Enum (§5) |
-| `source_sha` | 빌드할 소스 커밋 SHA |
+| `trigger`\* | `deployment_trigger` Enum (§5) |
+| `source_sha` | 빌드할 소스 커밋 SHA. 수동 배포는 비워 두고 Build Worker 가 default 브랜치 HEAD 로 확정한다 |
 | `idempotency_key` | 중복 요청 차단 키. unique 제약을 건다\* |
 | `requested_by`\* | 요청자 |
 | `status` | `deployment_status` Enum (§5). 원문의 "최종 상태" |
 | `failure_code`\* | 실패 사유 코드 (§5) |
+| `cancel_requested_at`\* | 같은 서비스에 새 요청이 들어와 중단을 요청한 시각. Worker 가 보고 `SUPERSEDED` 로 끝낸다 |
 
 ### 4.3 작업 (Job) — `jobs`
 
@@ -90,7 +101,7 @@ PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
 | `deployment_request_id`\* | 소속 배포 요청 |
 | `kind` | `job_kind` Enum (§5) |
 | `status` | `job_status` Enum (§5) |
-| `payload` | 작업 입력 (jsonb\*). 스키마는 `app/schemas/` 에 정의한다 |
+| `payload` | 작업 입력 (jsonb). BUILD·DEPLOY 는 `{"build_id": int}` |
 | `priority` | 높을수록 먼저 선점된다 |
 | `run_after` | 이 시각 이후에만 선점할 수 있다. 재시도 백오프에 쓴다 |
 | `attempts` | 선점될 때마다 +1 |
@@ -104,12 +115,19 @@ PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
 
 | 필드 | 설명 |
 |---|---|
-| `deployment_request_id`\* | 소속 배포 요청 |
-| `builder` | 실제로 사용한 빌더 |
-| `codebuild_build_id` | CodeBuild 빌드 ID |
-| `image_repository`\* | ECR 저장소 URI |
+| `deployment_request_id`\* | 소속 배포 요청 (1:1) |
+| `status`\* | `build_status` Enum (§5) |
+| `builder` | 실제로 사용한 빌더 (`dockerfile`·`railpack`) |
+| `source_sha`\* | 확정한 소스 커밋 SHA |
+| `codebuild_build_id` | CodeBuild 빌드 ID. 있으면 재시도 때 스냅샷·StartBuild 를 건너뛴다 |
+| `attempt`\* | CodeBuild 시작 차수. FAULT 로 다시 빌드할 때 +1. StartBuild idempotencyToken 에 쓴다 |
+| `image_repository`\* | ECR 저장소 URI (`iris/services/{service_id}`) |
+| `image_tag`\* | `b-{build_id}`. 불변 태그 |
 | `image_digest` | 빌드 결과 digest |
+| `deploy_config`\* | `iris.json` 의 `deploy.*` 원본 (jsonb). Deploy Worker 가 읽는다 |
+| `failure_code`\* | 실패 사유 코드 (§5) |
 | `log_url` | CodeBuild 로그 URL |
+| `started_at`\*, `finished_at`\* | 처리 시작·종료 시각 |
 
 원문 §6 은 SBOM·스캔 결과도 저장한다고 한다. 해당 필드는 구현 순서 7단계(SBOM·이미지 서명)에서 정한다.
 
@@ -154,7 +172,7 @@ GitOps 에 반영된 배포 결과 1건이다.
 
 ### 빌더 (`builder`) — `services.builder`, `builds.builder`
 
-`dockerfile`(지정한 Dockerfile 로 BuildKit 빌드) · `railpack`(Railpack + BuildKit 으로 이미지 생성)
+`auto`\*(Dockerfile 이 있으면 `dockerfile`, 없으면 `railpack`. 서비스 설정에만 쓴다) · `dockerfile`(지정한 Dockerfile 로 BuildKit 빌드) · `railpack`(Railpack + BuildKit 으로 이미지 생성)
 
 ### 환경 (`environment`)
 
@@ -162,7 +180,15 @@ GitOps 에 반영된 배포 결과 1건이다.
 
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 
-`QUEUED` → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION`
+`QUEUED` → `INITIALIZING`(소스 스냅샷) → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION` / `SUPERSEDED`(새 요청에 밀려 중단)
+
+### 빌드 상태 (`build_status`)\* — `builds.status`
+
+`PENDING` → `SNAPSHOTTING` → `BUILDING` → `SUCCEEDED` / `FAILED` / `CANCELLED`. 배포 요청 상태와 차례로 `QUEUED`·`INITIALIZING`·`BUILDING`·`DEPLOYING`·`FAILED`·`SUPERSEDED` 에 대응한다.
+
+### 배포 트리거 (`deployment_trigger`)\* — `deployment_requests.trigger`
+
+`MANUAL`(사용자 요청) · `PUSH`(default 브랜치 push webhook)
 
 ### 릴리스 상태 (`release_status`)\* — `releases.status`
 
@@ -172,7 +198,12 @@ GitOps 에 반영된 배포 결과 1건이다.
 
 | 코드 | 의미 |
 |---|---|
-| `BUILD_CONFIG_REQUIRED` | 빌더 설정이 없거나 소스와 맞지 않는다 (원문 §4) |
+| `SOURCE_NOT_ACCESSIBLE`\* | 레포 권한이 없거나 레포가 없다 |
+| `SOURCE_REF_NOT_FOUND`\* | 소스 커밋이 없다 |
+| `SOURCE_TOO_LARGE`\* | 소스 스냅샷이 250MB 를 넘는다 |
+| `BUILD_CONFIG_REQUIRED` | 빌더 설정이 없거나 소스와 맞지 않는다 (원문 §4). buildspec pre_build 단계 실패 포함 (build·post_build 실패는 `BUILD_FAILED`, install 등 그 밖의 단계 실패는 재시도) |
+| `BUILD_TIMED_OUT`\* | 빌드가 15분을 넘었다 |
+| `BUILD_INFRA_ERROR`\* | CodeBuild FAULT·AWS·GitHub 오류가 재시도 한도까지 반복됐다 |
 | `BUILD_FAILED` | 빌드·테스트·스캔 실패. GitOps 는 바꾸지 않는다 (원문 §6) |
 | `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
 
@@ -190,7 +221,7 @@ GitOps 에 반영된 배포 결과 1건이다.
 | 선점 (claim) | `claim_next_job`\* | `FOR UPDATE SKIP LOCKED` 로 job 1건을 `RUNNING` 으로 바꾸고 lease 를 잡는다 |
 | lease | `locked_by`, `locked_until` | 선점한 Worker 의 작업 점유 기한 |
 | lease 갱신 | `renew_lease`\* | 실행 중인 Worker 가 `locked_until` 을 주기적으로 연장한다 |
-| lease 회수 | `reclaim_expired_jobs`\* | lease 가 만료된 작업을 다른 Worker 가 다시 가져간다 |
+| lease 회수 | `claim_next_job`\* | lease 가 만료된 `RUNNING` 작업도 선점 대상이다. 별도 회수 작업은 두지 않는다 |
 | 멱등성 키 | `idempotency_key` | 같은 요청을 다시 보내도 이미지·release 가 중복 생성되지 않게 하는 키 |
 | image digest | `image_digest` | 이미지 내용 해시 (`sha256:...`). 배포의 유일한 기준 |
 | desired state | — | GitOps 저장소 manifest 의 내용. Argo CD 가 Prod 를 이 상태로 맞춘다 |
@@ -198,7 +229,7 @@ GitOps 에 반영된 배포 결과 1건이다.
 | lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념) |
 | revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
 | 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
-| 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
+| 빌드 설정 | `iris.json` | 서비스 소스 저장소 `{root_directory}` 에 두는 설정 파일. 없어도 된다. 원문의 `.anydeploy/build.yaml` 을 대체한다 |
 
 ---
 

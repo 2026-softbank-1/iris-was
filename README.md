@@ -27,7 +27,7 @@ app/
 ├─ models/         SQLAlchemy 모델
 ├─ clients/        CodeBuild·ECR·GitOps(Git)·Argo CD 비동기 클라이언트
 ├─ core/           설정·예외·로깅
-└─ enums.py        JobKind · JobStatus · Builder
+└─ enums.py        JobKind · JobStatus · Builder · BuildStatus · FailureCode 등
 alembic/           DB 마이그레이션
 tests/
 ```
@@ -73,6 +73,17 @@ LOG_LEVEL=INFO
 | `DATABASE_URL` | PostgreSQL 접속 URL. `postgresql+asyncpg://<USER>:<PASSWORD>@<HOST>:5432/<DB>` |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
 
+Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 않는다.
+
+| 환경변수 | 설명 |
+|---|---|
+| `GITHUB_APP_ID` · `GITHUB_APP_PRIVATE_KEY` | Iris GitHub App ID·private key(PEM). 운영은 Secrets Manager → K8s Secret 으로 주입 |
+| `GITHUB_PUBLIC_INSTALLATION_ID` | 우리 조직의 App 설치 ID. 앱을 설치하지 않은 공개 레포를 받을 때 쓴다 |
+| `AWS_REGION` | CodeBuild·ECR·S3 리전 |
+| `CODEBUILD_PROJECT` · `ARTIFACT_BUCKET` | iris-infra `aws/dev/foundation` 출력값. dev: `iris-dev-build` · `iris-dev-build-artifacts-<ACCOUNT_ID>-ap-northeast-2` |
+| `CONCURRENCY` | Worker 1개가 동시에 처리할 BUILD job 수. 기본 4 |
+| `USER_CONCURRENT_BUILD_LIMIT` · `BUILD_TIMEOUT_MINUTES` · `SNAPSHOT_MAX_BYTES` | 사용자별 동시 빌드 2 · 빌드 15분 · 스냅샷 250MB |
+
 ## 실행
 
 ```bash
@@ -81,7 +92,9 @@ uv run python -m app.workers.build_worker     # Build Worker
 uv run python -m app.workers.deploy_worker    # Deploy Worker
 ```
 
-Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다.
+Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다. Build Worker 는 CodeBuild 를 기다리던 job 을 반납하고, 다른 Worker 가 기록된 `codebuild_build_id` 로 이어서 처리한다. 스냅샷(최대 250MB 다운로드·업로드) 중에는 반납하지 않으므로 Pod `terminationGracePeriodSeconds` 를 120 이상으로 둔다.
+
+Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
 
 로그는 stdout 에 JSON 한 줄씩 나간다. 로컬에서는 `... | jq` 로 보면 편하다. 로깅·응답·예외 구조는 [docs/api-response-logging-template.md](docs/api-response-logging-template.md) 참조.
 
@@ -136,5 +149,6 @@ uv run alembic downgrade -1 && uv run alembic upgrade head
 uv run ruff check . && uv run ruff format --check .   # 린트·포맷
 uv run mypy app                                       # 타입 검사
 uv run pytest                                         # 테스트
+TEST_DATABASE_URL=postgresql+asyncpg://<USER>:<PASSWORD>@localhost:5432/softbank_iris_test uv run pytest  # jobs 큐·BuildService 통합 테스트 포함 (테이블을 지우고 만드므로 전용 DB)
 uv run alembic revision --autogenerate -m "..."       # 마이그레이션 생성
 ```
