@@ -394,6 +394,63 @@
         "title": "ApiResponse[UserResponse]",
         "type": "object"
       },
+      "ApiResponse_WebhookReceiptResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebhookReceiptResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[WebhookReceiptResponse]",
+        "type": "object"
+      },
       "ApiResponse_list_BranchResponse__": {
         "properties": {
           "code": {
@@ -1321,6 +1378,36 @@
         ],
         "title": "UserResponse",
         "type": "object"
+      },
+      "WebhookReceiptResponse": {
+        "properties": {
+          "deploymentRequestIds": {
+            "description": "push 로 새로 만든 배포 요청 ID",
+            "examples": [
+              [
+                12
+              ]
+            ],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Deploymentrequestids",
+            "type": "array"
+          },
+          "isHandled": {
+            "description": "이 이벤트로 처리한 일이 있었는지",
+            "examples": [
+              true
+            ],
+            "title": "Ishandled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "isHandled"
+        ],
+        "title": "WebhookReceiptResponse",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1443,7 +1530,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "422": {
             "content": {
@@ -1548,7 +1635,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "503": {
             "content": {
@@ -1655,7 +1742,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "422": {
             "content": {
@@ -1738,7 +1825,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "403": {
             "content": {
@@ -1837,7 +1924,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "403": {
             "content": {
@@ -1916,7 +2003,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           }
         },
         "security": [
@@ -1980,7 +2067,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "422": {
             "content": {
@@ -2037,7 +2124,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "409": {
             "content": {
@@ -2100,7 +2187,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "404": {
             "content": {
@@ -2168,7 +2255,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "404": {
             "content": {
@@ -2246,7 +2333,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "404": {
             "content": {
@@ -2326,7 +2413,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "404": {
             "content": {
@@ -2414,7 +2501,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "403": {
             "content": {
@@ -2517,7 +2604,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "404": {
             "content": {
@@ -2595,7 +2682,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "404": {
             "content": {
@@ -2683,7 +2770,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           },
           "404": {
             "content": {
@@ -2772,7 +2859,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다 (UNAUTHORIZED)"
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
           }
         },
         "security": [
@@ -2786,6 +2873,111 @@
         "summary": "배포 타깃 목록",
         "tags": [
           "targets"
+        ]
+      }
+    },
+    "/api/v1/webhooks/github": {
+      "post": {
+        "description": "인증은 로그인이 아니라 웹훅 서명으로 한다.\n\n`push` 는 연결된 브랜치의 자동 배포 서비스마다 배포 요청(trigger=PUSH)을 만든다.\n`installation` 의 created·deleted 는 GitHub App 설치 정보를 맞춘다. 그 밖의 이벤트는 무시한다.",
+        "operationId": "receive_github_webhook_api_v1_webhooks_github_post",
+        "parameters": [
+          {
+            "description": "이벤트 종류",
+            "in": "header",
+            "name": "X-GitHub-Event",
+            "required": true,
+            "schema": {
+              "description": "이벤트 종류",
+              "title": "X-Github-Event",
+              "type": "string"
+            }
+          },
+          {
+            "description": "전송 고유 ID. 멱등 키로 쓴다",
+            "in": "header",
+            "name": "X-GitHub-Delivery",
+            "required": true,
+            "schema": {
+              "description": "전송 고유 ID. 멱등 키로 쓴다",
+              "title": "X-Github-Delivery",
+              "type": "string"
+            }
+          },
+          {
+            "description": "본문의 HMAC-SHA256 (`sha256=<hex>`)",
+            "in": "header",
+            "name": "X-Hub-Signature-256",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "본문의 HMAC-SHA256 (`sha256=<hex>`)",
+              "title": "X-Hub-Signature-256"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "description": "GitHub 가 보내는 이벤트 payload 원문(JSON). 서명 검증에 원문을 쓴다.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_WebhookReceiptResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "summary": "GitHub 웹훅 수신",
+        "tags": [
+          "webhooks"
         ]
       }
     },
@@ -2836,6 +3028,10 @@
     {
       "description": "배포 타깃(aws · local)",
       "name": "targets"
+    },
+    {
+      "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다",
+      "name": "webhooks"
     }
   ]
 }

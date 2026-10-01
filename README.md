@@ -50,13 +50,16 @@ flowchart LR
 ```bash
 uv sync
 
-# 로컬 DB 생성 (DB 이름은 softbank_iris 로 통일)
-createdb -h localhost -U <USER> softbank_iris
+# 로컬 DB: Docker(OrbStack)로 PostgreSQL 18 을 띄우고 .env 의 DATABASE_URL 을 맞춘다
+scripts/dev-db.sh                  # 켜기 (stop: 끄기, reset: 데이터까지 삭제)
 
-cp .env.example .env               # DATABASE_URL 입력
+cp -n .env.example .env            # .env 가 없을 때만. DB 외 값(GitHub App 등)을 채운다
 uv run alembic upgrade head
 uv run alembic current             # 접속·적용 revision 확인
 ```
+
+- DB 는 `docker-compose.dev.yml`(`restart: unless-stopped`, named volume)로 상시 떠 있고 `127.0.0.1:5432` 에서만 접속된다. 비밀번호는 `scripts/dev-db.sh` 가 만들어 `.env` 에만 둔다.
+- 직접 만든 PostgreSQL 을 쓰려면 스크립트 없이 `DATABASE_URL` 만 `.env` 에 넣어도 된다(DB 이름은 `softbank_iris` 로 통일).
 
 `.env` 예:
 
@@ -80,6 +83,7 @@ LOG_LEVEL=INFO
 | `GITHUB_APP_ID` · `GITHUB_APP_SLUG` | GitHub App ID, 설치 페이지 주소에 쓰는 slug |
 | `GITHUB_APP_CLIENT_ID` · `GITHUB_APP_CLIENT_SECRET` | 로그인(사용자 인증)용. 없으면 `503 NOT_CONFIGURED` |
 | `GITHUB_APP_PRIVATE_KEY` | App JWT 서명용 PEM. 줄바꿈은 `\n` 도 허용. 없으면 저장소·서비스 API 가 `503 NOT_CONFIGURED` |
+| `GITHUB_WEBHOOK_SECRET` | 웹훅 서명 검증 키(App 설정의 Webhook secret 과 같은 값). 없으면 웹훅 API 가 `503 NOT_CONFIGURED` |
 
 ## GitHub App
 
@@ -90,6 +94,8 @@ App 설정에서 맞춰야 할 값:
 - Callback URL: `<API 주소>/api/v1/auth/github/callback`
 - **Request user authorization (OAuth) during installation** 켜기 (설치 직후 로그인으로 이어진다)
 - 권한: Repository → Contents `Read-only`, Metadata `Read-only`
+- 웹훅(push 자동 배포·설치 동기화): Webhook URL `<API 주소>/api/v1/webhooks/github`, Content type `application/json`, Secret 은 `GITHUB_WEBHOOK_SECRET` 과 같게, 이벤트는 Push 를 구독한다. 설계는 [ADR 0009](docs/adr/0009-github-webhook-receiver.md).
+- 로컬에서 웹훅을 받으려면 터널로 `localhost:8000` 을 노출한다(예: `npx smee-client --url <smee 채널> --target http://localhost:8000/api/v1/webhooks/github`). 개발용 App 에서만 켠다.
 
 ## API (`/api/v1`)
 

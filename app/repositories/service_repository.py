@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +31,24 @@ class ServiceRepository:
             Service.project_id == project_id, Service.name == name, Service.is_deleted.is_(False)
         )
         return (await self._session.scalars(stmt)).one_or_none()
+
+    async def search_auto_deploy_by_repository_url_and_branch(
+        self, repository_url: str, branch: str
+    ) -> list[Service]:
+        """푸시가 온 저장소·브랜치에 연결된 자동 배포 서비스. 주소는 대소문자를 가리지 않는다."""
+        stmt = (
+            select(Service)
+            .join(Project, Project.id == Service.project_id)
+            .where(
+                func.lower(Service.source_repository_url) == repository_url.lower(),
+                Service.source_branch == branch,
+                Service.is_auto_deploy.is_(True),
+                Service.is_deleted.is_(False),
+                Project.is_deleted.is_(False),
+            )
+            .order_by(Service.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
 
     async def search_by_project_id(self, project_id: int) -> list[Service]:
         stmt = (

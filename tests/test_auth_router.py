@@ -144,6 +144,7 @@ async def test_logout_clears_session_cookie(client: AsyncClient) -> None:
 
 async def test_login_without_github_settings_returns_not_configured() -> None:
     settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]  # 로컬 .env 의 GitHub 설정이 섞이지 않게 한다
         database_url="postgresql+asyncpg://t:t@127.0.0.1:1/t",
         session_secret=SECRET,  # type: ignore[arg-type]
     )

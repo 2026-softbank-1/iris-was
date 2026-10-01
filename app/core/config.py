@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     github_app_client_secret: SecretStr | None = None
     # PEM 전체. 환경변수에는 줄바꿈을 `\n` 두 글자로 적어도 된다.
     github_app_private_key: SecretStr | None = None
+    # 웹훅 서명(X-Hub-Signature-256) 검증용. 값이 없으면 웹훅 API 는 503 (NOT_CONFIGURED) 이다.
+    github_webhook_secret: SecretStr | None = None
     github_web_base_url: str = "https://github.com"
     github_api_base_url: str = "https://api.github.com"
 

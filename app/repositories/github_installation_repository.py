@@ -51,3 +51,13 @@ class GithubInstallationRepository:
                 )
                 .on_conflict_do_nothing()
             )
+
+    async def delete_user_links_by_github_installation_id(
+        self, github_installation_id: int
+    ) -> None:
+        """설치가 제거되면 어느 사용자의 목록에도 나오지 않게 연결을 끊는다. 설치 행은 남긴다."""
+        await self._session.execute(
+            delete(UserGithubInstallation).where(
+                UserGithubInstallation.github_installation_id == github_installation_id
+            )
+        )

@@ -1,5 +1,7 @@
 """세션 토큰과 OAuth state 의 서명·검증. 모두 HS256 JWT 로 만든다."""
 
+import hashlib
+import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -60,3 +62,11 @@ def _decode(token: str, purpose: TokenPurpose, secret: str) -> dict[str, Any]:
     if claims.get("purpose") != purpose:
         raise UnauthorizedError("invalid token purpose")
     return claims
+
+
+def verify_github_signature(secret: str, body: bytes, signature_header: str | None) -> bool:
+    """GitHub 웹훅의 `X-Hub-Signature-256` (`sha256=<hex>`)이 본문의 HMAC 과 같은지 본다."""
+    if signature_header is None:
+        return False
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
