@@ -22,6 +22,7 @@ from app.routers import (
     service_router,
     target_router,
     user_router,
+    webhook_router,
 )
 
 configure_logging("control-api", get_settings().log_level)
@@ -48,6 +49,7 @@ OPENAPI_TAGS = [
     {"name": "projects", "description": "서비스를 묶는 프로젝트"},
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
     {"name": "targets", "description": "배포 타깃(aws · local)"},
+    {"name": "webhooks", "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다"},
 ]
 
 app = FastAPI(
@@ -67,6 +69,7 @@ app.include_router(github_router.router)
 app.include_router(project_router.router)
 app.include_router(service_router.router)
 app.include_router(target_router.router)
+app.include_router(webhook_router.router)
 
 
 @app.get("/healthz", status_code=status.HTTP_204_NO_CONTENT)

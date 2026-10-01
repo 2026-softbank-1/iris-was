@@ -16,17 +16,21 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
+from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.github_installation_repository import GithubInstallationRepository
+from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.deployment_request_service import DeploymentRequestService
 from app.services.project_service import ProjectService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
 from app.services.target_service import TargetService
+from app.services.webhook_service import WebhookService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
@@ -170,6 +174,36 @@ def get_service_registry_service(
 
 
 ServiceRegistryServiceDep = Annotated[ServiceRegistryService, Depends(get_service_registry_service)]
+
+
+def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:
+    return DeploymentRequestService(DeploymentRequestRepository(session), JobRepository(session))
+
+
+DeploymentRequestServiceDep = Annotated[
+    DeploymentRequestService, Depends(get_deployment_request_service)
+]
+
+
+def get_webhook_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    deployment_request_service: DeploymentRequestServiceDep,
+) -> WebhookService:
+    if settings.github_webhook_secret is None:
+        raise NotConfiguredError(
+            "github webhook is not configured", setting="GITHUB_WEBHOOK_SECRET"
+        )
+    return WebhookService(
+        session,
+        ServiceRepository(session),
+        GithubInstallationRepository(session),
+        deployment_request_service,
+        settings.github_webhook_secret.get_secret_value(),
+    )
+
+
+WebhookServiceDep = Annotated[WebhookService, Depends(get_webhook_service)]
 
 
 # 문서(Swagger)에 인증 방식을 알리는 선언이다. 쿠키는 웹, Bearer 는 CLI 가 쓴다.

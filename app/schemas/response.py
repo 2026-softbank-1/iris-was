@@ -50,7 +50,7 @@ class Page[T](ApiModel):
 
 
 _ERROR_DESCRIPTIONS = {
-    401: "로그인이 필요하다 (UNAUTHORIZED)",
+    401: "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)",
     403: "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)",
     404: "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND)",
     409: "이미 있는 이름이다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT)",

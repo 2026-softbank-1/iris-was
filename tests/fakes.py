@@ -57,6 +57,12 @@ class FakeGithubInstallationRepository:
     async def replace_user_links(self, user_id: int, github_installation_ids: set[int]) -> None:
         self.links[user_id] = set(github_installation_ids)
 
+    async def delete_user_links_by_github_installation_id(
+        self, github_installation_id: int
+    ) -> None:
+        for linked in self.links.values():
+            linked.discard(github_installation_id)
+
 
 class FakeOAuthClient:
     def __init__(

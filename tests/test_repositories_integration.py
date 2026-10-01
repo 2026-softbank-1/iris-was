@@ -11,12 +11,13 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.enums import DeploymentTrigger, Environment, ReleaseStatus
+from app.enums import DeploymentStatus, DeploymentTrigger, Environment, ReleaseStatus
 from app.models.deployment_request import DeploymentRequest
 from app.models.project import Project
 from app.models.release import Release
 from app.models.service import Service
 from app.models.user import GithubInstallation, User
+from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.project_repository import ProjectRepository, ServiceCounts
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
@@ -148,3 +149,50 @@ async def _deployment_request(
     session.add(request)
     await session.flush()
     return request
+
+
+async def test_add_if_absent_blocks_duplicate_key_and_active_request(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    repository = DeploymentRequestRepository(session)
+
+    def build(key: str) -> DeploymentRequest:
+        return DeploymentRequest(
+            service_id=service.id,
+            environment=Environment.PROD,
+            source_sha="a" * 40,
+            trigger_type=DeploymentTrigger.PUSH,
+            idempotency_key=key,
+        )
+
+    first = await repository.add_if_absent(build("k-1"))
+    assert first is not None and first.status == DeploymentStatus.QUEUED
+    assert await repository.add_if_absent(build("k-1")) is None  # 같은 키
+    assert await repository.add_if_absent(build("k-2")) is None  # 진행 중인 요청이 있다
+
+    first.status = DeploymentStatus.SUCCEEDED
+    await session.flush()
+    assert await repository.add_if_absent(build("k-2")) is not None
+    assert await repository.find_by_idempotency_key("k-2") is not None
+
+
+async def test_search_auto_deploy_by_repository_url_ignores_case_and_filters(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    web = await services.save(_service(project, installation, "web"))
+    off = _service(project, installation, "off")
+    off.is_auto_deploy = False
+    await services.save(off)
+    other_branch = _service(project, installation, "dev")
+    other_branch.source_branch = "develop"
+    await services.save(other_branch)
+
+    found = await services.search_auto_deploy_by_repository_url_and_branch(
+        "https://github.com/IT/Repo", "main"
+    )
+
+    assert [s.id for s in found] == [web.id]
