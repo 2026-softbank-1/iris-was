@@ -24,6 +24,7 @@ Railway 처럼 무엇이든 간단히 배포해 주는 배포 서비스 **AnyDep
 | 문서 | 언제 본다 |
 |---|---|
 | [.claude/docs/control-plane-build-deploy-flow.md](.claude/docs/control-plane-build-deploy-flow.md) | 빌드·배포 흐름, jobs 큐·상태 전이, 실패 복구·자동 rollback 조건, 컴포넌트별 권한 경계를 다룰 때. **설계 기준 문서** |
+| [docs/adr/README.md](docs/adr/README.md) | 설계 결정의 배경·대안을 확인하거나 새 결정을 기록할 때. 중요한 설계 결정은 ADR(`docs/adr/NNNN-제목.md`)로 남긴다 |
 
 ---
 
@@ -77,6 +78,13 @@ flowchart LR
 - 외부 호출은 반드시 **비동기 Client**를 통한다. Service가 `httpx`·SDK를 직접 부르지 않는다.
 - 변환은 한 방향만, 대상 타입의 classmethod로(`Response.from_model`).
 - 모든 JSON 응답은 공통 봉투 **`ApiResponse[T]`**로 감싼다(`response_model_exclude_none=True`). 파일 다운로드·204는 제외. 에러도 같은 봉투(`success=False`, 도메인 예외의 `code`, 검증 실패 시 `details: list[ErrorDetail]`)로 예외 핸들러가 만든다. 에러용 dict 를 따로 만들지 않는다. 요청 ID 는 본문이 아니라 `X-Request-ID` 헤더로 준다.
+
+### API 문서 (엔드포인트를 추가·변경할 때마다 반드시)
+- 데코레이터에 `summary="한 줄 설명"` 과 `responses=error_responses(...)` 를 단다(`app/schemas/response.py`). 라우터 `tags` 는 `app/main.py` 의 `OPENAPI_TAGS` 에 설명과 함께 등록한다.
+- 인증이 필요한 API 는 401, 입력(경로·쿼리·본문)이 있으면 422, 도메인 예외를 던지면 그 상태(403·404·409·502·503 등)를 `error_responses` 에 포함한다.
+- 요청·응답 스키마 필드에는 필요하면 `Field(description=..., examples=[...])` 로 의미를 적는다.
+- 끝나면 `uv run python -m scripts.export_openapi` 로 `docs/openapi.json` 을 갱신해 함께 커밋한다.
+- `tests/test_openapi.py` 가 위를 검사한다. 이 테스트를 건너뛰거나 삭제하지 않는다. 배경: [docs/adr/0007](docs/adr/0007-api-documentation-with-openapi.md)
 
 ### 공통 안전 규칙
 - I/O는 전부 `async def` + `await`. 동기 블로킹 호출은 `asyncio.to_thread`로 감싼다.

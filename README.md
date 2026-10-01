@@ -41,7 +41,7 @@ flowchart LR
 ```
 
 - `routers/` 와 `workers/` 는 서로 참조하지 않고 `services/` 만 호출한다.
-- CodeBuild·Git·Argo CD 를 호출하는 로직은 Worker 에서만 실행한다. Control API 는 외부 시스템 권한을 갖지 않는다.
+- CodeBuild·Git(GitOps)·Argo CD 를 호출하는 로직은 Worker 에서만 실행한다. Control API 는 이 시스템들의 권한을 갖지 않는다. 단, 로그인·저장소 조회를 위한 GitHub OAuth·App 호출은 Control API 가 한다.
 
 ## 개발 환경
 
@@ -67,11 +67,52 @@ LOG_LEVEL=INFO
 
 - `DATABASE_URL` 이 없으면 Control API·Worker 는 시작하자마자 설정 오류로 종료한다.
 - `pytest` 는 DB 없이 돈다(`tests/conftest.py` 가 접속되지 않는 URL 을 넣는다). 실제 DB 연결은 서버를 띄워 `GET /readyz` 가 204 인지로 확인한다.
+- Repository 통합 테스트(`@pytest.mark.integration`)는 `alembic upgrade head` 가 끝난 DB 를 `TEST_DATABASE_URL` 로 주면 실행되고, 없으면 건너뛴다. 테스트는 트랜잭션을 롤백한다.
 
 | 환경변수 | 설명 |
 |---|---|
 | `DATABASE_URL` | PostgreSQL 접속 URL. `postgresql+asyncpg://<USER>:<PASSWORD>@<HOST>:5432/<DB>` |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
+| `WEB_BASE_URL` | 웹 프런트 주소. 로그인 후 이 주소로 돌려보낸다. 기본 `http://localhost:3000` |
+| `SESSION_SECRET` | 세션·OAuth state 서명 키(HS256). 없으면 로그인·인증 API 가 `503 NOT_CONFIGURED` |
+| `SESSION_TTL_MINUTES` | 세션 유효 시간(분). 기본 7일 |
+| `IS_SESSION_COOKIE_SECURE` | 쿠키 Secure 속성. 기본 `true`, http 로컬 개발에서는 `false` |
+| `GITHUB_APP_ID` · `GITHUB_APP_SLUG` | GitHub App ID, 설치 페이지 주소에 쓰는 slug |
+| `GITHUB_APP_CLIENT_ID` · `GITHUB_APP_CLIENT_SECRET` | 로그인(사용자 인증)용. 없으면 `503 NOT_CONFIGURED` |
+| `GITHUB_APP_PRIVATE_KEY` | App JWT 서명용 PEM. 줄바꿈은 `\n` 도 허용. 없으면 저장소·서비스 API 가 `503 NOT_CONFIGURED` |
+
+## GitHub App
+
+로그인과 저장소 접근을 GitHub App 하나로 처리한다. 사용자 토큰은 로그인 때 한 번만 쓰고 저장하지 않으며, 저장소 접근은 설치(installation) 토큰으로 한다.
+
+App 설정에서 맞춰야 할 값:
+
+- Callback URL: `<API 주소>/api/v1/auth/github/callback`
+- **Request user authorization (OAuth) during installation** 켜기 (설치 직후 로그인으로 이어진다)
+- 권한: Repository → Contents `Read-only`, Metadata `Read-only`
+
+## API (`/api/v1`)
+
+서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 서버 없이 보려면 저장소의 [docs/openapi.json](docs/openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
+
+인증은 쿠키(`anydeploy_session`, 웹) 또는 `Authorization: Bearer <token>`(CLI). 응답은 `ApiResponse` 봉투, JSON 은 camelCase 다.
+
+| 메서드·경로 | 설명 |
+|---|---|
+| `GET /auth/github` · `GET /auth/github/callback` · `POST /auth/logout` | GitHub 로그인 시작·콜백·로그아웃 |
+| `GET /me` | 현재 사용자 |
+| `GET /github/install` · `GET /github/installations` | GitHub App 설치 시작 · 내 설치 목록 |
+| `GET /github/repos?q&installationId&page&size` | 접근 가능한 저장소 검색 |
+| `GET /github/repos/resolve?url=` | 붙여넣은 GitHub 주소 해석·권한 확인 |
+| `GET /github/repos/{owner}/{repo}/branches` | 브랜치 목록 |
+| `POST·GET /projects` · `GET·PATCH·DELETE /projects/{id}` | 프로젝트 (목록은 서비스 수·online 수 포함) |
+| `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록 |
+| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제 |
+| `GET /targets` | 배포 타깃(aws·local) 목록 |
+
+- 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제다.
+- 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.
+- 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
 
 ## 실행
 
