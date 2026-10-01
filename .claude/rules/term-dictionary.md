@@ -35,7 +35,7 @@
 | Deploy Worker | `app/workers/deploy_worker.py` | DEPLOY·ROLLBACK·RECONCILE job 처리 |
 | Master Cluster | — | Control Plane·Argo CD 가 도는 EKS |
 | Prod Cluster | — | 사용자 서비스가 도는 EKS. Argo CD 만 접근한다 |
-| GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 manifest. image digest 만 바뀐다 |
+| GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart `iris-service` 의 values). Deploy Worker 가 파일 전체를 렌더링해 커밋하고, manifest 는 Argo CD 가 chart 로 만든다. Prod namespace 는 `svc-{service_id}` |
 
 ---
 
@@ -137,14 +137,19 @@ GitOps 에 반영된 배포 결과 1건이다.
 
 | 필드 | 설명 |
 |---|---|
-| `deployment_request_id`\* | 소속 배포 요청 |
-| `service_id`\*, `environment`\* | 대상. `last_known_good` 조회 기준 |
+| `deployment_request_id` | 소속 배포 요청 (1:1) |
+| `build_id` | 배포한 빌드 |
+| `service_id` | 대상 서비스. 진행 중(`PENDING`·`ROLLING_BACK`) release 는 서비스당 하나다(부분 unique index) |
 | `image_digest` | 배포한 digest |
-| `gitops_commit_sha` | digest 를 바꾼 GitOps 커밋 |
-| `argo_sync_status` | Argo CD Sync 상태 (외부 값) |
-| `argo_health_status` | Argo CD Health 상태 (외부 값) |
-| `previous_good_release_id` | 이 릴리스 직전의 정상 릴리스. 원문의 "이전 정상 release" |
-| `status`\* | `release_status` Enum (§5) |
+| `gitops_commit_sha` | 서비스 디렉터리를 바꾼 GitOps 커밋. fast-forward 전에 먼저 기록한다 |
+| `revert_commit_sha` | 실패 후 이전 정상 release 로 되돌린 커밋 |
+| `previous_good_release_id` | 이 릴리스 직전의 정상 릴리스(lastKnownGood). 원문의 "이전 정상 release" |
+| `status` | `release_status` Enum (§5) |
+| `failure_code` | 실패 사유 코드 (§5) |
+| `deadline_at` | Argo CD 반영 기한. 값이 있으면 커밋이 main 에 올라간 것이다 |
+| `finished_at` | 종료 시각 |
+
+environment 는 배포 요청에서, Argo CD 상태는 로그(`argo_sync_status`·`argo_health_status`)에서 본다. release 에 저장하지 않는다.
 
 ---
 
@@ -155,9 +160,9 @@ GitOps 에 반영된 배포 결과 1건이다.
 | 코드 | 처리 주체 | 의미 |
 |---|---|---|
 | `BUILD` | Build Worker | CodeBuild 를 시작하고 결과(digest)를 기록한다 |
-| `DEPLOY` | Deploy Worker | GitOps manifest 의 digest 를 바꾸는 PR·commit 을 만든다 |
-| `RECONCILE` | Deploy Worker | Argo CD 상태를 수집해 release 상태를 맞춘다\* |
-| `ROLLBACK` | Deploy Worker | 실패한 digest 를 되돌리는 revert commit 을 만든다 |
+| `DEPLOY` | Deploy Worker | 서비스 디렉터리를 렌더링해 GitOps `main` 에 커밋한다(PR 없음, fast-forward) |
+| `RECONCILE` | Deploy Worker | Argo CD 상태를 한 번 확인해 release 를 판정한다. 미완료면 snooze |
+| `ROLLBACK` | Deploy Worker | 서비스 디렉터리를 이전 정상 release 로 되돌리는 revert commit 을 만든다 |
 
 ### 작업 상태 (`job_status`) — `jobs.status`
 
@@ -190,9 +195,9 @@ GitOps 에 반영된 배포 결과 1건이다.
 
 `MANUAL`(사용자 요청) · `PUSH`(default 브랜치 push webhook)
 
-### 릴리스 상태 (`release_status`)\* — `releases.status`
+### 릴리스 상태 (`release_status`) — `releases.status`
 
-`PENDING`(Git 반영, 동기화 대기) · `SUCCEEDED`(원문. Sync·Health·smoke test 모두 통과) · `FAILED` · `ROLLED_BACK`
+`PENDING`(커밋·동기화 대기) · `SUCCEEDED`(Synced + Healthy) · `FAILED` · `ROLLING_BACK`(revert commit 반영 대기) · `ROLLED_BACK`
 
 ### 실패 코드 (`failure_code`) — `deployment_requests.failure_code`\*
 
@@ -205,9 +210,11 @@ GitOps 에 반영된 배포 결과 1건이다.
 | `BUILD_TIMED_OUT`\* | 빌드가 15분을 넘었다 |
 | `BUILD_INFRA_ERROR`\* | CodeBuild FAULT·AWS·GitHub 오류가 재시도 한도까지 반복됐다 |
 | `BUILD_FAILED` | 빌드·테스트·스캔 실패. GitOps 는 바꾸지 않는다 (원문 §6) |
-| `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
+| `DEPLOY_FAILED` | Sync operation 실패 또는 Degraded(readiness·progressDeadlineSeconds 초과) |
+| `DEPLOY_TIMED_OUT` | `releases.deadline_at` 까지 Argo CD 반영이 끝나지 않았다 |
+| `DEPLOY_INFRA_ERROR` | GitHub·Argo CD·ECR 오류가 재시도 한도까지 반복됐다 |
 
-### Argo CD 상태 (외부 값, 원본 표기 그대로 저장)
+### Argo CD 상태 (외부 값, 원본 표기 그대로. DB 에 저장하지 않고 판정·로그에만 쓴다)
 
 - `argo_sync_status`: `Synced` · `OutOfSync` · `Unknown`
 - `argo_health_status`: `Healthy` · `Progressing` · `Degraded` · `Suspended` · `Missing` · `Unknown`
@@ -226,9 +233,12 @@ GitOps 에 반영된 배포 결과 1건이다.
 | image digest | `image_digest` | 이미지 내용 해시 (`sha256:...`). 배포의 유일한 기준 |
 | desired state | — | GitOps 저장소 manifest 의 내용. Argo CD 가 Prod 를 이 상태로 맞춘다 |
 | Sync | `argo_sync_status` | Argo CD 가 desired state 를 클러스터에 적용하는 것. Control Plane 은 직접 호출하지 않고 Git 변경으로 유도한다 |
-| lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념) |
-| revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
-| 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
+| lastKnownGood | `find_last_known_good` | 서비스에서 마지막으로 `SUCCEEDED` 된 release (파생 개념, 컬럼 없음) |
+| revert commit | `revert_commit_sha` | `services/{service_id}/prod` 를 이전 정상 release 커밋의 디렉터리로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
+| 자동 rollback 조건 | — | HEAD 의 `services/{service_id}/prod` subtree = 실패 release 커밋의 subtree. "lastKnownGood = 이전 release"·"더 최신 진행 배포 없음"은 진행 중 release 를 서비스당 하나로 막는 index 가 보장한다 |
+| snooze | `JobRepository.release(job_id, delay)` | job 을 실패로 세지 않고 `run_after` 뒤로 미뤄 반납한다. 진행 중 release 대기·Argo CD 반영 대기에 쓴다 |
+| release 판정 | `evaluate_release` | Argo CD 상태 → 대기·성공·실패·기한 초과. 목표 커밋을 포함한 revision 의 상태만 본다 |
+| 배포 이미지 태그 | `r-{release_id}` | 성공한 release 의 digest 에 붙이는 ECR 태그. lifecycle 최우선 규칙이 최근 5개를 보존해 `b-*` 정리에 지워지지 않는다 |
 | 빌드 설정 | `iris.json` | 서비스 소스 저장소 `{root_directory}` 에 두는 설정 파일. 없어도 된다. 원문의 `.anydeploy/build.yaml` 을 대체한다 |
 
 ---

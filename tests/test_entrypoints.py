@@ -37,8 +37,12 @@ async def test_build_worker_run_stops_when_event_set() -> None:
 
 
 async def test_deploy_worker_run_stops_on_signal_during_poll() -> None:
+    class NoJobService:
+        async def claim_next_job(self) -> None:
+            return None
+
     stop = asyncio.Event()
-    task = asyncio.create_task(deploy_worker.run(stop))
+    task = asyncio.create_task(deploy_worker.run(stop, NoJobService()))  # type: ignore[arg-type]
     await asyncio.sleep(0.05)
     stop.set()
 

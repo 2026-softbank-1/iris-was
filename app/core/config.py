@@ -33,6 +33,22 @@ class BuildWorkerSettings(BaseSettings):
     poll_interval_seconds: float = 10.0
 
 
+class DeployWorkerSettings(BaseSettings):
+    """Deploy Worker 전용. Build Worker 와 GitHub App·자격증명을 공유하지 않는다."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    aws_region: str
+    # 사용자 서비스 도메인. Control Plane 과 다른 등록 도메인이다.
+    base_domain: str
+    gitops_repository: str  # {owner}/{repo}
+    gitops_app_id: int
+    gitops_app_private_key: SecretStr
+    gitops_installation_id: int
+    argocd_server_url: str
+    argocd_token: SecretStr
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
@@ -41,3 +57,8 @@ def get_settings() -> Settings:
 @lru_cache
 def get_build_worker_settings() -> BuildWorkerSettings:
     return BuildWorkerSettings()
+
+
+@lru_cache
+def get_deploy_worker_settings() -> DeployWorkerSettings:
+    return DeployWorkerSettings()

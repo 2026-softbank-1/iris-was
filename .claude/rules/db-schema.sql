@@ -1,7 +1,7 @@
 -- 물리 DB 스키마(DDL) 단일 출처 — PostgreSQL.
 -- app/models/*.py, alembic/versions/ 와 일치시킨다 (.claude/rules/db-migration.md).
 -- Enum 컬럼은 VARCHAR(32) 에 app/enums.py 의 값(value)을 저장한다. CHECK 제약은 두지 않는다.
--- revision: cf3b3859224c (create build tables)
+-- revision: 499d60073fc0 (create releases table)
 
 CREATE TABLE users (
     id SERIAL NOT NULL,
@@ -104,3 +104,30 @@ CREATE INDEX ix_jobs_deployment_request_id ON jobs (deployment_request_id);
 
 CREATE INDEX ix_jobs_status_run_after ON jobs (status, run_after);
 
+CREATE TABLE releases (
+    id SERIAL NOT NULL,
+    deployment_request_id INTEGER NOT NULL,
+    build_id INTEGER NOT NULL,
+    service_id INTEGER NOT NULL,
+    image_digest VARCHAR NOT NULL,
+    gitops_commit_sha VARCHAR,
+    revert_commit_sha VARCHAR,
+    previous_good_release_id INTEGER,
+    status VARCHAR(32) DEFAULT 'PENDING' NOT NULL,
+    failure_code VARCHAR(32),
+    deadline_at TIMESTAMP WITH TIME ZONE,
+    finished_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    CONSTRAINT pk_releases PRIMARY KEY (id),
+    CONSTRAINT fk_releases_build_id_builds FOREIGN KEY(build_id) REFERENCES builds (id),
+    CONSTRAINT fk_releases_deployment_request_id_deployment_requests FOREIGN KEY(deployment_request_id) REFERENCES deployment_requests (id),
+    CONSTRAINT fk_releases_previous_good_release_id_releases FOREIGN KEY(previous_good_release_id) REFERENCES releases (id),
+    CONSTRAINT fk_releases_service_id_services FOREIGN KEY(service_id) REFERENCES services (id),
+    CONSTRAINT uq_releases_deployment_request_id UNIQUE (deployment_request_id)
+);
+
+CREATE INDEX ix_releases_service_id_status_id ON releases (service_id, status, id);
+
+-- 서비스당 진행 중 release 는 하나다.
+CREATE UNIQUE INDEX uq_releases_service_id_in_flight ON releases (service_id) WHERE status IN ('PENDING', 'ROLLING_BACK');

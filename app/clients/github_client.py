@@ -6,7 +6,7 @@ from typing import NoReturn
 import httpx
 import jwt
 
-from app.core.exceptions import ExternalError, ForbiddenError, NotFoundError
+from app.core.exceptions import ExternalError, ForbiddenError, GitOpsConflictError, NotFoundError
 
 GITHUB_API_URL = "https://api.github.com"
 
@@ -28,10 +28,10 @@ class GitHubClient:
         self._private_key = private_key
 
     async def create_installation_token(
-        self, installation_id: int, repository_id: int | None
+        self, installation_id: int, repository_id: int | None, contents: str = "read"
     ) -> str:
-        """contents:read 설치 토큰(1시간)을 만든다. repository_id 가 있으면 그 레포로만 좁힌다."""
-        body: dict[str, object] = {"permissions": {"contents": "read"}}
+        """contents 권한 설치 토큰(1시간)을 만든다. repository_id 가 있으면 그 레포로만 좁힌다."""
+        body: dict[str, object] = {"permissions": {"contents": contents}}
         if repository_id is not None:
             body["repository_ids"] = [repository_id]
         response = await self._send(
@@ -86,6 +86,83 @@ class GitHubClient:
         finally:
             await response.aclose()
 
+    # --- Git Database API (GitOps 저장소). 커밋은 새로 만들고 브랜치는 fast-forward 만 한다.
+
+    async def find_subtree_sha(
+        self, token: str, full_name: str, commit_sha: str, path: str
+    ) -> str | None:
+        """commit_sha 시점 path 디렉터리의 tree SHA. 없으면 None."""
+        commit = await self._send("GET", f"/repos/{full_name}/git/commits/{commit_sha}", token)
+        tree_sha: str = commit.json()["tree"]["sha"]
+        for name in path.split("/"):
+            tree = await self._send("GET", f"/repos/{full_name}/git/trees/{tree_sha}", token)
+            entry = next(
+                (e for e in tree.json()["tree"] if e["path"] == name and e["type"] == "tree"),
+                None,
+            )
+            if entry is None:
+                return None
+            tree_sha = entry["sha"]
+        return tree_sha
+
+    async def create_tree(self, token: str, full_name: str, files: dict[str, str]) -> str:
+        """files(이름 → 내용)만 담은 새 tree 를 만든다."""
+        entries = [
+            {"path": name, "mode": "100644", "type": "blob", "content": content}
+            for name, content in sorted(files.items())
+        ]
+        response = await self._send(
+            "POST", f"/repos/{full_name}/git/trees", token, json={"tree": entries}
+        )
+        sha: str = response.json()["sha"]
+        return sha
+
+    async def create_commit(
+        self, token: str, full_name: str, parent_sha: str, path: str, tree_sha: str, message: str
+    ) -> str:
+        """parent 트리에서 path 디렉터리만 tree_sha 로 바꾼 커밋. 브랜치는 움직이지 않는다."""
+        parent = await self._send("GET", f"/repos/{full_name}/git/commits/{parent_sha}", token)
+        root = await self._send(
+            "POST",
+            f"/repos/{full_name}/git/trees",
+            token,
+            json={
+                "base_tree": parent.json()["tree"]["sha"],
+                "tree": [{"path": path, "mode": "040000", "type": "tree", "sha": tree_sha}],
+            },
+        )
+        commit = await self._send(
+            "POST",
+            f"/repos/{full_name}/git/commits",
+            token,
+            json={"message": message, "tree": root.json()["sha"], "parents": [parent_sha]},
+        )
+        sha: str = commit.json()["sha"]
+        return sha
+
+    async def update_branch(self, token: str, full_name: str, branch: str, commit_sha: str) -> None:
+        """fast-forward 만 한다. 브랜치가 그새 움직였으면 GitOpsConflictError."""
+        response = await self._send(
+            "PATCH",
+            f"/repos/{full_name}/git/refs/heads/{branch}",
+            token,
+            json={"sha": commit_sha, "force": False},
+            allowed_statuses=(409, 422),
+        )
+        if response.is_error:
+            raise GitOpsConflictError(
+                "branch moved", branch=branch, status_code=response.status_code
+            )
+
+    async def contains(self, token: str, full_name: str, commit_sha: str, head_sha: str) -> bool:
+        """head_sha 가 commit_sha 와 같거나 그 이후 커밋인가."""
+        if commit_sha == head_sha:
+            return True
+        response = await self._send(
+            "GET", f"/repos/{full_name}/compare/{commit_sha}...{head_sha}", token
+        )
+        return response.json()["status"] in ("ahead", "identical")
+
     async def _send(
         self,
         method: str,
@@ -93,6 +170,7 @@ class GitHubClient:
         token: str | None = None,
         headers: dict[str, str] | None = None,
         json: object | None = None,
+        allowed_statuses: tuple[int, ...] = (),
     ) -> httpx.Response:
         merged_headers = {**(_auth(token) if token else {}), **(headers or {})}
         try:
@@ -101,7 +179,7 @@ class GitHubClient:
             )
         except httpx.HTTPError as exc:
             raise ExternalError("github request failed", path=path) from exc
-        if response.is_error:
+        if response.is_error and response.status_code not in allowed_statuses:
             _raise_for_status(response)
         return response
 

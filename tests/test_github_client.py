@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app.clients.github_client import GitHubClient, SourceTooLargeError
-from app.core.exceptions import ExternalError, ForbiddenError, NotFoundError
+from app.core.exceptions import ExternalError, ForbiddenError, GitOpsConflictError, NotFoundError
 
 
 def _client(handler: httpx.MockTransport) -> GitHubClient:
@@ -47,3 +47,43 @@ async def test_get_branch_sha_error_status_maps_to_app_error(
 
     with pytest.raises(expected):
         await client.get_branch_sha("t", "o/r", "main")
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [(409, GitOpsConflictError), (422, GitOpsConflictError), (404, NotFoundError)],
+)
+async def test_update_branch_error_status_maps_to_conflict(
+    status_code: int, expected: type[Exception]
+) -> None:
+    client = _client(httpx.MockTransport(lambda _: httpx.Response(status_code)))
+
+    with pytest.raises(expected):
+        await client.update_branch("t", "o/r", "main", "sha")
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [("ahead", True), ("identical", True), ("behind", False), ("diverged", False)],
+)
+async def test_contains_compare_status_returns_ancestry(status: str, expected: bool) -> None:
+    client = _client(httpx.MockTransport(lambda _: httpx.Response(200, json={"status": status})))
+
+    assert await client.contains("t", "o/r", "target", "head") is expected
+
+
+async def test_find_subtree_sha_walks_nested_path() -> None:
+    trees = {
+        "root": [{"path": "services", "type": "tree", "sha": "services-tree"}],
+        "services-tree": [{"path": "12", "type": "tree", "sha": "service-12"}],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if "/git/commits/" in request.url.path:
+            return httpx.Response(200, json={"tree": {"sha": "root"}})
+        return httpx.Response(200, json={"tree": trees[request.url.path.rsplit("/", 1)[1]]})
+
+    client = _client(httpx.MockTransport(handle))
+
+    assert await client.find_subtree_sha("t", "o/r", "c1", "services/12") == "service-12"
+    assert await client.find_subtree_sha("t", "o/r", "c1", "services/13") is None

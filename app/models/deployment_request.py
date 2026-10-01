@@ -25,3 +25,8 @@ class DeploymentRequest(TimestampMixin, Base):
     cancel_requested_at: Mapped[datetime | None]
 
     service: Mapped[Service] = relationship(lazy="raise")
+
+    def finish(self, status: DeploymentStatus, failure_code: FailureCode | None = None) -> None:
+        self.status = status
+        if failure_code is not None:
+            self.failure_code = failure_code

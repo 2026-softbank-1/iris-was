@@ -67,7 +67,19 @@ def test_detect_builder_dockerfile_missing_raises_config_required(
     assert exc_info.value.failure_code == FailureCode.BUILD_CONFIG_REQUIRED
 
 
-@pytest.mark.parametrize("content", [b"{not json", b'{"build": {"builder": "nixpacks"}}', b"[]"])
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"{not json",
+        b'{"build": {"builder": "nixpacks"}}',
+        b"[]",
+        b'{"deploy": {"preDeployCommand": "alembic upgrade head"}}',
+        b'{"deploy": {"healthcheckPath": "health"}}',
+        b'{"deploy": {"healthcheckTimeout": 29}}',
+        b'{"deploy": {"startCommand": "node \'main.js"}}',
+        b'{"deploy": {"startCommand": "   "}}',
+    ],
+)
 def test_parse_iris_config_invalid_raises_config_required(content: bytes) -> None:
     with pytest.raises(BuildFailedError) as exc_info:
         parse_iris_config(content)

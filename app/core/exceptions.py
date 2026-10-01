@@ -60,6 +60,12 @@ class ExternalError(AppError):
     retryable = True
 
 
+class GitOpsConflictError(ConflictError):
+    """GitOps 브랜치가 그새 움직여 fast-forward 할 수 없다. HEAD 위에 커밋을 다시 만든다."""
+
+    code = "GITOPS_CONFLICT"
+
+
 class BuildFailedError(AppError):
     """빌드를 더 진행할 수 없는 실패. 재시도하지 않고 failure_code 로 배포 요청을 끝낸다."""
 
