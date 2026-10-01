@@ -50,13 +50,16 @@ flowchart LR
 ```bash
 uv sync
 
-# 로컬 DB 생성 (DB 이름은 softbank_iris 로 통일)
-createdb -h localhost -U <USER> softbank_iris
+# 로컬 DB: Docker(OrbStack)로 PostgreSQL 18 을 띄우고 .env 의 DATABASE_URL 을 맞춘다
+scripts/dev-db.sh                  # 켜기 (stop: 끄기, reset: 데이터까지 삭제)
 
-cp .env.example .env               # DATABASE_URL 입력
+cp -n .env.example .env            # .env 가 없을 때만. DB 외 값(GitHub App 등)을 채운다
 uv run alembic upgrade head
 uv run alembic current             # 접속·적용 revision 확인
 ```
+
+- DB 는 `docker-compose.dev.yml`(`restart: unless-stopped`, named volume)로 상시 떠 있고 `127.0.0.1:5432` 에서만 접속된다. 비밀번호는 `scripts/dev-db.sh` 가 만들어 `.env` 에만 둔다.
+- 직접 만든 PostgreSQL 을 쓰려면 스크립트 없이 `DATABASE_URL` 만 `.env` 에 넣어도 된다(DB 이름은 `softbank_iris` 로 통일).
 
 `.env` 예:
 
