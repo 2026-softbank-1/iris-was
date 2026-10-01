@@ -1,4 +1,4 @@
-"""Build Worker 가 쓰는 AWS Client. boto3 는 동기라 asyncio.to_thread 로 감싼다.
+"""Build·Deploy Worker 가 쓰는 AWS Client. boto3 는 동기라 asyncio.to_thread 로 감싼다.
 
 AWS 호출 실패는 모두 ExternalError(재시도) 로 바꾼다. 쓰로틀링 재시도는 botocore 가 먼저 한다.
 """
@@ -20,12 +20,23 @@ from app.core.exceptions import ExternalError
 _BOTO_CONFIG = Config(retries={"mode": "standard", "max_attempts": 5}, signature_version="s3v4")
 PRESIGNED_URL_SECONDS = 15 * 60
 
+# 배포된 이미지(r-*)는 최근 5개를 먼저 지킨다. 상위 규칙에 걸린 이미지는 하위 규칙이 지우지 못한다.
 # untagged 는 7일 뒤 지우고, 빌드 이미지(b-*)는 최근 10개만 남긴다.
 _ECR_LIFECYCLE_POLICY = json.dumps(
     {
         "rules": [
             {
                 "rulePriority": 1,
+                "selection": {
+                    "tagStatus": "tagged",
+                    "tagPatternList": ["r-*"],
+                    "countType": "imageCountMoreThan",
+                    "countNumber": 5,
+                },
+                "action": {"type": "expire"},
+            },
+            {
+                "rulePriority": 2,
                 "selection": {
                     "tagStatus": "untagged",
                     "countType": "sinceImagePushed",
@@ -35,7 +46,7 @@ _ECR_LIFECYCLE_POLICY = json.dumps(
                 "action": {"type": "expire"},
             },
             {
-                "rulePriority": 2,
+                "rulePriority": 3,
                 "selection": {
                     "tagStatus": "tagged",
                     "tagPatternList": ["b-*"],
@@ -143,6 +154,30 @@ class EcrClient:
         )
         digest: str = response["imageDetails"][0]["imageDigest"]
         return digest
+
+    async def tag_image(self, repository_name: str, image_digest: str, image_tag: str) -> None:
+        """digest 에 태그를 하나 더 붙인다. 이미 붙어 있으면 통과한다."""
+        response = await _call(
+            self._client.batch_get_image,
+            repositoryName=repository_name,
+            imageIds=[{"imageDigest": image_digest}],
+        )
+        if not response["images"]:
+            raise ExternalError("ecr image not found", image_digest=image_digest)
+        image = response["images"][0]
+        try:
+            await asyncio.to_thread(
+                self._client.put_image,
+                repositoryName=repository_name,
+                imageManifest=image["imageManifest"],
+                imageManifestMediaType=image["imageManifestMediaType"],
+                imageDigest=image_digest,
+                imageTag=image_tag,
+            )
+        except self._client.exceptions.ImageAlreadyExistsException:
+            pass
+        except (BotoCoreError, ClientError) as exc:
+            raise ExternalError("aws request failed", operation="put_image") from exc
 
 
 class ArtifactStore:

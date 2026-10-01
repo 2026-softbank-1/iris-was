@@ -87,12 +87,12 @@ class JobRepository:
         )
         return bool(result.rowcount)  # type: ignore[attr-defined]
 
-    async def release(self, job_id: int) -> None:
-        """종료 신호로 작업을 반납한다. 실패가 아니므로 시도 횟수를 되돌린다."""
+    async def release(self, job_id: int, delay: timedelta = timedelta(0)) -> None:
+        """작업을 반납한다(종료 신호·snooze). 실패가 아니므로 시도 횟수를 되돌린다."""
         await self._update(
             job_id,
             status=JobStatus.QUEUED,
-            run_after=func.now(),
+            run_after=func.now() + delay,
             attempts=Job.attempts - 1,
             locked_by=None,
             locked_until=None,
@@ -113,6 +113,11 @@ class JobRepository:
 
     async def mark_failed(self, job_id: int, error: str) -> None:
         await self._update(job_id, status=JobStatus.FAILED, last_error=error, locked_until=None)
+
+    async def mark_manual_intervention(self, job_id: int, error: str) -> None:
+        await self._update(
+            job_id, status=JobStatus.MANUAL_INTERVENTION, last_error=error, locked_until=None
+        )
 
     async def record_external_id(self, job_id: int, external_id: str) -> None:
         await self._update(job_id, external_id=external_id)
