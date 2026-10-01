@@ -50,6 +50,7 @@ erDiagram
   services }o--o{ targets : "service_targets"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
+  deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
   deployment_requests ||--o| builds : "빌드 결과 (한 번)"
   deployment_requests ||--o{ releases : "타깃별 배포 결과"
   targets ||--o{ releases : "배포 대상"
@@ -100,6 +101,8 @@ erDiagram
 | `variables_snapshot`\* | 요청 시점의 환경변수(jsonb). 재배포·롤백에 쓴다 |
 
 서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
+
+`status` 는 `DeploymentStatusService.transition_status` 로만 바꾼다. 허용된 전이인지 검사하고 이력을 남긴다 (§5 전이 표, ADR 0010).
 
 ### 4.3 작업 (Job) — `jobs`
 
@@ -190,7 +193,19 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 `service_targets` 는 서비스가 배포되는 타깃을 잇는다.
 
-> 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`jobs`·`builds`·`releases`)은 지우지 않는다.
+### 4.10 배포 상태 이력 (DeploymentStatusHistory) — `deployment_status_histories`\*
+
+배포 요청의 상태 전이 1건이다. 쌓기만 하고 고치지 않는다. 단계별 소요 시간은 이 행들의 `created_at` 차이로 계산한다.
+
+| 필드 | 설명 |
+|---|---|
+| `deployment_request_id`\* | 소속 배포 요청 |
+| `from_status`\* | 이전 상태. 요청을 만들 때 남기는 첫 행은 비어 있다 |
+| `to_status`\* | 바뀐 상태 (`deployment_status` Enum, §5) |
+| `failure_code`\* | `FAILED` 로 바뀐 전이에만 있다 (§5) |
+| `created_at` | 전이 시각 |
+
+> 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`deployment_status_histories`·`jobs`·`builds`·`releases`)은 지우지 않는다.
 
 ---
 
@@ -235,6 +250,18 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 
 `QUEUED` → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION`
+
+화면 용어는 Initializing = `QUEUED`, Active = `SUCCEEDED` 다. 실패는 `FAILED` 하나이고 타임아웃·에러·`CrashLoopBackOff` 도 모두 `FAILED` 다. 원인은 상태가 아니라 `failure_code` 로 구분한다.
+
+허용되는 전이 (표에 없는 이동은 `INVALID_STATUS_TRANSITION`, 이미 그 상태면 아무것도 하지 않는다):
+
+| from | 허용 to |
+|---|---|
+| `QUEUED` | `BUILDING`, `FAILED` |
+| `BUILDING` | `DEPLOYING`, `FAILED` |
+| `DEPLOYING` | `SUCCEEDED`, `FAILED`, `ROLLED_BACK`, `MANUAL_INTERVENTION` |
+| `FAILED` | `ROLLED_BACK`, `MANUAL_INTERVENTION` |
+| `SUCCEEDED` · `ROLLED_BACK` · `MANUAL_INTERVENTION` | (끝) |
 
 ### 릴리스 상태 (`release_status`)\* — `releases.status`
 

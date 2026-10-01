@@ -45,3 +45,4 @@
 | [0007](0007-api-documentation-with-openapi.md) | API 문서는 OpenAPI(Swagger)로 하고 테스트로 최신 상태를 강제한다 | 수락됨 |
 | [0008](0008-branch-strategy.md) | 브랜치 전략: develop 통합, release 에서 검증 후 main 병합 | 수락됨 |
 | [0009](0009-github-webhook-receiver.md) | GitHub 웹훅은 서명으로 인증하고 push 를 배포 요청으로 바꾼다 | 수락됨 |
+| [0010](0010-deployment-status-transitions-and-history.md) | 배포 요청 상태는 전이 함수로만 바꾸고 전이마다 이력을 남긴다 | 수락됨 |
