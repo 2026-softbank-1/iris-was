@@ -43,12 +43,20 @@
 
 ```mermaid
 erDiagram
+  users ||--o{ projects : "소유"
+  users }o--o{ github_installations : "user_github_installations"
+  projects ||--o{ services : "포함"
+  github_installations ||--o{ services : "소스 접근"
+  services }o--o{ targets : "service_targets"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
-  deployment_requests ||--o| builds : "빌드 결과"
-  deployment_requests ||--o| releases : "배포 결과"
+  deployment_requests ||--o| builds : "빌드 결과 (한 번)"
+  deployment_requests ||--o{ releases : "타깃별 배포 결과"
+  targets ||--o{ releases : "배포 대상"
   releases |o--o| releases : "previous_good_release_id"
 ```
+
+> 빌드는 요청마다 한 번, 배포(release)는 타깃마다 한 번이다. 같은 이미지를 여러 타깃에 배포한 이력이 그대로 남는다.
 
 ---
 
@@ -60,9 +68,16 @@ erDiagram
 
 | 필드 | 설명 |
 |---|---|
-| `name`\* | 서비스 식별 이름 (slug) |
+| `project_id`\* | 소속 프로젝트 |
+| `name`\* | 서비스 식별 이름 (slug). 프로젝트 안에서 유일하다 (삭제되지 않은 것끼리) |
 | `source_repository_url`\* | 서비스 소스 저장소 |
-| `builder` | `builder` Enum (§5) |
+| `github_installation_id`\* | 소스 저장소에 접근하는 GitHub App 설치 |
+| `source_branch`\* | 배포할 브랜치. 자동 배포의 기준이다 |
+| `root_directory`\* | 저장소 안의 서비스 위치. 없으면 저장소 루트 |
+| `is_auto_deploy`\* | 브랜치에 push 가 오면 자동으로 배포할지 |
+| `analysis_plan`\* | 코드 분석 결과(jsonb). 빌더·포트·실행 명령의 근거 |
+| `port`\*, `build_command`\*, `start_command`\* | 서비스 실행 설정 |
+| `builder` | `builder` Enum (§5). 코드 분석으로 확정하기 전까지 비어 있고, 비어 있으면 배포하지 않는다 |
 | `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
 | `platform` | 빌드 플랫폼 (`linux/amd64`) |
 | `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
@@ -77,9 +92,14 @@ erDiagram
 | `environment` | `environment` Enum (§5) |
 | `source_sha` | 빌드할 소스 커밋 SHA |
 | `idempotency_key` | 중복 요청 차단 키. unique 제약을 건다\* |
-| `requested_by`\* | 요청자 |
+| `source_commit_message`\* | 소스 커밋 메시지. 이력 화면 표시용 |
+| `trigger_type`\* | `deployment_trigger` Enum (§5). 어떻게 시작된 요청인지 |
+| `requested_by`\* | 요청자 (`users.id`). push 웹훅 요청은 비어 있다 |
 | `status` | `deployment_status` Enum (§5). 원문의 "최종 상태" |
 | `failure_code`\* | 실패 사유 코드 (§5) |
+| `variables_snapshot`\* | 요청 시점의 환경변수(jsonb). 재배포·롤백에 쓴다 |
+
+서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
 
 ### 4.3 작업 (Job) — `jobs`
 
@@ -110,23 +130,67 @@ PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
 | `image_repository`\* | ECR 저장소 URI |
 | `image_digest` | 빌드 결과 digest |
 | `log_url` | CodeBuild 로그 URL |
+| `started_at`\*, `finished_at`\* | 빌드 시작·종료 시각 |
 
 원문 §6 은 SBOM·스캔 결과도 저장한다고 한다. 해당 필드는 구현 순서 7단계(SBOM·이미지 서명)에서 정한다.
 
 ### 4.5 릴리스 (Release) — `releases`
 
-GitOps 에 반영된 배포 결과 1건이다.
+GitOps 에 반영된 배포 결과 1건이다. 같은 요청이라도 타깃마다 한 건씩 만든다.
 
 | 필드 | 설명 |
 |---|---|
 | `deployment_request_id`\* | 소속 배포 요청 |
-| `service_id`\*, `environment`\* | 대상. `last_known_good` 조회 기준 |
+| `service_id`\*, `environment`\*, `target_id`\* | 대상. `last_known_good` 조회 기준 |
 | `image_digest` | 배포한 digest |
 | `gitops_commit_sha` | digest 를 바꾼 GitOps 커밋 |
 | `argo_sync_status` | Argo CD Sync 상태 (외부 값) |
 | `argo_health_status` | Argo CD Health 상태 (외부 값) |
 | `previous_good_release_id` | 이 릴리스 직전의 정상 릴리스. 원문의 "이전 정상 release" |
 | `status`\* | `release_status` Enum (§5) |
+
+### 4.6 사용자 (User) — `users`\*
+
+GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. GitHub 사용자 토큰은 저장하지 않는다 (로그인할 때 한 번만 쓴다).
+
+| 필드 | 설명 |
+|---|---|
+| `github_id`\* | GitHub 사용자 ID. unique |
+| `login`\* | GitHub 로그인 이름 |
+| `avatar_url`\* | 프로필 이미지 URL |
+
+### 4.7 GitHub App 설치 (GithubInstallation) — `github_installations`\*, `user_github_installations`\*
+
+| 필드 | 설명 |
+|---|---|
+| `installation_id`\* | GitHub 가 부여한 설치 ID. unique |
+| `account_login`\*, `account_type`\* | 설치된 계정(`User`·`Organization`, GitHub 값 그대로) |
+
+`user_github_installations` 는 사용자와 설치의 N:M 연결이다. 조직 설치를 여러 명이 쓰기 때문이다. 로그인할 때마다 GitHub 의 `GET /user/installations` 기준으로 맞춘다.
+
+### 4.8 프로젝트 (Project) — `projects`\*
+
+서비스를 묶는 단위다. 소유자(`owner_id`)만 접근한다. 이름은 소유자 안에서 유일하다 (삭제되지 않은 것끼리).
+
+| 필드 | 설명 |
+|---|---|
+| `name`\*, `description`\* | 이름·설명 |
+| `owner_id`\* | 소유 사용자 |
+
+### 4.9 타깃 (Target) — `targets`\*, `service_targets`\*
+
+같은 이미지를 배포할 대상이다 (Railway 의 환경과 다르다. 이 서비스의 `environment` 는 `prod` 하나뿐이다).
+
+| 필드 | 설명 |
+|---|---|
+| `name`\* | 타깃 이름. unique (`aws`·`local`) |
+| `kind`\* | `target_kind` Enum (§5) |
+| `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사 |
+| `cluster_ref`\* | 클러스터 접속 정보의 비밀 저장소 참조 이름. 접속 정보 자체는 담지 않는다 |
+
+`service_targets` 는 서비스가 배포되는 타깃을 잇는다.
+
+> 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`jobs`·`builds`·`releases`)은 지우지 않는다.
 
 ---
 
@@ -159,6 +223,14 @@ GitOps 에 반영된 배포 결과 1건이다.
 ### 환경 (`environment`)
 
 `prod` (원문에는 prod 만 있다. staging 등은 필요할 때 추가한다)
+
+### 배포 시작 방식 (`deployment_trigger`)\* — `deployment_requests.trigger_type`
+
+`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 값으로 다시) · `ROLLBACK`(이전 release 로 되돌림)
+
+### 타깃 종류 (`target_kind`)\* — `targets.kind`
+
+`AWS`(클러스터) · `LOCAL`(로컬 머신·VM, 터널로 노출)
 
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 
@@ -212,5 +284,6 @@ GitOps 에 반영된 배포 결과 1건이다.
 | Application | Argo CD `Application` 리소스 | 사용자 앱 | `argo_application`. 사용자 앱은 Service |
 | Build | `Build` 레코드 | CodeBuild 의 빌드 실행 | 외부 ID 는 `codebuild_build_id` |
 | Release | GitOps 반영 결과 (`Release`) | Helm release | Helm 쪽은 `helm_release` |
-| Environment | 배포 대상 환경 (`prod`) | 환경변수 | 환경변수는 `env_vars` |
+| Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `env_vars`, 배포 대상은 `target` |
+| Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
 | Rollback | job `ROLLBACK` = revert commit | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분 |

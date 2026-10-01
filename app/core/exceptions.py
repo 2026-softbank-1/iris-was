@@ -56,3 +56,32 @@ class ExternalError(AppError):
     code = "EXTERNAL_ERROR"
     status_code = 502
     retryable = True
+
+
+class NotConfiguredError(AppError):
+    """필요한 설정(시크릿 등)이 없어 기능을 쓸 수 없다. 어떤 설정인지는 fields 에 담는다."""
+
+    code = "NOT_CONFIGURED"
+    status_code = 503
+
+
+class RepositoryNotAccessibleError(ForbiddenError):
+    """GitHub App 이 설치되지 않았거나 권한을 주지 않은 저장소. 설치·권한 확인을 안내한다."""
+
+    code = "REPOSITORY_NOT_ACCESSIBLE"
+
+
+class ProjectNotFoundError(NotFoundError):
+    code = "PROJECT_NOT_FOUND"
+
+
+class ServiceNotFoundError(NotFoundError):
+    code = "SERVICE_NOT_FOUND"
+
+
+class ProjectNameConflictError(ConflictError):
+    code = "PROJECT_NAME_CONFLICT"
+
+
+class ServiceNameConflictError(ConflictError):
+    code = "SERVICE_NAME_CONFLICT"

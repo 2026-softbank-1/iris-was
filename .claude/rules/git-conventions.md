@@ -63,7 +63,45 @@ fix/release-status
 
 ---
 
-## 3. 체크리스트
+## 3. 브랜치 전략 (develop → release → main)
+
+배경·대안: [docs/adr/0008](../../docs/adr/0008-branch-strategy.md)
+
+```text
+main ────────────────────────────●──────  (릴리스만. 항상 배포 가능)
+  \                              ↑ merge        ↓ back-merge
+   develop ──●──●──●──●──────────┴─ release/* ─ (통합 테스트·수정)
+              ↑  ↑  ↑
+           feat/* fix/* … (에이전트·사람별 워크트리, PR 로 squash merge)
+```
+
+| 브랜치 | 시작점 | 병합 대상 | 병합 방식 |
+|---|---|---|---|
+| `feat/*` `fix/*` 등 작업 브랜치 | `develop` | `develop` | PR, **squash merge** (작업 1개 = 커밋 1개) |
+| `release/<설명>` (예: `release/prelim-1`) | `develop` | `main` | PR, **merge commit** |
+| `main` | — | — | 직접 push 금지. 병합 후 `main` 을 `develop` 에 되돌려 합친다 |
+
+### 에이전트·병렬 작업
+- 작업(에이전트)마다 워크트리를 따로 만든다: `git worktree add ../iris-was-wt/<브랜치명> -b <브랜치명> develop`
+- 작업 시작 전과 PR 전에 `develop` 을 받아 rebase 한다. 오래 두지 않는다.
+- PR 대상은 항상 `develop`, 제목은 Conventional Commits 형식(squash 후 그대로 커밋 메시지가 된다).
+- 끝난 워크트리는 `git worktree remove` 로 정리한다.
+
+### 충돌이 잦은 파일
+- **Alembic**: revision 은 한 번에 한 사람(에이전트)만 만든다. 머지 전 `uv run alembic heads` 가 1개인지 확인하고, 2개면 rebase 해서 `down_revision` 을 잇는다.
+- **생성 파일**(`docs/openapi.json`, `.claude/rules/db-schema.sql`, `uv.lock`): 충돌 나면 손으로 합치지 않고 다시 생성한다(`uv run python -m scripts.export_openapi` · `alembic upgrade --sql` · `uv lock`).
+- 공용 조립 파일(`app/dependencies.py`, `app/main.py`)은 변경을 작게 유지한다.
+
+### 릴리스
+1. `develop` 에서 `release/<설명>` 을 딴다.
+2. release 에서 CI 전체와 통합 테스트, 마이그레이션 왕복(`upgrade head` → `alembic check` → `downgrade base` → `upgrade head`)을 확인하고, 수정은 release 에 직접 커밋한다.
+3. `release/*` → `main` PR 을 merge commit 으로 병합한다. 릴리스에서 빼야 할 변경이 있으면 cherry-pick 이 아니라 그 변경을 revert 한다.
+4. `main` 을 `develop` 에 되돌려 합친다(release 에서 한 수정 반영).
+
+---
+
+## 4. 체크리스트
 
 1. 커밋 type 이 표에 있는가? 설명이 명령형·간결한가?
-2. 브랜치가 `<type>/<소문자-하이픈-설명>` 형식인가?
+2. 브랜치가 `<type>/<소문자-하이픈-설명>` 형식이고 `develop` 에서 땄는가?
+3. PR 대상이 `develop`(릴리스는 `main`)인가? 머지 전 `alembic heads` 가 1개인가?
