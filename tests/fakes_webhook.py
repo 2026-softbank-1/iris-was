@@ -30,6 +30,15 @@ class FakeDeploymentRequestRepository:
         self.requests: list[DeploymentRequest] = []
         self._ids = count(1)
 
+    async def search_latest_by_service_ids(
+        self, service_ids: list[int]
+    ) -> dict[int, DeploymentRequest]:
+        return {
+            r.service_id: r
+            for r in sorted(self.requests, key=lambda r: r.id)
+            if r.service_id in service_ids
+        }
+
     async def add_if_absent(self, request: DeploymentRequest) -> DeploymentRequest | None:
         for existing in self.requests:
             if existing.idempotency_key == request.idempotency_key:

@@ -196,3 +196,35 @@ async def test_search_auto_deploy_by_repository_url_ignores_case_and_filters(
     )
 
     assert [s.id for s in found] == [web.id]
+
+
+async def test_search_latest_by_service_ids_returns_newest_request_per_service(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    web = await services.save(_service(project, installation, "web"))
+    api = await services.save(_service(project, installation, "api"))
+    idle = await services.save(_service(project, installation, "idle"))
+    repository = DeploymentRequestRepository(session)
+
+    async def add(service: Service, key: str, status: DeploymentStatus) -> DeploymentRequest:
+        request = DeploymentRequest(
+            service_id=service.id,
+            environment=Environment.PROD,
+            source_sha=key.ljust(40, "0"),
+            trigger_type=DeploymentTrigger.PUSH,
+            idempotency_key=f"latest-{service.id}-{key}",
+            status=status,
+        )
+        session.add(request)
+        await session.flush()
+        return request
+
+    await add(web, "a", DeploymentStatus.FAILED)
+    newest_web = await add(web, "b", DeploymentStatus.SUCCEEDED)
+    only_api = await add(api, "c", DeploymentStatus.BUILDING)
+
+    latest = await repository.search_latest_by_service_ids([web.id, api.id, idle.id])
+
+    assert {k: v.id for k, v in latest.items()} == {web.id: newest_web.id, api.id: only_api.id}

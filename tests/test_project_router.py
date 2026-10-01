@@ -24,6 +24,7 @@ from tests.fakes import (
     make_repository,
 )
 from tests.fakes_project import FakeProjectRepository, FakeServiceRepository, FakeTargetRepository
+from tests.fakes_webhook import FakeDeploymentRequestRepository
 
 
 def _user(id_: int) -> User:
@@ -39,6 +40,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     services = FakeServiceRepository(projects)
     targets = FakeTargetRepository()
     installations = FakeGithubInstallationRepository()
+    deployments = FakeDeploymentRequestRepository()
     installation = await installations.save(make_installation(5, 22, "iris-org"))
     await installations.replace_user_links(1, {installation.id})
     github = FakeSourceRepositoryClient({22: [make_repository("iris-org/web")]})
@@ -59,6 +61,7 @@ async def client() -> AsyncIterator[AsyncClient]:
         targets,  # type: ignore[arg-type]
         installations,  # type: ignore[arg-type]
         SourceRepositoryService(installations, github),  # type: ignore[arg-type]
+        deployments,  # type: ignore[arg-type]
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
         http.current = current  # type: ignore[attr-defined]
@@ -204,3 +207,16 @@ async def test_search_targets_lists_seeded_targets(client: AsyncClient) -> None:
         ("aws", "AWS"),
         ("local", "LOCAL"),
     ]
+
+
+async def test_service_response_has_no_latest_deployment_before_first_deploy(
+    client: AsyncClient,
+) -> None:
+    project_id = await _create_project(client)
+    created = await client.post(
+        f"/api/v1/projects/{project_id}/services",
+        json={"repositoryUrl": "https://github.com/iris-org/web"},
+    )
+
+    assert created.status_code == 201
+    assert "latestDeployment" not in created.json()["data"]

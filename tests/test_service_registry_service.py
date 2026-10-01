@@ -8,7 +8,8 @@ from app.core.exceptions import (
     ServiceNameConflictError,
     ServiceNotFoundError,
 )
-from app.enums import Builder
+from app.enums import Builder, DeploymentTrigger, Environment
+from app.models.deployment_request import DeploymentRequest
 from app.models.project import Project
 from app.services.service_registry_service import (
     ServiceRegistryService,
@@ -24,6 +25,7 @@ from tests.fakes import (
     make_repository,
 )
 from tests.fakes_project import FakeProjectRepository, FakeServiceRepository, FakeTargetRepository
+from tests.fakes_webhook import FakeDeploymentRequestRepository
 
 OWNER = 1
 
@@ -35,6 +37,7 @@ class Setup:
         self.services = FakeServiceRepository(self.projects)
         self.targets = FakeTargetRepository()
         self.installations = FakeGithubInstallationRepository()
+        self.deployments = FakeDeploymentRequestRepository()
         self.github = FakeSourceRepositoryClient({22: [make_repository("iris-org/My_Web.App")]})
         self.github.branches["iris-org/My_Web.App"] = [
             BranchInfo("main", True),
@@ -54,6 +57,7 @@ class Setup:
             self.targets,  # type: ignore[arg-type]
             self.installations,  # type: ignore[arg-type]
             SourceRepositoryService(self.installations, self.github),  # type: ignore[arg-type]
+            self.deployments,  # type: ignore[arg-type]
         )
 
 
@@ -277,3 +281,32 @@ async def test_delete_service_soft_deletes_and_frees_name(setup) -> None:
     with pytest.raises(ServiceNotFoundError):
         await service.get_service(OWNER, detail.service.id)
     await _create(service, s)
+
+
+async def test_get_service_without_deployment_has_no_latest_deployment(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+
+    found = await service.get_service(OWNER, detail.service.id)
+
+    assert found.latest_deployment is None
+
+
+async def test_search_services_returns_latest_deployment_request(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+    for sha in ("a" * 40, "b" * 40):
+        request = DeploymentRequest(
+            service_id=detail.service.id,
+            environment=Environment.PROD,
+            source_sha=sha,
+            trigger_type=DeploymentTrigger.PUSH,
+            idempotency_key=sha,
+        )
+        s.deployments.requests.append(request)
+        request.id = len(s.deployments.requests)
+
+    found = await service.search_services(OWNER, s.project_id)
+
+    assert found[0].latest_deployment is not None
+    assert found[0].latest_deployment.source_sha == "b" * 40

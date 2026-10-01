@@ -3,7 +3,8 @@ from typing import Annotated
 
 from pydantic import Field, StringConstraints
 
-from app.enums import Builder
+from app.enums import Builder, DeploymentStatus, DeploymentTrigger, FailureCode
+from app.models.deployment_request import DeploymentRequest
 from app.models.target import Target
 from app.schemas.response import ApiModel
 from app.services.service_registry_service import ServiceDetail
@@ -41,6 +42,32 @@ class ServiceUpdateRequest(ApiModel):
     target_ids: list[int] | None = None
 
 
+class LatestDeploymentResponse(ApiModel):
+    """서비스 카드에 보여줄 가장 최근 배포 요청. 서비스 상태는 `status` 로 읽는다."""
+
+    id: int
+    status: DeploymentStatus
+    source_sha: str
+    source_commit_message: str | None = None
+    trigger_type: DeploymentTrigger
+    failure_code: FailureCode | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, request: DeploymentRequest) -> "LatestDeploymentResponse":
+        return cls(
+            id=request.id,
+            status=request.status,
+            source_sha=request.source_sha,
+            source_commit_message=request.source_commit_message,
+            trigger_type=request.trigger_type,
+            failure_code=request.failure_code,
+            created_at=request.created_at,
+            updated_at=request.updated_at,
+        )
+
+
 class ServiceResponse(ApiModel):
     id: int
     project_id: int
@@ -56,6 +83,9 @@ class ServiceResponse(ApiModel):
     build_command: str | None = None
     start_command: str | None = None
     target_ids: list[int]
+    latest_deployment: LatestDeploymentResponse | None = Field(
+        default=None, description="가장 최근 배포 요청. 배포한 적이 없으면 없다."
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -77,6 +107,11 @@ class ServiceResponse(ApiModel):
             build_command=service.build_command,
             start_command=service.start_command,
             target_ids=detail.target_ids,
+            latest_deployment=(
+                LatestDeploymentResponse.from_model(detail.latest_deployment)
+                if detail.latest_deployment is not None
+                else None
+            ),
             created_at=service.created_at,
             updated_at=service.updated_at,
         )
