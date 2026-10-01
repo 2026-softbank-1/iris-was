@@ -1,10 +1,14 @@
 import logging
 
-from app.enums import DeploymentTrigger, Environment, JobKind
+from app.enums import DeploymentStatus, DeploymentTrigger, Environment, JobKind
 from app.models.deployment_request import DeploymentRequest
+from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
 from app.models.service import Service
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
+from app.repositories.deployment_status_history_repository import (
+    DeploymentStatusHistoryRepository,
+)
 from app.repositories.job_repository import JobRepository
 from app.schemas.job import BuildJobPayload
 
@@ -18,9 +22,11 @@ class DeploymentRequestService:
         self,
         deployment_request_repository: DeploymentRequestRepository,
         job_repository: JobRepository,
+        deployment_status_history_repository: DeploymentStatusHistoryRepository,
     ) -> None:
         self._deployment_request_repository = deployment_request_repository
         self._job_repository = job_repository
+        self._deployment_status_history_repository = deployment_status_history_repository
 
     async def create_deployment_request(
         self,
@@ -55,6 +61,14 @@ class DeploymentRequestService:
             )
             return None
 
+        # 첫 이력. 대기 시간(QUEUED)이 언제부터인지 이 행으로 안다.
+        await self._deployment_status_history_repository.add(
+            DeploymentStatusHistory(
+                deployment_request_id=request.id,
+                from_status=None,
+                to_status=DeploymentStatus.QUEUED,
+            )
+        )
         payload = BuildJobPayload(
             source_repository_url=service.source_repository_url,
             source_branch=service.source_branch,

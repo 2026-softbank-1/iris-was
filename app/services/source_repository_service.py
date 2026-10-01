@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from app.clients.source_repository_client import (
     BranchInfo,
+    CommitInfo,
     InstallationToken,
     RepositoryInfo,
     SourceRepositoryClient,
@@ -85,6 +86,15 @@ class SourceRepositoryService:
         repository = await self.get_repository(user_id, full_name)
         return await self._source_repository_client.fetch_branches(
             repository.installation_id, repository.full_name
+        )
+
+    async def find_branch_head(
+        self, user_id: int, full_name: str, branch: str
+    ) -> CommitInfo | None:
+        """사용자가 접근할 수 있는 저장소의 브랜치 최신 커밋. 브랜치가 없으면 None."""
+        repository = await self.get_repository(user_id, full_name)
+        return await self._source_repository_client.find_branch_head(
+            repository.installation_id, repository.full_name, branch
         )
 
     async def create_clone_token(self, installation_id: int) -> InstallationToken:

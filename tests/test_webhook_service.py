@@ -14,6 +14,7 @@ from app.services.webhook_service import WebhookService
 from tests.fakes import FakeGithubInstallationRepository, FakeSession
 from tests.fakes_webhook import (
     FakeDeploymentRequestRepository,
+    FakeDeploymentStatusHistoryRepository,
     FakeJobRepository,
     FakeWebhookServiceRepository,
 )
@@ -58,12 +59,17 @@ class Parts:
         self.session = FakeSession()
         self.requests = FakeDeploymentRequestRepository()
         self.jobs = FakeJobRepository()
+        self.histories = FakeDeploymentStatusHistoryRepository()
         self.installations = FakeGithubInstallationRepository()
         self.service = WebhookService(
             self.session,  # type: ignore[arg-type]
             FakeWebhookServiceRepository(services),  # type: ignore[arg-type]
             self.installations,  # type: ignore[arg-type]
-            DeploymentRequestService(self.requests, self.jobs),  # type: ignore[arg-type]
+            DeploymentRequestService(
+                self.requests,  # type: ignore[arg-type]
+                self.jobs,  # type: ignore[arg-type]
+                self.histories,  # type: ignore[arg-type]
+            ),
             SECRET,
         )
 
@@ -117,6 +123,11 @@ async def test_push_creates_deployment_request_and_build_job() -> None:
     assert job.kind == JobKind.BUILD
     assert job.payload["source_sha"] == SHA
     assert job.payload["source_branch"] == "main"
+    first_history = parts.histories.histories[0]
+    assert (first_history.from_status, first_history.to_status) == (
+        None,
+        DeploymentStatus.QUEUED,
+    )
     assert parts.session.commit_count == 1
 
 

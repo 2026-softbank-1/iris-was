@@ -2,8 +2,11 @@
 
 from itertools import count
 
+from app.core.exceptions import DeploymentRequestNotFoundError
 from app.enums import ACTIVE_DEPLOYMENT_STATUSES, DeploymentStatus
+from app.models.base import now_utc
 from app.models.deployment_request import DeploymentRequest
+from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
 from app.models.service import Service
 
@@ -30,6 +33,42 @@ class FakeDeploymentRequestRepository:
         self.requests: list[DeploymentRequest] = []
         self._ids = count(1)
 
+    async def find_by_idempotency_key(self, idempotency_key: str) -> DeploymentRequest | None:
+        return next((r for r in self.requests if r.idempotency_key == idempotency_key), None)
+
+    async def find_by_id_and_service_id(
+        self, deployment_request_id: int, service_id: int
+    ) -> DeploymentRequest | None:
+        return next(
+            (
+                r
+                for r in self.requests
+                if r.id == deployment_request_id and r.service_id == service_id
+            ),
+            None,
+        )
+
+    async def get_by_id_for_update(self, deployment_request_id: int) -> DeploymentRequest:
+        request = next((r for r in self.requests if r.id == deployment_request_id), None)
+        if request is None:
+            raise DeploymentRequestNotFoundError(
+                "deployment request not found", deployment_request_id=deployment_request_id
+            )
+        return request
+
+    async def search_by_service_id(
+        self, service_id: int, page: int, size: int
+    ) -> list[DeploymentRequest]:
+        found = sorted(
+            (r for r in self.requests if r.service_id == service_id),
+            key=lambda r: (r.created_at, r.id),
+            reverse=True,
+        )
+        return found[page * size : (page + 1) * size]
+
+    async def count_by_service_id(self, service_id: int) -> int:
+        return sum(1 for r in self.requests if r.service_id == service_id)
+
     async def search_latest_by_service_ids(
         self, service_ids: list[int]
     ) -> dict[int, DeploymentRequest]:
@@ -51,8 +90,30 @@ class FakeDeploymentRequestRepository:
                 return None
         request.id = next(self._ids)
         request.status = DeploymentStatus.QUEUED
+        request.created_at = request.updated_at = now_utc()
         self.requests.append(request)
         return request
+
+
+class FakeDeploymentStatusHistoryRepository:
+    def __init__(self) -> None:
+        self.histories: list[DeploymentStatusHistory] = []
+        self._ids = count(1)
+
+    async def add(self, history: DeploymentStatusHistory) -> DeploymentStatusHistory:
+        history.id = next(self._ids)
+        if history.created_at is None:
+            history.created_at = now_utc()
+        self.histories.append(history)
+        return history
+
+    async def search_by_deployment_request_id(
+        self, deployment_request_id: int
+    ) -> list[DeploymentStatusHistory]:
+        return sorted(
+            (h for h in self.histories if h.deployment_request_id == deployment_request_id),
+            key=lambda h: (h.created_at, h.id),
+        )
 
 
 class FakeJobRepository:

@@ -51,3 +51,9 @@ class DeploymentRequest(TimestampMixin, Base):
     )
     # 요청 시점의 환경변수. 같은 값으로 다시 배포하거나 되돌릴 때 쓴다.
     variables_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    def transition_to(self, to_status: DeploymentStatus, failure_code: FailureCode | None) -> None:
+        """허용 여부는 DeploymentStatusService 가 검사한다. 상태는 이 메서드로만 바꾼다."""
+        self.status = to_status
+        if failure_code is not None:
+            self.failure_code = failure_code

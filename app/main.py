@@ -17,6 +17,7 @@ from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.routers import (
     auth_router,
+    deployment_router,
     github_router,
     project_router,
     service_router,
@@ -48,6 +49,7 @@ OPENAPI_TAGS = [
     {"name": "github", "description": "GitHub App 설치와 저장소·브랜치 조회"},
     {"name": "projects", "description": "서비스를 묶는 프로젝트"},
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
+    {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {"name": "targets", "description": "배포 타깃(aws · local)"},
     {"name": "webhooks", "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다"},
 ]
@@ -68,6 +70,7 @@ app.include_router(user_router.router)
 app.include_router(github_router.router)
 app.include_router(project_router.router)
 app.include_router(service_router.router)
+app.include_router(deployment_router.router)
 app.include_router(target_router.router)
 app.include_router(webhook_router.router)
 

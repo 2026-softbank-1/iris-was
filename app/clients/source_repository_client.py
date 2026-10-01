@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 import jwt
@@ -27,6 +28,12 @@ class BranchInfo:
 
 
 @dataclass(frozen=True)
+class CommitInfo:
+    sha: str
+    message: str
+
+
+@dataclass(frozen=True)
 class InstallationToken:
     """저장소 clone·조회용 단기 토큰. 로그와 응답에 남기지 않는다."""
 
@@ -46,6 +53,12 @@ class SourceRepositoryClient(Protocol):
         ...
 
     async def fetch_branches(self, installation_id: int, full_name: str) -> list[BranchInfo]: ...
+
+    async def find_branch_head(
+        self, installation_id: int, full_name: str, branch: str
+    ) -> CommitInfo | None:
+        """브랜치가 가리키는 최신 커밋. 브랜치가 없으면 None."""
+        ...
 
 
 class GithubSourceRepositoryClient:
@@ -112,6 +125,21 @@ class GithubSourceRepositoryClient:
             if len(items) < self._PAGE_SIZE:
                 break
         return branches
+
+    async def find_branch_head(
+        self, installation_id: int, full_name: str, branch: str
+    ) -> CommitInfo | None:
+        token = (await self.create_installation_token(installation_id)).token
+        body = await self._request(
+            "GET",
+            f"/repos/{full_name}/branches/{quote(branch, safe='/')}",
+            token=token,
+            allow_not_found=True,
+        )
+        if body is None:
+            return None
+        commit = body["commit"]
+        return CommitInfo(sha=str(commit["sha"]), message=str(commit["commit"]["message"]))
 
     def _create_app_jwt(self) -> str:
         now = int(time.time())

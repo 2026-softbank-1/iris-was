@@ -6,6 +6,10 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
+- 2026-10-01T15:23Z · app/models/__init__.py (Edit) · +2 −0
+- 2026-10-01T15:23Z · app/models/__init__.py (Edit) · +1 −0
+- 2026-10-01T15:22Z · app/models/deployment_request.py (Edit) · +6 −0
+- 2026-10-01T15:22Z · app/models/deployment_status_history.py (Write) · 신규/동일
 - 2026-10-01T02:33Z · app/models/release.py (Write) · 신규/동일
 - 2026-10-01T02:33Z · app/models/build.py (Write) · 신규/동일
 - 2026-10-01T02:33Z · app/models/job.py (Write) · 신규/동일
