@@ -185,3 +185,7 @@ uv run mypy app                                       # 타입 검사
 uv run pytest                                         # 테스트
 uv run alembic revision --autogenerate -m "..."       # 마이그레이션 생성
 ```
+
+## 빌드 입력 준비
+
+소스 분석 뒤 Dockerfile/Railpack 빌더를 추천하고 원본 소스 아카이브를 검증하는 Worker 연동은 [빌드 준비 단계](docs/build-preparation.md)를 참조합니다. Dockerfile이 없으면 Railpack을 추천하며, 서비스 담당자가 빌더 선택·CodeBuild·ECR 실행을 소유합니다. 분석기는 Dockerfile을 생성하지 않습니다.
