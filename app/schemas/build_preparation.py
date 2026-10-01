@@ -31,7 +31,6 @@ class PrepareBuildRequest(BaseModel):
     builder: Builder | None
     dockerfile_path: str | None = None
     platform: Literal["linux/amd64", "linux/arm64"] = "linux/amd64"
-    allow_generation: bool = True
 
     @field_validator("source_directory", "output_directory")
     @classmethod
@@ -76,23 +75,40 @@ class BuildSourceArchiveSchema(BaseModel):
     format: Literal["tar.gz"]
 
 
+class BuildHandoffSchema(BaseModel):
+    """Builder advice is separate from the service owner's recorded selection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    owner: Literal["service"]
+    requested_builder: Builder | None = Field(alias="requestedBuilder")
+    recommended_builder: Builder = Field(alias="recommendedBuilder")
+    decision_required: bool = Field(alias="decisionRequired")
+    reason_code: Literal[
+        "source_dockerfile",
+        "dockerfile_absent",
+        "explicit_railpack",
+        "explicit_dockerfile_missing",
+        "dockerfile_selection_required",
+    ] = Field(alias="reasonCode")
+
+
 class PrepareBuildResponse(BaseModel):
     """Analyzer wire names are converted once into WAS domain field names."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
-    schema_version: Literal["iris.build-preparation.v1"] = Field(alias="schemaVersion")
+    schema_version: Literal["iris.build-preparation.v2"] = Field(alias="schemaVersion")
     status: Literal["ready", "needs_input"]
-    builder: Builder | None
+    builder: Builder
+    build_handoff: BuildHandoffSchema = Field(alias="buildHandoff")
     root_directory: str = Field(alias="rootDirectory")
     platform: Literal["linux/amd64", "linux/arm64"]
     source_sha: str = Field(alias="sourceSha", pattern=r"^[a-f0-9]{40}$")
     dockerfile_path: str | None = Field(alias="dockerfilePath")
-    dockerfile_origin: Literal["source", "controlled_template", "railpack"] = Field(
-        alias="dockerfileOrigin"
-    )
+    dockerfile_origin: Literal["source"] | None = Field(alias="dockerfileOrigin")
     dockerfile_sha256: str | None = Field(alias="dockerfileSha256", pattern=r"^[a-f0-9]{64}$")
-    template_id: str | None = Field(alias="templateId")
+    template_id: None = Field(alias="templateId")
     source_manifest_sha256: str | None = Field(
         alias="sourceManifestSha256", pattern=r"^[a-f0-9]{64}$"
     )

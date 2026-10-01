@@ -28,20 +28,28 @@ def get_program(tmp_path: Path, code: str) -> list[str]:
     return [sys.executable, str(script), "--request-stdin"]
 
 
+@pytest.mark.parametrize("builder", [Builder.DOCKERFILE, None])
 async def test_analyzer_client_translates_wire_request_and_does_not_inherit_credentials(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, builder: Builder | None
 ) -> None:
     monkeypatch.setenv("OPENAI_API", "never-forward-this-secret")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "never-forward-that-secret")
     response = {
-        "schemaVersion": "iris.build-preparation.v1",
+        "schemaVersion": "iris.build-preparation.v2",
         "status": "needs_input",
         "builder": "dockerfile",
+        "buildHandoff": {
+            "owner": "service",
+            "requestedBuilder": builder.value if builder is not None else None,
+            "recommendedBuilder": "dockerfile",
+            "decisionRequired": True,
+            "reasonCode": "explicit_dockerfile_missing",
+        },
         "rootDirectory": "web",
         "platform": "linux/amd64",
         "sourceSha": "a" * 40,
         "dockerfilePath": None,
-        "dockerfileOrigin": "source",
+        "dockerfileOrigin": None,
         "dockerfileSha256": None,
         "templateId": None,
         "sourceManifestSha256": None,
@@ -52,13 +60,17 @@ async def test_analyzer_client_translates_wire_request_and_does_not_inherit_cred
         tmp_path,
         "import json, os, sys\n"
         "request = json.load(sys.stdin)\n"
+        "assert request['schemaVersion'] == 'iris.build-preparation-request.v2'\n"
+        f"assert request['builder'] == {builder.value if builder is not None else 'auto'!r}\n"
+        "assert 'allowGeneration' not in request\n"
         "assert request['sourceSha'] == 'a' * 40\n"
         "assert request['rootDirectory'] == 'web'\n"
         "assert 'OPENAI_API' not in os.environ\n"
         "assert 'AWS_SECRET_ACCESS_KEY' not in os.environ\n"
         f"sys.stdout.write({json.dumps(json.dumps(response))})\n",
     )
-    result = await SubprocessAnalyzerBuildClient(command).prepare_build(get_request(tmp_path))
+    request = get_request(tmp_path).model_copy(update={"builder": builder})
+    result = await SubprocessAnalyzerBuildClient(command).prepare_build(request)
     assert result.source_sha == "a" * 40
     assert result.status == "needs_input"
 

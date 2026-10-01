@@ -45,15 +45,14 @@ class SubprocessAnalyzerBuildClient:
     async def prepare_build(self, request: PrepareBuildRequest) -> PrepareBuildResponse:
         payload = json.dumps(
             {
-                "schemaVersion": "iris.build-preparation-request.v1",
+                "schemaVersion": "iris.build-preparation-request.v2",
                 "sourceRoot": str(request.source_directory),
                 "outputDirectory": str(request.output_directory),
                 "sourceSha": request.source_sha,
                 "rootDirectory": request.root_directory,
                 "dockerfilePath": request.dockerfile_path,
                 "platform": request.platform,
-                "builder": request.builder.value if request.builder is not None else None,
-                "allowGeneration": request.allow_generation,
+                "builder": request.builder.value if request.builder is not None else "auto",
             },
             ensure_ascii=False,
         ).encode()

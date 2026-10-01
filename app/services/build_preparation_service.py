@@ -78,24 +78,6 @@ class BuildPreparationService:
         self._analyzer_client = analyzer_client
 
     async def prepare_build(self, request: PrepareBuildRequest) -> PrepareBuildResponse:
-        if request.builder is None:
-            raise BuildConfigRequiredError("builder selection must be confirmed before preparation")
-        if request.builder == Builder.RAILPACK:
-            # Explicit Railpack selection remains the existing worker's build path.
-            return PrepareBuildResponse(
-                schema_version="iris.build-preparation.v1",
-                status="ready",
-                builder=Builder.RAILPACK,
-                source_sha=request.source_sha,
-                root_directory=request.root_directory,
-                platform=request.platform,
-                dockerfile_path=request.dockerfile_path,
-                dockerfile_origin="railpack",
-                dockerfile_sha256=None,
-                template_id=None,
-                source_manifest_sha256=None,
-                source_archive=None,
-            )
         try:
             source_files = await asyncio.to_thread(self._get_source_files, request)
             selected = PurePosixPath(
@@ -109,6 +91,10 @@ class BuildPreparationService:
             raise NotConfiguredError("analyzer command is not configured")
         result = await self._analyzer_client.prepare_build(request)
         self._validate_identity(request, result, original_digest)
+        for evidence in result.evidence:
+            original_evidence = source_files.get(evidence.path)
+            if original_evidence is None or evidence.sha256 != original_evidence[1]:
+                raise ExternalError("analyzer evidence does not match the fixed source input")
         if result.status == "needs_input":
             return result
         await asyncio.to_thread(self._validate_artifact, request, result, source_files)
@@ -169,32 +155,64 @@ class BuildPreparationService:
         result: PrepareBuildResponse,
         original_digest: str | None,
     ) -> None:
+        handoff = result.build_handoff
         if (
             result.source_sha != request.source_sha
             or result.root_directory != request.root_directory
             or result.platform != request.platform
-            or result.builder != request.builder
-            or result.dockerfile_origin == "railpack"
+            or handoff.requested_builder != request.builder
+            or handoff.recommended_builder != result.builder
+            or handoff.decision_required
+            != (request.builder is None or result.status == "needs_input")
+            or (request.builder is not None and result.builder != request.builder)
         ):
             raise ExternalError("analyzer preparation changed the fixed build identity")
-        if (
-            request.dockerfile_path is not None
-            and result.dockerfile_path != request.dockerfile_path
+        if result.builder == Builder.RAILPACK:
+            if (
+                result.status != "ready"
+                or result.dockerfile_path is not None
+                or result.dockerfile_origin is not None
+                or result.dockerfile_sha256 is not None
+                or handoff.reason_code
+                != (
+                    "explicit_railpack"
+                    if request.builder == Builder.RAILPACK
+                    else "dockerfile_absent"
+                )
+                or (request.builder is None and original_digest is not None)
+            ):
+                raise ExternalError("analyzer returned inconsistent Railpack advice")
+        elif result.status == "ready":
+            if (
+                result.dockerfile_path != (request.dockerfile_path or "Dockerfile")
+                or result.dockerfile_origin != "source"
+                or original_digest is None
+                or result.dockerfile_sha256 != original_digest
+                or handoff.reason_code != "source_dockerfile"
+            ):
+                raise ExternalError("analyzer preparation changed an existing Dockerfile")
+        elif (
+            result.dockerfile_path is not None
+            or result.dockerfile_origin is not None
+            or result.dockerfile_sha256 is not None
+            or original_digest is not None
+            or handoff.reason_code
+            != (
+                "explicit_dockerfile_missing"
+                if request.builder == Builder.DOCKERFILE
+                else "dockerfile_selection_required"
+            )
         ):
-            raise ExternalError("analyzer preparation changed the selected Dockerfile path")
-        if original_digest is not None and (
-            result.dockerfile_origin != "source" or result.dockerfile_sha256 != original_digest
-        ):
-            raise ExternalError("analyzer preparation changed an existing Dockerfile")
-        if result.dockerfile_origin == "controlled_template" and not request.allow_generation:
-            raise ExternalError("analyzer generated a Dockerfile without generation authorization")
-        if result.status == "ready" and (
+            raise ExternalError("analyzer returned inconsistent Dockerfile advice")
+        if result.template_id is not None:
+            raise ExternalError("analyzer generation is not part of build preparation v2")
+        if result.status == "needs_input":
+            if result.source_archive is not None or not result.unresolved_inputs:
+                raise ExternalError("analyzer preparation lacks required unresolved input details")
+        elif (
             result.source_archive is None
-            or result.dockerfile_path is None
-            or result.dockerfile_sha256 is None
             or result.source_manifest_sha256 is None
             or result.unresolved_inputs
-            or (result.dockerfile_origin == "controlled_template" and not result.template_id)
         ):
             raise ExternalError("analyzer preparation lacks required build artifact provenance")
 
@@ -203,7 +221,6 @@ class BuildPreparationService:
         request: PrepareBuildRequest, result: PrepareBuildResponse, source_files: SourceFiles
     ) -> None:
         assert result.source_archive is not None
-        assert result.dockerfile_path is not None
         archive = Path(result.source_archive.path)
         output = request.output_directory.resolve()
         if (
@@ -221,26 +238,13 @@ class BuildPreparationService:
                 hasher.update(chunk)
         if hasher.hexdigest() != result.source_archive.sha256:
             raise ExternalError("analyzer build artifact digest does not match")
-        wanted = PurePosixPath("source", request.root_directory, result.dockerfile_path).as_posix()
+        wanted = (
+            PurePosixPath("source", request.root_directory, result.dockerfile_path).as_posix()
+            if result.dockerfile_path is not None
+            else None
+        )
         if result.source_manifest_sha256 != _manifest_digest(source_files):
             raise ExternalError("analyzer source manifest does not match the fixed source input")
-        wanted_relative = PurePosixPath(request.root_directory, result.dockerfile_path).as_posix()
-        if result.dockerfile_origin == "source" and wanted_relative not in source_files:
-            raise ExternalError("analyzer reused a Dockerfile absent from the fixed source input")
-        if result.dockerfile_origin == "controlled_template" and wanted_relative in source_files:
-            raise ExternalError(
-                "analyzer overwrote an existing source file with a generated template"
-            )
-        for evidence in result.evidence:
-            original = source_files.get(evidence.path)
-            expected_digest = original[1] if original is not None else None
-            if (
-                evidence.path == wanted_relative
-                and result.dockerfile_origin == "controlled_template"
-            ):
-                expected_digest = result.dockerfile_sha256
-            if evidence.sha256 != expected_digest:
-                raise ExternalError("analyzer evidence does not match the fixed source input")
         found = False
         checked_files: set[str] = set()
         entries: set[str] = set()
@@ -270,13 +274,10 @@ class BuildPreparationService:
                     if not member.isfile():
                         continue
                     relative = PurePosixPath(*path.parts[1:]).as_posix()
-                    is_generated = (
-                        result.dockerfile_origin == "controlled_template" and member.name == wanted
-                    )
                     original = source_files.get(relative)
-                    if original is None and not is_generated:
+                    if original is None:
                         raise ExternalError(
-                            "analyzer artifact added a file outside the agreed overlay"
+                            "analyzer artifact added a file absent from the fixed source input"
                         )
                     member_stream = content.extractfile(member)
                     if member_stream is None:
@@ -304,5 +305,5 @@ class BuildPreparationService:
             raise ExternalError("analyzer build artifact is not a valid source archive") from None
         if checked_files != set(source_files):
             raise ExternalError("analyzer artifact omitted original source files")
-        if not found:
+        if wanted is not None and not found:
             raise ExternalError("analyzer artifact does not contain the selected Dockerfile")
