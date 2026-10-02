@@ -27,7 +27,7 @@ app/
 ├─ models/         SQLAlchemy 모델
 ├─ clients/        CodeBuild·ECR·GitOps(Git)·Argo CD 비동기 클라이언트
 ├─ core/           설정·예외·로깅
-└─ enums.py        JobKind · JobStatus · Builder
+└─ enums.py        JobKind · JobStatus · Builder · BuildStatus · FailureCode 등
 alembic/           DB 마이그레이션
 tests/
 ```
@@ -123,6 +123,26 @@ App 설정에서 맞춰야 할 값:
 - 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.
 - 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
 
+Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 않는다.
+
+| 환경변수 | 설명 |
+|---|---|
+| `GITHUB_APP_ID` · `GITHUB_APP_PRIVATE_KEY` | Iris GitHub App ID·private key(PEM). 운영은 Secrets Manager → K8s Secret 으로 주입 |
+| `AWS_REGION` | CodeBuild·ECR·S3 리전 |
+| `CODEBUILD_PROJECT` · `ARTIFACT_BUCKET` | iris-infra `aws/dev/foundation` 출력값. dev: `iris-dev-build` · `iris-dev-build-artifacts-<ACCOUNT_ID>-ap-northeast-2` |
+| `CONCURRENCY` | Worker 1개가 동시에 처리할 BUILD job 수. 기본 4 |
+| `USER_CONCURRENT_BUILD_LIMIT` · `BUILD_TIMEOUT_MINUTES` · `SNAPSHOT_MAX_BYTES` | 사용자별 동시 빌드 2 · 빌드 15분 · 스냅샷 250MB |
+
+Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub App·자격증명을 공유하지 않는다.
+
+| 환경변수 | 설명 |
+|---|---|
+| `AWS_REGION` | ECR 리전 (`r-*` 태그) |
+| `BASE_DOMAIN` | 사용자 서비스 도메인. 서비스는 `{서비스 이름}-{service_id}.<BASE_DOMAIN>` 으로 열린다 |
+| `GITOPS_REPOSITORY` | `{owner}/gitops-environments`. `main` 에 fast-forward 커밋만 한다 |
+| `GITOPS_APP_ID` · `GITOPS_APP_PRIVATE_KEY` · `GITOPS_INSTALLATION_ID` | `iris-gitops` GitHub App(contents:write, GitOps 저장소에만 설치) |
+| `ARGOCD_SERVER_URL` · `ARGOCD_TOKEN` | Argo CD API 주소, project role `deploy-reader` 토큰(applications get) |
+
 ## 실행
 
 ```bash
@@ -131,7 +151,11 @@ uv run python -m app.workers.build_worker     # Build Worker
 uv run python -m app.workers.deploy_worker    # Deploy Worker
 ```
 
-Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다.
+Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다. Build Worker 는 CodeBuild 를 기다리던 job 을 반납하고, 다른 Worker 가 기록된 `codebuild_build_id` 로 이어서 처리한다. 스냅샷(최대 250MB 다운로드·업로드) 중에는 반납하지 않으므로 Pod `terminationGracePeriodSeconds` 를 120 이상으로 둔다.
+
+Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
+
+Deploy Worker 흐름: DEPLOY 선점 → release(PENDING) 생성(서비스·타깃마다 1개, 진행 중이면 snooze) → `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart values) 렌더링 → 커밋 SHA 기록 → `main` fast-forward → RECONCILE 이 10초마다 Argo CD 상태 확인(대기 중에는 job 을 잡지 않고 snooze) → 성공이면 ECR `r-{release_id}` 태그·`SUCCEEDED`, 실패면 이전 정상 release 의 디렉터리로 되돌리는 revert commit(ROLLBACK). 상세는 [.claude/docs/deploy-worker-plan.md](.claude/docs/deploy-worker-plan.md), 로컬 테스트는 [docs/deploy-worker-test-guide.md](docs/deploy-worker-test-guide.md).
 
 로그는 stdout 에 JSON 한 줄씩 나간다. 로컬에서는 `... | jq` 로 보면 편하다. 로깅·응답·예외 구조는 [docs/api-response-logging-template.md](docs/api-response-logging-template.md) 참조.
 
@@ -180,11 +204,24 @@ uv run alembic downgrade -1 && uv run alembic upgrade head
 
 마이그레이션 작성 규칙은 [.claude/rules/db-migration.md](.claude/rules/db-migration.md) 를 따른다.
 
+## 배포 (management EKS)
+
+GitHub Actions **Deploy platform**(`workflow_dispatch`, main 전용)으로만 배포한다.
+
+1. 실행 시 `api`(Control API, DB migration 포함)·`build_worker`·`deploy_worker` 중 배포할 것을 고른다.
+2. 이미지를 한 번 빌드해 ECR `iris/was`에 push 하고, 고른 컴포넌트의 digest 만 `iris-gitops-environments`의 이 레포 전용 파일 `platform/aws-dev-management/was.yaml`(`api`·`buildWorker`·`deployWorker` 의 `digest`)에 커밋한다.
+3. management EKS의 Argo CD(`iris-platform`)가 반영한다. DB 스키마 변경은 api 배포의 migration 으로만 적용된다.
+
+GitHub 설정은 secret `GITOPS_APP_PRIVATE_KEY`(GitHub App `softbank-iris-github-app`, ID `5148916`) 하나다. 계정·ECR 역할(`iris-dev-github-ecr-was`)·저장소 이름은 workflow 상수다.
+
+Secret·RDS·rollback 절차는 iris-infra `docs/runbooks/deploy-platform.md`를 본다.
+
 ## 자주 쓰는 명령
 
 ```bash
 uv run ruff check . && uv run ruff format --check .   # 린트·포맷
 uv run mypy app                                       # 타입 검사
 uv run pytest                                         # 테스트
+TEST_DATABASE_URL=postgresql+asyncpg://<USER>:<PASSWORD>@localhost:5432/softbank_iris_test uv run pytest  # 통합 테스트 포함. `alembic upgrade head` 를 끝낸 전용 DB 여야 한다(데이터 테이블을 비운다)
 uv run alembic revision --autogenerate -m "..."       # 마이그레이션 생성
 ```

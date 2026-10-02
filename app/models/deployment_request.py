@@ -1,8 +1,9 @@
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.enums import (
     ACTIVE_DEPLOYMENT_STATUSES,
@@ -12,6 +13,7 @@ from app.enums import (
     FailureCode,
 )
 from app.models.base import Base, BigIntPk, TimestampMixin, enum_column
+from app.models.service import Service
 
 _ACTIVE_STATUS_SQL = ", ".join(f"'{status}'" for status in ACTIVE_DEPLOYMENT_STATUSES)
 
@@ -51,6 +53,10 @@ class DeploymentRequest(TimestampMixin, Base):
     )
     # 요청 시점의 환경변수. 같은 값으로 다시 배포하거나 되돌릴 때 쓴다.
     variables_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 더 새로운 요청이 이 요청을 대신하면 기록한다. Worker 가 보고 SUPERSEDED 로 끝낸다.
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    service: Mapped[Service] = relationship(lazy="raise")
 
     def transition_to(self, to_status: DeploymentStatus, failure_code: FailureCode | None) -> None:
         """허용 여부는 DeploymentStatusService 가 검사한다. 상태는 이 메서드로만 바꾼다."""

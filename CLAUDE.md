@@ -58,7 +58,8 @@ flowchart LR
 
 - `routers/` 와 `workers/` 는 서로 import 하지 않는다. 둘 다 `services/` 만 호출한다.
 - Control API 경로는 DB 기록·조회만 한다. CodeBuild·Git·Argo CD Client 를 쓰는 서비스 로직은 Worker 에서만 호출한다(원문 §3 금지 권한).
-- 레포 루트의 `build-images/railpack/`, `deploy/helm/`, `deploy/argocd/`, `infra/terraform/`, `docker-compose.dev.yml` 은 원문 §8 위치대로 **필요해질 때** 만든다.
+- AWS 자원(CodeBuild·S3·IAM)과 CodeBuild buildspec 은 iris-infra 레포(`terraform/environments/aws/dev/foundation/`)가 소유한다. buildspec 환경변수 이름은 `app/services/build_service.py` 와의 계약이다.
+- 레포 루트의 `deploy/helm/`, `deploy/argocd/`, `docker-compose.dev.yml` 은 원문 §8 위치대로 **필요해질 때** 만든다.
 
 ---
 
@@ -111,7 +112,7 @@ flowchart LR
 - **패키지·실행**: `uv`. 명령은 `uv run <cmd>` — 린트 `uv run ruff check .` / 타입 `uv run mypy app` / 테스트 `uv run pytest` / Control API `uv run uvicorn app.main:app` / Worker `uv run python -m app.workers.build_worker`·`deploy_worker` / 마이그레이션 `uv run alembic upgrade head`.
 - **린트·포맷**: `ruff`. **타입체크**: `mypy`. 설정은 `pyproject.toml` 한곳.
 - **테스트**: `pytest` + `pytest-asyncio`. 함수명 `test_{대상}_{시나리오}_{기대}`.
-- **로컬 DB**: PostgreSQL `softbank_iris`. 접속 정보는 `.env` 의 `DATABASE_URL`(gitignore 대상, 커밋·출력 금지). `.env` 가 없으면 앱이 시작하지 않는다. `pytest` 는 DB 없이 돌고(`tests/conftest.py`), DB 가 필요한 검증은 로컬 DB 로 한다.
+- **로컬 DB**: PostgreSQL `softbank_iris`. 접속 정보는 `.env` 의 `DATABASE_URL`(gitignore 대상, 커밋·출력 금지). `.env` 가 없으면 앱이 시작하지 않는다. `pytest` 는 DB 없이 돌고(`tests/conftest.py`), `TEST_DATABASE_URL`(`alembic upgrade head` 를 끝낸 전용 DB `softbank_iris_test`. 데이터 테이블을 비운다)을 주면 jobs 큐·BuildService·DeployService 통합 테스트도 돈다. Deploy Worker 로컬 E2E 는 `docs/deploy-worker-test-guide.md`.
 - **마이그레이션 검증**: revision 을 만들면 로컬 DB 에서 `upgrade head` → `alembic check`(차이 없음) → `downgrade -1` → `upgrade head` 까지 통과시킨다. 검증용 임시 테이블·revision 은 `downgrade` 후 파일까지 지워 레포에 남기지 않는다.
 - **품질 게이트**: Claude Code PreToolUse 훅(`.claude/settings.json`)이 `git add`·`git commit` 전 `ruff`·`mypy`·`pytest`, `git push` 전 `ruff`를 돌려 실패 시 차단한다. `pyproject.toml`이 없으면 건너뛴다.
 - **스키마 동기화**: `app/models/*.py` 변경 시 PostToolUse 훅(`.claude/hooks/db_schema_changelog.py`)이 변경을 `.claude/logs/db-schema-changelog.md`에 기록하고 Alembic revision 생성과 `.claude/rules/db-schema.sql` 동기화를 지시한다.

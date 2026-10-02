@@ -1,10 +1,12 @@
 import logging
 
 from app.enums import DeploymentStatus, DeploymentTrigger, Environment, JobKind
+from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
 from app.models.service import Service
+from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -23,10 +25,12 @@ class DeploymentRequestService:
         deployment_request_repository: DeploymentRequestRepository,
         job_repository: JobRepository,
         deployment_status_history_repository: DeploymentStatusHistoryRepository,
+        build_repository: BuildRepository,
     ) -> None:
         self._deployment_request_repository = deployment_request_repository
         self._job_repository = job_repository
         self._deployment_status_history_repository = deployment_status_history_repository
+        self._build_repository = build_repository
 
     async def create_deployment_request(
         self,
@@ -69,17 +73,12 @@ class DeploymentRequestService:
                 to_status=DeploymentStatus.QUEUED,
             )
         )
-        payload = BuildJobPayload(
-            source_repository_url=service.source_repository_url,
-            source_branch=service.source_branch,
-            source_sha=source_sha,
-            root_directory=service.root_directory,
-        )
+        build = await self._build_repository.add(Build(deployment_request_id=request.id))
         await self._job_repository.save(
             Job(
                 deployment_request_id=request.id,
                 kind=JobKind.BUILD,
-                payload=payload.model_dump(mode="json"),
+                payload=BuildJobPayload(build_id=build.id).model_dump(mode="json"),
             )
         )
         return request

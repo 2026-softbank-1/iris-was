@@ -166,26 +166,27 @@ RETURNING jobs.*;
 ### 배포
 
 1. Build 성공 후 `image digest`와 SBOM·스캔 결과를 저장한다.
-2. Deploy Worker가 GitOps의 해당 서비스·환경 manifest에서 digest만 바꾼다.
-3. Prod는 PR 승인 후 병합한다. 사전 승인된 자동 배포 정책일 때만 Bot이 제한된 경로에 자동 병합한다.
-4. Argo CD의 `Sync`, `Health`, Argo Rollouts 상태와 smoke test를 확인한다.
-5. 모두 성공했을 때만 해당 revision을 `lastKnownGood`으로 기록한다.
+2. Deploy Worker가 GitOps의 `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart `iris-service`의 values, 이미지는 digest)을 렌더링한다. manifest는 Argo CD가 chart로 만든다.
+3. PR 없이 Bot(`iris-gitops` App)이 `main`에 fast-forward 커밋한다. `platform/**`은 ruleset으로 Bot 쓰기를 막는다.
+4. Argo CD의 `Sync`, `Health`를 확인한다. Argo Rollouts·smoke test 대신 rolling update(`maxUnavailable: 0`)와 readiness probe를 쓴다.
+5. 모두 성공했을 때만 해당 release를 `SUCCEEDED`로 기록한다. 이것이 `lastKnownGood`이다.
 
 ### 실패
 
 | 실패 시점 | 처리 |
 |---|---|
 | 빌드·테스트·스캔 실패 | GitOps 변경 없이 `BUILD_FAILED` 기록. 이미지가 일부 push됐으면 미참조 artifact로 보관 후 정리 |
-| Argo Sync·readiness·smoke test 실패 | Rollout이 이전 ReplicaSet에 트래픽을 유지 또는 복귀. Deploy Worker가 B digest만 A digest로 되돌리는 revert commit 생성 |
-| Git HEAD가 이미 B 이후로 변경됨 | 자동 revert 금지, `MANUAL_INTERVENTION` 전환 |
+| Argo Sync·readiness 실패 | rolling update라 A Pod가 트래픽을 유지한다. Deploy Worker가 서비스 디렉터리를 A 커밋의 디렉터리로 되돌리는 revert commit 생성 |
+| Git HEAD의 서비스 디렉터리가 B 커밋과 다름 | 자동 revert 금지, `MANUAL_INTERVENTION` 전환 |
+| 첫 배포 실패 | 되돌릴 곳이 없어 `FAILED`. Git은 그대로 두고 다음 배포가 덮어쓴다 |
 | DB schema 삭제 등 비가역 작업 | 자동 rollback 금지, 운영자 승인 필요 |
 
 자동 rollback은 아래 조건을 모두 만족할 때만 실행한다.
 
 ```text
-현재 GitOps manifest의 digest == 실패한 B digest
-lastKnownGoodDigest == A digest
-동일 service + environment에 더 최신 진행 배포가 없음
+HEAD의 services/{service_id}/prod subtree == 실패한 B 커밋의 subtree
+lastKnownGood == A                     (진행 중 release를 서비스당 하나로 막는 index가 보장)
+동일 service에 더 최신 진행 배포가 없음   (같은 index가 보장)
 ```
 
 `git push --force`는 사용하지 않는다. B 변경만 되돌리는 새 revert commit을 만들어야 Git 이력과 Argo CD desired state가 일치한다.
@@ -241,11 +242,10 @@ GitOps 저장소는 별도 레포로 둔다.
 
 ```text
 gitops-environments/
-  clusters/prod/
-    applications/
+  platform/argocd/               # ApplicationSet·AppProject (관리자)
   services/
-    payment-api/
-      prod/kustomization.yaml    # image digest만 변경
+    12/prod/                     # service_id/환경. Deploy Worker가 values.yaml 전체를 렌더링
+      values.yaml                # chart(iris-infra helm/charts/iris-service)의 values
 ```
 
 서비스 소스 저장소도 별도다. `control-plane`은 소스 빌드와 배포 orchestration만 담당한다.
