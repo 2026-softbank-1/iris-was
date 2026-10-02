@@ -47,3 +47,6 @@
 - 함수를 거치지 않는 직접 UPDATE 는 막지 못한다. Worker 는 `status` 를 직접 쓰지 않고 이 함수를 부르기로 합의했다.
 - 이 변경은 `deployment_requests` 만 다룬다. 타깃별 `releases.status` 전이는 다루지 않는다. 필요해지면 새 ADR 로 같은 방식을 확장한다.
 - `main` 의 Build Worker 는 `develop` 과 스키마가 달라 이 함수를 아직 쓰지 않는다. 두 갈래를 합칠 때 `Build` 의 상태 변경을 이 함수로 바꾸고, `INITIALIZING`·`SUPERSEDED` 가 상태에 들어오면 허용 표를 넓힌다.
+
+## 보강 (2026-10-02)
+허용 표에 `SUPERSEDED` 를 추가했다. `QUEUED`·`BUILDING`·`DEPLOYING` 에서만 갈 수 있고 끝 상태다(진행 중 요청이 더 새로운 요청으로 대체돼 Worker 가 중단한 경우). 근거와 `"상태 값은 늘리지 않는다"` 와의 차이는 [ADR 0013](0013-integrate-build-deploy-workers-on-develop-models.md) 을 본다.
