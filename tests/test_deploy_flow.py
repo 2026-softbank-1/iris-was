@@ -27,9 +27,15 @@ from app.enums import (
     JobStatus,
     ReleaseStatus,
 )
-from app.models import Build, DeploymentRequest, Job, Release
+from app.models import Build, DeploymentRequest, Job, Release, Service
+from app.repositories.build_repository import BuildRepository
+from app.repositories.deployment_request_repository import DeploymentRequestRepository
+from app.repositories.deployment_status_history_repository import (
+    DeploymentStatusHistoryRepository,
+)
 from app.repositories.job_repository import JobRepository
 from app.services.deploy_service import DeployService
+from app.services.deployment_request_service import DeploymentRequestService
 from tests.worker_support import (
     add,
     requires_database,
@@ -483,3 +489,66 @@ async def test_failed_rollback_needs_manual_intervention(session_factory: Any) -
     request, release, _ = await h.load(request_id)
     assert release is not None and release.status == ReleaseStatus.FAILED
     assert request.status == DeploymentStatus.MANUAL_INTERVENTION
+
+
+async def _request_reusing_image(
+    h: Harness, source_request_id: int, trigger_type: DeploymentTrigger
+) -> int:
+    """실제 Repository 로 빌드 없는 배포 요청(롤백·재시작)을 만든다. 요청 ID 를 돌려준다."""
+    async with h.session_factory.begin() as session:
+        service = await session.get_one(Service, h.service_id)
+        source = await session.get_one(DeploymentRequest, source_request_id)
+        source_build = await BuildRepository(session).find_by_deployment_request_id(source.id)
+        assert source_build is not None
+        request = await DeploymentRequestService(
+            DeploymentRequestRepository(session),
+            JobRepository(session),
+            DeploymentStatusHistoryRepository(session),
+            BuildRepository(session),
+        ).create_deployment_request_reusing_image(
+            service,
+            source_deployment_request=source,
+            source_build=source_build,
+            trigger_type=trigger_type,
+            idempotency_key=f"reuse-{uuid4().hex}",
+        )
+        assert request is not None
+        return request.id
+
+
+@pytest.mark.parametrize("trigger_type", [DeploymentTrigger.ROLLBACK, DeploymentTrigger.RESTART])
+async def test_reused_image_request_deploys_source_digest_as_new_release(
+    session_factory: Any, trigger_type: DeploymentTrigger
+) -> None:
+    h = Harness(session_factory)
+    v1_id = await h.deploy_successfully()
+    v2_id = await h.deploy_successfully()
+    source_id = v1_id if trigger_type == DeploymentTrigger.ROLLBACK else v2_id
+    source_request, source_release, _ = await h.load(source_id)
+    _, v2_release, _ = await h.load(v2_id)
+    assert source_release is not None and v2_release is not None
+    commits_before = len(h.gitops.commits)
+
+    request_id = await _request_reusing_image(h, source_id, trigger_type)
+    await h.run_next(JobKind.DEPLOY)
+
+    request, release, _ = await h.load(request_id)
+    assert release is not None
+    assert (request.trigger_type, request.status) == (trigger_type, DeploymentStatus.DEPLOYING)
+    assert release.image_digest == source_release.image_digest
+    assert release.previous_good_release_id == v2_release.id
+    assert len(h.gitops.commits) == commits_before + 1
+    tree_sha = h.gitops.commits[h.gitops.head][1][f"services/{h.service_id}/prod"]
+    values = json.loads(h.gitops.trees[tree_sha]["values.yaml"])
+    assert values["image"]["digest"] == source_release.image_digest
+    # release id 가 바뀌어야 digest 가 같아도(재시작) Pod 가 새로 뜬다.
+    assert values["release"]["id"] == release.id
+    assert release.id not in (source_release.id, v2_release.id)
+
+    h.argo.status = _argo(h.gitops.head)
+    await h.run_next(JobKind.RECONCILE)
+
+    request, release, _ = await h.load(request_id)
+    assert release is not None
+    assert (release.status, request.status) == (ReleaseStatus.SUCCEEDED, DeploymentStatus.SUCCEEDED)
+    assert request.source_deployment_request_id == source_request.id

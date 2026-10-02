@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import DeploymentRequestNotFoundError
+from app.enums import DeploymentStatus
 from app.models.deployment_request import DeploymentRequest
 
 
@@ -20,6 +21,21 @@ class DeploymentRequestRepository:
         stmt = select(DeploymentRequest).where(
             DeploymentRequest.id == deployment_request_id,
             DeploymentRequest.service_id == service_id,
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
+    async def find_latest_succeeded_by_service_id(
+        self, service_id: int
+    ) -> DeploymentRequest | None:
+        """서비스에서 마지막으로 성공한 배포 요청. 지금 떠 있는 버전이다."""
+        stmt = (
+            select(DeploymentRequest)
+            .where(
+                DeploymentRequest.service_id == service_id,
+                DeploymentRequest.status == DeploymentStatus.SUCCEEDED,
+            )
+            .order_by(DeploymentRequest.created_at.desc(), DeploymentRequest.id.desc())
+            .limit(1)
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
@@ -87,6 +103,7 @@ class DeploymentRequestRepository:
                 idempotency_key=request.idempotency_key,
                 requested_by=request.requested_by,
                 variables_snapshot=request.variables_snapshot,
+                source_deployment_request_id=request.source_deployment_request_id,
             )
             .on_conflict_do_nothing()
             .returning(DeploymentRequest)

@@ -49,4 +49,6 @@
 - `main` 의 Build Worker 는 `develop` 과 스키마가 달라 이 함수를 아직 쓰지 않는다. 두 갈래를 합칠 때 `Build` 의 상태 변경을 이 함수로 바꾸고, `INITIALIZING`·`SUPERSEDED` 가 상태에 들어오면 허용 표를 넓힌다.
 
 ## 보강 (2026-10-02)
+`ROLLBACK` 은 이제 커밋을 다시 빌드하지 않고 원본이 만든 이미지를 그대로 배포한다. `trigger_type=RESTART` 가 추가됐고, 이 둘은 빌드를 건너뛰므로 허용 표에 `QUEUED → DEPLOYING` 이 생겼다. 위 `REDEPLOY`·`ROLLBACK` 설명 중 롤백 부분은 [ADR 0015](0015-rollback-and-restart-reuse-built-image.md) 가 대신한다.
+
 허용 표에 `SUPERSEDED` 를 추가했다. `QUEUED`·`BUILDING`·`DEPLOYING` 에서만 갈 수 있고 끝 상태다(진행 중 요청이 더 새로운 요청으로 대체돼 Worker 가 중단한 경우). 근거와 `"상태 값은 늘리지 않는다"` 와의 차이는 [ADR 0013](0013-integrate-build-deploy-workers-on-develop-models.md) 을 본다.

@@ -117,6 +117,7 @@ CREATE TABLE deployment_requests (
     status VARCHAR(32) NOT NULL,
     failure_code VARCHAR(32),
     variables_snapshot JSONB,
+    source_deployment_request_id BIGINT,
     cancel_requested_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
@@ -124,9 +125,10 @@ CREATE TABLE deployment_requests (
     CONSTRAINT ck_deployment_requests_environment CHECK (environment IN ('prod')),
     CONSTRAINT ck_deployment_requests_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR')),
     CONSTRAINT ck_deployment_requests_deployment_status CHECK (status IN ('QUEUED', 'BUILDING', 'DEPLOYING', 'SUCCEEDED', 'FAILED', 'ROLLED_BACK', 'MANUAL_INTERVENTION', 'SUPERSEDED')),
-    CONSTRAINT ck_deployment_requests_deployment_trigger CHECK (trigger_type IN ('MANUAL', 'PUSH', 'CLI', 'REDEPLOY', 'ROLLBACK')),
+    CONSTRAINT ck_deployment_requests_deployment_trigger CHECK (trigger_type IN ('MANUAL', 'PUSH', 'CLI', 'REDEPLOY', 'ROLLBACK', 'RESTART')),
     CONSTRAINT fk_deployment_requests_requested_by_users FOREIGN KEY(requested_by) REFERENCES users (id),
     CONSTRAINT fk_deployment_requests_service_id_services FOREIGN KEY(service_id) REFERENCES services (id),
+    CONSTRAINT fk_deployment_requests_source_deployment_request_id FOREIGN KEY(source_deployment_request_id) REFERENCES deployment_requests (id),
     CONSTRAINT uq_deployment_requests_idempotency_key UNIQUE (idempotency_key)
 );
 
