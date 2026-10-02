@@ -10,3 +10,12 @@ __pycache__/
 
 # 환경변수 (키 목록은 .env.example 로 공유)
 .env
+
+# 검토한 분석기 wheel과 출처만 vendoring한다(전역 vendor ignore도 이 경로에서 해제).
+!vendor/
+vendor/*
+!vendor/README.md
+!vendor/analyzer-manifest.json
+!vendor/iris_analyzer-0.1.0-py3-none-any.whl
+!vendor/ai_error_check_agent-0.2.0-py3-none-any.whl
+!vendor/diagnosis-manifest.json

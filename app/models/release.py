@@ -1,4 +1,6 @@
-from sqlalchemy import ForeignKey, Index, String
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.enums import Environment, ReleaseStatus
@@ -23,6 +25,9 @@ class Release(TimestampMixin, Base):
     target_id: Mapped[int] = mapped_column(ForeignKey("targets.id"))
     image_digest: Mapped[str] = mapped_column(String(80))
     gitops_commit_sha: Mapped[str | None] = mapped_column(String(64))
+    image_repository: Mapped[str | None] = mapped_column(String(500))
+    revert_commit_sha: Mapped[str | None] = mapped_column(String(64))
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Argo CD 가 주는 값을 원본 표기 그대로 저장한다 (Synced · Healthy 등).
     argo_sync_status: Mapped[str | None] = mapped_column(String(32))
     argo_health_status: Mapped[str | None] = mapped_column(String(32))

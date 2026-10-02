@@ -6,11 +6,19 @@ Railway 처럼 무엇이든 간단히 배포해 주는 배포 서비스 **AnyDep
 
 ## 구성
 
-한 Python 패키지(`app/`)에서 세 컴포넌트를 실행 명령만 달리해 띄운다. 운영에서는 모두 Master EKS 에서 돌고, Deployment·IAM Role 은 컴포넌트마다 따로 둔다.
+서비스 생성 후 코드 분석 접수·조회·취소·설정 확인 API와 별도 Analysis Worker가 제공된다.
+설치·환경변수·실행·검증은 [분석 연동 안내](docs/analysis-integration.md)를 참고한다.
+분석 결과·검증 보고서·배포 계획을 보존하고 명시적으로 확인한 설정만 서비스에 적용한다.
+원클릭 분석→질문→계획→빌드→배포→실패 진단 연결은 [파이프라인 연동 안내](docs/pipeline-integration.md)를 따른다.
+
+한 Python 패키지(`app/`)에서 API와 다섯 Worker를 실행 명령만 달리해 띄운다. 운영에서는 모두 Master EKS 에서 돌고, Deployment·IAM Role 은 컴포넌트마다 따로 둔다.
 
 | 컴포넌트 | 진입점 | 하는 일 |
 |---|---|---|
 | Control API | `app/main.py` | 배포 요청 접수·상태 조회. DB 기록만 한다 |
+| Analysis Worker | `app/workers/analysis_worker.py` | 고정 커밋의 원문 근거·분석·readiness를 저장한다 |
+| Pipeline Worker | `app/workers/pipeline_worker.py` | 부족 정보 확인 후 분석 에이전트 계획을 받아 빌드·배포를 연결한다 |
+| Diagnosis Worker | `app/workers/diagnosis_worker.py` | 실패 회차의 실제 마스킹 로그와 근거·원인 후보·수정 제안을 저장한다 |
 | Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다 |
 | Deploy Worker | `app/workers/deploy_worker.py` | `DEPLOY`·`ROLLBACK`·`RECONCILE` job 을 선점해 GitOps 저장소를 바꾸고 Argo CD 상태를 수집한다 |
 
@@ -127,8 +135,11 @@ App 설정에서 맞춰야 할 값:
 
 ```bash
 uv run uvicorn app.main:app --reload          # Control API (GET /healthz: 생존, GET /readyz: DB 연결 — 정상 204, 실패 503)
-uv run python -m app.workers.build_worker     # Build Worker
-uv run python -m app.workers.deploy_worker    # Deploy Worker
+uv run --extra analysis python -m app.workers.analysis_worker  # Analysis Worker
+uv run --extra analysis python -m app.workers.pipeline_worker  # Pipeline Worker
+uv run --extra analysis python -m app.workers.diagnosis_worker # Diagnosis Worker
+uv run --extra analysis python -m app.workers.build_worker     # Build Worker
+uv run --extra analysis python -m app.workers.deploy_worker    # Deploy Worker
 ```
 
 Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다.
@@ -188,3 +199,5 @@ uv run mypy app                                       # 타입 검사
 uv run pytest                                         # 테스트
 uv run alembic revision --autogenerate -m "..."       # 마이그레이션 생성
 ```
+
+1002 마감 변경 및 현재 설계: [docs/1002-integration-design.md](docs/1002-integration-design.md).

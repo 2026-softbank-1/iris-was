@@ -17,6 +17,34 @@ class JobStatus(StrEnum):
     MANUAL_INTERVENTION = "MANUAL_INTERVENTION"
 
 
+class AnalysisJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class PipelineStatus(StrEnum):
+    QUEUED = "QUEUED"
+    ANALYZING = "ANALYZING"
+    AWAITING_INPUT = "AWAITING_INPUT"
+    PLANNING = "PLANNING"
+    BUILDING = "BUILDING"
+    DEPLOYING = "DEPLOYING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class DiagnosisJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    TIMED_OUT = "TIMED_OUT"
+
+
 class Builder(StrEnum):
     DOCKERFILE = "dockerfile"
     RAILPACK = "railpack"

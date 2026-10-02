@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.0",
     "asyncpg>=0.31.0",
+    "boto3>=1.43.107",
     "fastapi>=0.142.2",
     "httpx>=0.28.1",
     "pydantic-settings>=2.15.0",
@@ -13,6 +14,16 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.1.1",
     "uvicorn>=0.54.0",
 ]
+
+[project.optional-dependencies]
+analysis = [
+    "iris-analyzer==0.1.0",
+    "AI-Error-Check-Agent==0.2.0",
+]
+
+[tool.uv.sources]
+ai-error-check-agent = { path = "vendor/ai_error_check_agent-0.2.0-py3-none-any.whl" }
+iris-analyzer = { path = "vendor/iris_analyzer-0.1.0-py3-none-any.whl" }
 
 [tool.ruff]
 line-length = 100
@@ -28,6 +39,10 @@ python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = ["iris_analyzer.*", "ai_error_check_agent.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
@@ -36,6 +51,7 @@ markers = ["integration: 실제 PostgreSQL 이 필요한 테스트 (TEST_DATABAS
 
 [dependency-groups]
 dev = [
+    "boto3-stubs[codebuild,ecr,logs,s3]>=1.43.107",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",

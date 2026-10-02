@@ -64,6 +64,11 @@ class FakeServiceRepository:
         project = await self._projects.find_by_id_and_owner_id(service.project_id, owner_id)
         return service if project is not None else None
 
+    async def find_by_id_and_owner_id_for_update(
+        self, service_id: int, owner_id: int
+    ) -> Service | None:
+        return await self.find_by_id_and_owner_id(service_id, owner_id)
+
     async def find_by_project_id_and_name(self, project_id: int, name: str) -> Service | None:
         return next(
             (

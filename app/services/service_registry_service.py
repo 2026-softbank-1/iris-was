@@ -143,7 +143,7 @@ class ServiceRegistryService:
         self, owner_id: int, service_id: int, changes: Mapping[str, Any]
     ) -> ServiceDetail:
         """`changes` 에 있는 키만 바꾼다. 명시한 null 은 값을 비운다(비울 수 없는 필드는 거부)."""
-        service = await self._get_owned(owner_id, service_id)
+        service = await self._get_owned(owner_id, service_id, lock=True)
         for field in changes:
             if field not in _NULLABLE_FIELDS | _NON_NULL_FIELDS:
                 raise InvalidInputError("field cannot be updated", field=field)
@@ -173,13 +173,18 @@ class ServiceRegistryService:
 
     async def delete_service(self, owner_id: int, service_id: int) -> None:
         """소프트 삭제한다. 실행 중인 리소스 정리는 후속 단계(엔진 작업)에서 이어진다."""
-        service = await self._get_owned(owner_id, service_id)
+        service = await self._get_owned(owner_id, service_id, lock=True)
         service.mark_as_deleted()
         await self._session.commit()
         logger.info("service deleted", extra={"action": "delete_service", "service_id": service_id})
 
-    async def _get_owned(self, owner_id: int, service_id: int) -> Service:
-        service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)
+    async def _get_owned(self, owner_id: int, service_id: int, *, lock: bool = False) -> Service:
+        lookup = (
+            self._service_repository.find_by_id_and_owner_id_for_update
+            if lock
+            else self._service_repository.find_by_id_and_owner_id
+        )
+        service = await lookup(service_id, owner_id)
         if service is None:
             raise ServiceNotFoundError("service not found", service_id=service_id)
         return service

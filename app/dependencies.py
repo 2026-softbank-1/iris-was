@@ -10,10 +10,14 @@ from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients.analysis_source_client import AnalysisSourceClient, GithubAnalysisSourceClient
 from app.clients.oauth_client import GithubOAuthClient
 from app.clients.source_repository_client import GithubSourceRepositoryClient
+from app.clients.unavailable_analysis_source_client import UnavailableAnalysisSourceClient
+from app.core.analysis_config import AnalysisSettings, get_analysis_settings
 from app.core.config import Settings, get_settings
 from app.core.database import get_session_factory
+from app.core.diagnosis_config import DiagnosisSettings, get_diagnosis_settings
 from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -23,14 +27,18 @@ from app.repositories.deployment_status_history_repository import (
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.service_analysis_repository import ServiceAnalysisRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
+from app.services.analysis_service import AnalysisService
 from app.services.auth_service import AuthService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.diagnosis_service import DiagnosisService
 from app.services.manual_deployment_service import ManualDeploymentService
+from app.services.pipeline_service import PipelineService
 from app.services.project_service import ProjectService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.session_service import SessionService
@@ -55,6 +63,59 @@ def get_http_client(request: Request) -> httpx.AsyncClient:
 
 
 HttpClientDep = Annotated[httpx.AsyncClient, Depends(get_http_client)]
+
+AnalysisSettingsDep = Annotated[AnalysisSettings, Depends(get_analysis_settings)]
+
+
+def get_analysis_source_client(
+    settings: SettingsDep, http_client: HttpClientDep
+) -> AnalysisSourceClient:
+    if settings.github_app_id is None or settings.github_app_private_key is None:
+        return UnavailableAnalysisSourceClient()
+    github = GithubSourceRepositoryClient(
+        http_client,
+        settings.github_app_id,
+        settings.github_app_private_key.get_secret_value(),
+        settings.github_api_base_url,
+    )
+    return GithubAnalysisSourceClient(http_client, github, settings.github_api_base_url)
+
+
+AnalysisSourceClientDep = Annotated[AnalysisSourceClient, Depends(get_analysis_source_client)]
+
+
+def get_analysis_service(
+    session: SessionDep, source_client: AnalysisSourceClientDep, settings: AnalysisSettingsDep
+) -> AnalysisService:
+    return AnalysisService(
+        session,
+        ServiceRepository(session),
+        ServiceAnalysisRepository(session),
+        GithubInstallationRepository(session),
+        source_client,
+        settings,
+    )
+
+
+AnalysisServiceDep = Annotated[AnalysisService, Depends(get_analysis_service)]
+
+
+def get_pipeline_service(
+    session: SessionDep, source_client: AnalysisSourceClientDep, settings: AnalysisSettingsDep
+) -> PipelineService:
+    return PipelineService(session, source_client, settings)
+
+
+PipelineServiceDep = Annotated[PipelineService, Depends(get_pipeline_service)]
+
+DiagnosisSettingsDep = Annotated[DiagnosisSettings, Depends(get_diagnosis_settings)]
+
+
+def get_diagnosis_service(session: SessionDep, settings: DiagnosisSettingsDep) -> DiagnosisService:
+    return DiagnosisService(session, settings)
+
+
+DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
 
 
 def _require_session_secret(settings: Settings) -> str:
@@ -198,7 +259,9 @@ DeploymentRequestServiceDep = Annotated[
 
 def get_deployment_status_service(session: SessionDep) -> DeploymentStatusService:
     return DeploymentStatusService(
-        DeploymentRequestRepository(session), DeploymentStatusHistoryRepository(session)
+        DeploymentRequestRepository(session),
+        DeploymentStatusHistoryRepository(session),
+        session=session,
     )
 
 

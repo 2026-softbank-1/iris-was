@@ -46,3 +46,5 @@
 | [0008](0008-branch-strategy.md) | 브랜치 전략: develop 통합, release 에서 검증 후 main 병합 | 수락됨 |
 | [0009](0009-github-webhook-receiver.md) | GitHub 웹훅은 서명으로 인증하고 push 를 배포 요청으로 바꾼다 | 수락됨 |
 | [0010](0010-deployment-status-transitions-and-history.md) | 배포 요청 상태는 전이 함수로만 바꾸고 전이마다 이력을 남긴다 | 수락됨 |
+| [0011](0011-service-analysis-jobs-and-explicit-confirmation.md) | 코드 분석은 별도 작업으로 저장하고 서비스 설정은 명시적으로 확정한다 | 제안됨 |
+| [0012](0012-analysis-before-build-and-failure-diagnosis.md) | 분석·질문·계획을 빌드 전 단계로 보존하고 실패 로그 진단을 연결한다 | 제안됨 |

@@ -49,6 +49,8 @@ erDiagram
   github_installations ||--o{ services : "소스 접근"
   services }o--o{ targets : "service_targets"
   services ||--o{ deployment_requests : "배포 요청"
+  services ||--o{ service_analyses : "고정 소스 분석"
+  users ||--o{ service_analyses : "분석 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
   deployment_requests ||--o| builds : "빌드 결과 (한 번)"
@@ -209,7 +211,34 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 ---
 
+### 4.11 서비스 분석 (ServiceAnalysis) — `service_analyses`
+
+서비스의 고정 소스 분석 요청 1건이다. 배포 요청·작업과 별도의 상태를 갖는다. 같은 서비스에서 대기·실행 중인 분석은 하나만 허용하며 기존 결과를 덮어쓰지 않는다.
+
+| 필드 | 설명 |
+|---|---|
+| `id` | 서버가 생성하는 UUID 문자열 작업 ID |
+| `service_id`, `requested_by` | 분석 대상 서비스와 요청 사용자. 각각 로컬 `services.id`, `users.id` 참조 |
+| `source_repository_url`, `source_branch`, `source_sha`, `root_directory` | 접수 시 고정한 소스 식별자와 저장소 기준 서비스 루트 |
+| `github_installation_id` | 소스 조회에 쓰는 외부 GitHub installation ID 스냅샷. 로컬 설치 PK가 아니며 FK도 아니다 |
+| `mode`, `status`, `stage` | 요청 실행 모드, 분석 작업 상태, 현재 진행 단계 |
+| `model_selection` | 접수 시 고정한 provider·model·outputMode·timeoutSeconds 등 허용된 비밀이 아닌 실행 설정(JSONB). static에서는 null이며 자격증명은 포함하지 않는다 |
+| `source_snapshot_id`, `context_hash`, `result_digest` | 분석 소스·입력·결과의 무결성 식별자 |
+| `analysis_status` | 코드 분석 내용 상태: complete / needs_input / unsupported. 작업 상태와 구분 |
+| `analysis_result`, `verification_report`, `source_readiness`, `deployment_dossier`, `run_report` | JSONB 분석·검증·준비·계획·실행 기록. 원문 소스와 자격증명은 저장하지 않는다 |
+| `evidence` | JSONB 마스킹 근거와 출처 위치. 사용자가 결과를 확인하는 자료 |
+| `builder_recommendation`, `review_required` | 서비스 소유자가 확인할 추천 빌더와 검토 여부 |
+| `error_code` | 실패 안내용 정제된 오류 코드 |
+| `attempts`, `lease_token`, `locked_until` | 선점 횟수, 선점마다 바뀌는 UUID token, 실행 점유 만료 시각 |
+| `confirmed_at`, `selected_service_candidate_id` | 사용자 확인 시각과 고정 분석 결과에서 선택한 서비스 candidate |
+
 ## 5. Enum 값 정의
+
+### 분석 작업 상태 (`analysis_job_status`) — `service_analyses.status`
+
+`QUEUED` · `RUNNING` · `SUCCEEDED` · `FAILED` · `CANCELLED`
+
+SUCCEEDED는 분석 실행이 정상 종료됐다는 뜻이다. 분석 정보 부족·미지원, 사용자 서비스 설정 확정, 빌드 성공, 배포 승인을 의미하지 않는다. 분석 작업의 실패·취소는 배포 요청 상태를 변경하지 않는다.
 
 ### 작업 종류 (`job_kind`) — `jobs.kind`
 
@@ -314,3 +343,13 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `env_vars`, 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
 | Rollback | job `ROLLBACK` = revert commit | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분 |
+
+
+## 8. 분석 파이프라인과 실패 진단 (2026-10-02 추가)
+
+- `PipelineRun` / `pipeline_runs`: 소유자·GitHub 설치·고정 SHA·서비스 설정·타깃을 고정한 분석부터 배포까지의 작업. 사용자 요청 또는 관리된 서비스의 push가 접수한다.
+- `PipelineStatus`: `QUEUED → ANALYZING → AWAITING_INPUT → PLANNING → BUILDING → DEPLOYING → SUCCEEDED`, 실패/취소는 `FAILED`/`CANCELLED`. 질문이 없으면 AWAITING_INPUT을 생략한다. 계획 미리보기는 `SUCCEEDED`, stage `plan_ready`이며 빌드하지 않는다.
+- `execution_plan` / `plan_digest`: 분석 결과·원문 snapshot·입력·타깃을 묶은 `iris.pipeline-plan.v1`과 SHA-256. Worker는 큐 설정과 이 계획의 동일성을 검사한다. analyzer dossier의 `executionAuthorized:false`는 보존하고 플랫폼 요청의 실행 권한과 혼동하지 않는다.
+- `DeploymentDiagnosis` / `deployment_diagnoses`: FAILED 배포의 실행 회차별 실제 로그 진단. QUEUED/RUNNING/SUCCEEDED/FAILED/TIMED_OUT은 진단 작업 상태이며 배포 상태를 변경하지 않는다. remediation은 적용 조건·검증·rollback을 포함한 제안이며 자동 실행하지 않는다.
+- `Build.source_snapshot_key/source_archive_digest/source_sha/build_config`: 분석과 비교한 소스 snapshot을 S3에 보관하고 재현 가능한 아카이브 digest 및 확인된 설정을 기록한다.
+- `Release.image_repository/revert_commit_sha/deadline_at`: digest의 ECR 저장소, 안전한 revert commit 및 rollout 관찰 기한. rollout 실패 자동 복구는 같은 서비스 경로가 바뀌지 않은 경우에만 허용한다.

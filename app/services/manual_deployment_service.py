@@ -7,6 +7,7 @@ from app.core.exceptions import (
     DeploymentInProgressError,
     DeploymentRequestNotFoundError,
     InvalidInputError,
+    PipelineRequiredError,
     ServiceNotFoundError,
 )
 from app.enums import DeploymentStatus, DeploymentTrigger
@@ -55,6 +56,8 @@ class ManualDeploymentService:
         if trigger_type not in _MANUAL_TRIGGERS:
             raise InvalidInputError("trigger type is not allowed here", trigger_type=trigger_type)
         service = await self._get_owned(owner_id, service_id)
+        if (service.analysis_plan or {}).get("pipelineManaged"):
+            raise PipelineRequiredError("start an analyzed pipeline before building or deploying")
 
         if trigger_type in _SOURCE_COPYING_TRIGGERS:
             commit_sha, commit_message = await self._copy_source(

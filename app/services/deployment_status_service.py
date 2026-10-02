@@ -1,6 +1,8 @@
 import logging
 from collections.abc import Mapping
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.exceptions import InvalidInputError, InvalidStatusTransitionError
 from app.enums import DeploymentStatus, FailureCode
 from app.models.deployment_request import DeploymentRequest
@@ -46,9 +48,11 @@ class DeploymentStatusService:
         self,
         deployment_request_repository: DeploymentRequestRepository,
         deployment_status_history_repository: DeploymentStatusHistoryRepository,
+        session: AsyncSession | None = None,
     ) -> None:
         self._deployment_request_repository = deployment_request_repository
         self._deployment_status_history_repository = deployment_status_history_repository
+        self._session = session
 
     async def transition_status(
         self,
@@ -97,6 +101,21 @@ class DeploymentStatusService:
                 failure_code=failure_code,
             )
         )
+        if to_status == DeploymentStatus.FAILED and self._session is not None:
+            from app.services.diagnosis_service import enqueue_deployment_diagnosis
+
+            # Keep failure state authoritative even when a diagnostic helper is unavailable.
+            try:
+                async with self._session.begin_nested():
+                    await enqueue_deployment_diagnosis(self._session, request)
+            except Exception:
+                logger.error(
+                    "diagnosis admission failed",
+                    extra={
+                        "action": "enqueue_diagnosis",
+                        "deployment_request_id": request.id,
+                    },
+                )
         logger.info(
             "deployment status transitioned",
             extra={

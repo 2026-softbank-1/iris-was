@@ -101,3 +101,55 @@ class InvalidStatusTransitionError(ConflictError):
     """배포 요청 상태 전이 표에 없는 이동. 현재 상태와 요청한 상태를 fields 에 담는다."""
 
     code = "INVALID_STATUS_TRANSITION"
+
+
+class AnalysisNotFoundError(NotFoundError):
+    code = "ANALYSIS_NOT_FOUND"
+
+
+class AnalysisInProgressError(ConflictError):
+    code = "ANALYSIS_IN_PROGRESS"
+
+
+class AnalysisNotReadyError(ConflictError):
+    code = "ANALYSIS_NOT_READY"
+
+
+class AnalysisStaleError(ConflictError):
+    code = "ANALYSIS_STALE"
+
+
+class AnalysisCandidateInvalidError(InvalidInputError):
+    code = "ANALYSIS_CANDIDATE_INVALID"
+
+
+class ModelNotConfiguredError(NotConfiguredError):
+    code = "MODEL_NOT_CONFIGURED"
+
+
+class InvalidAnalyzerResultError(ExternalError):
+    code = "INVALID_ANALYZER_RESULT"
+
+
+class PipelineNotFoundError(NotFoundError):
+    code = "PIPELINE_NOT_FOUND"
+
+
+class PipelineInProgressError(ConflictError):
+    code = "PIPELINE_IN_PROGRESS"
+
+
+class PipelineNotReadyError(ConflictError):
+    code = "PIPELINE_NOT_READY"
+
+
+class PipelineRequiredError(ConflictError):
+    code = "PIPELINE_REQUIRED"
+
+
+class PipelineStaleError(ConflictError):
+    code = "PIPELINE_STALE"
+
+
+class IdempotencyConflictError(ConflictError):
+    code = "IDEMPOTENCY_CONFLICT"

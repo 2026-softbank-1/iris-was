@@ -80,8 +80,16 @@ class WebhookService:
         changed_paths = _collect_changed_paths(push.commits)
 
         deployment_request_ids: list[int] = []
+        pipeline_ids: list[str] = []
         for service in services:
             if not _is_service_changed(service, changed_paths, len(push.commits)):
+                continue
+            if (service.analysis_plan or {}).get("pipelineManaged"):
+                from app.services.pipeline_service import enqueue_push_pipeline
+
+                run = await enqueue_push_pipeline(self._session, service, push.after, delivery_id)
+                if run is not None:
+                    pipeline_ids.append(run.id)
                 continue
             request = await self._deployment_request_service.create_deployment_request(
                 service,
@@ -105,7 +113,9 @@ class WebhookService:
                 },
             )
         return WebhookReceiptResponse(
-            is_handled=bool(deployment_request_ids), deployment_request_ids=deployment_request_ids
+            is_handled=bool(deployment_request_ids or pipeline_ids),
+            deployment_request_ids=deployment_request_ids,
+            pipeline_ids=pipeline_ids,
         )
 
     async def _handle_installation(self, event: GithubInstallationEvent) -> WebhookReceiptResponse:
