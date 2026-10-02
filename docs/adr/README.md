@@ -48,3 +48,4 @@
 | [0010](0010-deployment-status-transitions-and-history.md) | 배포 요청 상태는 전이 함수로만 바꾸고 전이마다 이력을 남긴다 | 수락됨 |
 | [0013](0013-integrate-build-deploy-workers-on-develop-models.md) | main 의 Build·Deploy Worker 를 develop 모델 위에 통합하고 옛 마이그레이션을 걷어낸다 | 수락됨 (현겸님 확인 대기) |
 | [0014](0014-service-domain-lookup.md) | 서비스 도메인은 저장하지 않고 타깃 접미사로 계산해 조회만 제공한다 | 수락됨 |
+| [0015](0015-rollback-and-restart-reuse-built-image.md) | 롤백과 재시작은 이미 빌드한 이미지를 다시 배포하는 요청으로 만든다 | 수락됨 |

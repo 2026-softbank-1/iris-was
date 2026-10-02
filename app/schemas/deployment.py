@@ -18,15 +18,20 @@ CommitSha = Annotated[
 
 
 class CreateDeploymentRequest(ApiModel):
-    """배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백에 쓴다."""
+    """배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백·재시작에 쓴다."""
 
     trigger_type: Literal[
-        DeploymentTrigger.MANUAL, DeploymentTrigger.REDEPLOY, DeploymentTrigger.ROLLBACK
+        DeploymentTrigger.MANUAL,
+        DeploymentTrigger.REDEPLOY,
+        DeploymentTrigger.ROLLBACK,
+        DeploymentTrigger.RESTART,
     ] = Field(
         description=(
-            "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 배포한다. "
-            "REDEPLOY: sourceDeploymentId 의 커밋을 다시 배포한다. "
-            "ROLLBACK: 성공했던 sourceDeploymentId 의 커밋으로 되돌려 배포한다."
+            "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 빌드해 배포한다. "
+            "REDEPLOY: sourceDeploymentId 의 커밋을 다시 빌드해 배포한다. "
+            "ROLLBACK: 성공했던 sourceDeploymentId 가 만든 이미지를 빌드 없이 그대로 배포한다. "
+            "RESTART: 지금 떠 있는(마지막으로 성공한) 배포의 이미지를 빌드 없이 다시 띄워 "
+            "Pod 를 새로 시작한다."
         ),
         examples=["MANUAL"],
     )
@@ -39,20 +44,22 @@ class CreateDeploymentRequest(ApiModel):
         default=None,
         description=(
             "REDEPLOY·ROLLBACK 에서 필수. 같은 서비스의 이전 배포 id. "
-            "ROLLBACK 은 SUCCEEDED 여야 한다."
+            "ROLLBACK 은 SUCCEEDED 여야 한다. MANUAL·RESTART 에서는 보내지 않는다."
         ),
         examples=[12],
     )
 
     @model_validator(mode="after")
     def check_source_fields(self) -> Self:
-        if self.trigger_type == DeploymentTrigger.MANUAL:
-            if self.source_deployment_id is not None:
-                raise ValueError("sourceDeploymentId is only for REDEPLOY and ROLLBACK")
-            return self
-        if self.source_deployment_id is None:
+        takes_source_deployment = self.trigger_type in (
+            DeploymentTrigger.REDEPLOY,
+            DeploymentTrigger.ROLLBACK,
+        )
+        if takes_source_deployment and self.source_deployment_id is None:
             raise ValueError("sourceDeploymentId is required for REDEPLOY and ROLLBACK")
-        if self.source_sha is not None:
+        if not takes_source_deployment and self.source_deployment_id is not None:
+            raise ValueError("sourceDeploymentId is only for REDEPLOY and ROLLBACK")
+        if self.trigger_type != DeploymentTrigger.MANUAL and self.source_sha is not None:
             raise ValueError("sourceSha is only for MANUAL")
         return self
 
@@ -66,6 +73,12 @@ class DeploymentResponse(ApiModel):
     source_sha: str
     source_commit_message: str | None = None
     trigger_type: DeploymentTrigger
+    source_deployment_id: int | None = Field(
+        default=None,
+        description=(
+            "재배포·롤백·재시작이 따라간 원본 배포 id. 롤백·재시작은 이 배포가 만든 이미지를 쓴다."
+        ),
+    )
     failure_code: FailureCode | None = Field(
         default=None, description="FAILED 일 때만 있다. 원인 구분은 상태가 아니라 이 코드로 한다."
     )
@@ -85,6 +98,7 @@ class DeploymentResponse(ApiModel):
             source_sha=request.source_sha,
             source_commit_message=request.source_commit_message,
             trigger_type=request.trigger_type,
+            source_deployment_id=request.source_deployment_request_id,
             failure_code=request.failure_code,
             requested_by=request.requested_by,
             is_active=request.status in ACTIVE_DEPLOYMENT_STATUSES,

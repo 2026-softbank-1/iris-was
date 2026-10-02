@@ -15,10 +15,16 @@ from app.repositories.deployment_status_history_repository import (
 logger = logging.getLogger(__name__)
 
 # 같은 서비스·환경에서 진행 중인 배포는 하나뿐이다. 진행 중 상태(QUEUED·BUILDING·DEPLOYING)끼리는
-# 앞으로만 움직이고, 끝난 상태로만 빠져나간다.
+# 앞으로만 움직이고, 끝난 상태로만 빠져나간다. QUEUED → DEPLOYING 은 이미지를 다시 빌드하지 않는
+# 요청(롤백·재시작)이 빌드를 건너뛸 때 쓴다.
 ALLOWED_TRANSITIONS: Mapping[DeploymentStatus, frozenset[DeploymentStatus]] = {
     DeploymentStatus.QUEUED: frozenset(
-        {DeploymentStatus.BUILDING, DeploymentStatus.FAILED, DeploymentStatus.SUPERSEDED}
+        {
+            DeploymentStatus.BUILDING,
+            DeploymentStatus.DEPLOYING,
+            DeploymentStatus.FAILED,
+            DeploymentStatus.SUPERSEDED,
+        }
     ),
     DeploymentStatus.BUILDING: frozenset(
         {DeploymentStatus.DEPLOYING, DeploymentStatus.FAILED, DeploymentStatus.SUPERSEDED}

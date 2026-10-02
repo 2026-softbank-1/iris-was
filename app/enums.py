@@ -52,6 +52,7 @@ class DeploymentTrigger(StrEnum):
     CLI = "CLI"
     REDEPLOY = "REDEPLOY"
     ROLLBACK = "ROLLBACK"
+    RESTART = "RESTART"
 
 
 class BuildStatus(StrEnum):

@@ -31,6 +31,10 @@ class BuildRepository:
             raise NotFoundError("build not found", build_id=build_id)
         return build
 
+    async def find_by_deployment_request_id(self, deployment_request_id: int) -> Build | None:
+        stmt = select(Build).where(Build.deployment_request_id == deployment_request_id)
+        return (await self._session.scalars(stmt)).one_or_none()
+
     async def add(self, build: Build) -> Build:
         self._session.add(build)
         await self._session.flush()

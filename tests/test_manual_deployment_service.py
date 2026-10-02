@@ -5,9 +5,10 @@ from app.core.exceptions import (
     DeploymentInProgressError,
     DeploymentRequestNotFoundError,
     InvalidInputError,
+    NoSucceededDeploymentError,
     ServiceNotFoundError,
 )
-from app.enums import DeploymentStatus, DeploymentTrigger, JobKind
+from app.enums import Builder, BuildStatus, DeploymentStatus, DeploymentTrigger, JobKind
 from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
 from tests.fakes_deployment import FULL_NAME, HEAD_SHA, OWNER, DeploymentSetup
@@ -18,15 +19,33 @@ async def setup() -> DeploymentSetup:
     return await DeploymentSetup().build()
 
 
+IMAGE_DIGEST = "sha256:" + "a" * 64
+
+
 async def _finished_request(
-    setup: DeploymentSetup, status: DeploymentStatus = DeploymentStatus.SUCCEEDED
+    setup: DeploymentSetup,
+    status: DeploymentStatus = DeploymentStatus.SUCCEEDED,
+    *,
+    sha: str = "old1234",
+    message: str = "fix: old",
 ) -> DeploymentRequest:
-    """다른 커밋을 배포했다가 끝난 요청. 재배포·롤백의 원본으로 쓴다."""
-    setup.github.heads[(FULL_NAME, "main")] = CommitInfo("old1234", "fix: old")
+    """다른 커밋을 배포했다가 끝난 요청. 재배포·롤백·재시작의 원본으로 쓴다.
+
+    SUCCEEDED 면 Worker 가 이미지를 만든 것처럼 빌드도 성공 상태로 채운다.
+    """
+    setup.github.heads[(FULL_NAME, "main")] = CommitInfo(sha, message)
     request = await setup.manual_service().create_deployment_request(
         OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
     )
     request.status = status
+    if status == DeploymentStatus.SUCCEEDED:
+        build = setup.builds.builds[-1]
+        build.builder = Builder.RAILPACK
+        build.source_sha = sha
+        build.image_repository = "123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/1"
+        build.image_tag = f"b-{build.id}"
+        build.deploy_config = {"healthcheck_timeout": 60}
+        build.succeed(IMAGE_DIGEST)
     setup.github.heads[(FULL_NAME, "main")] = CommitInfo(HEAD_SHA, "feat: add login")
     return request
 
@@ -91,12 +110,17 @@ async def test_create_deployment_request_redeploy_copies_source_commit(
         "old1234",
         "fix: old",
     )
+    assert request.source_deployment_request_id == source.id
+    # 재배포는 같은 커밋을 다시 빌드한다.
+    assert (setup.jobs.jobs[-1].kind, request.status) == (JobKind.BUILD, DeploymentStatus.QUEUED)
 
 
-async def test_create_deployment_request_rollback_to_succeeded_copies_source_commit(
+async def test_create_deployment_request_rollback_reuses_source_image_without_build(
     setup: DeploymentSetup,
 ) -> None:
     source = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    source.variables_snapshot = {"LOG_LEVEL": "debug"}
+    jobs_before = len(setup.jobs.jobs)
 
     request = await setup.manual_service().create_deployment_request(
         OWNER,
@@ -105,7 +129,115 @@ async def test_create_deployment_request_rollback_to_succeeded_copies_source_com
         source_deployment_request_id=source.id,
     )
 
-    assert (request.trigger_type, request.source_sha) == (DeploymentTrigger.ROLLBACK, "old1234")
+    assert (request.trigger_type, request.source_sha, request.source_commit_message) == (
+        DeploymentTrigger.ROLLBACK,
+        "old1234",
+        "fix: old",
+    )
+    assert request.source_deployment_request_id == source.id
+    assert request.variables_snapshot == {"LOG_LEVEL": "debug"}
+    assert request.status == DeploymentStatus.DEPLOYING
+    copied = setup.builds.builds[-1]
+    source_build = setup.builds.builds[0]
+    assert copied.deployment_request_id == request.id
+    assert copied.status == BuildStatus.SUCCEEDED
+    assert (copied.image_repository, copied.image_tag, copied.image_digest) == (
+        source_build.image_repository,
+        source_build.image_tag,
+        source_build.image_digest,
+    )
+    assert (copied.builder, copied.deploy_config) == (Builder.RAILPACK, {"healthcheck_timeout": 60})
+    assert copied.codebuild_build_id is None
+    new_jobs = setup.jobs.jobs[jobs_before:]
+    assert [(j.kind, j.payload) for j in new_jobs] == [(JobKind.DEPLOY, {"build_id": copied.id})]
+    assert [
+        (h.from_status, h.to_status)
+        for h in setup.histories.histories
+        if h.deployment_request_id == request.id
+    ] == [(None, DeploymentStatus.QUEUED), (DeploymentStatus.QUEUED, DeploymentStatus.DEPLOYING)]
+
+
+async def test_create_deployment_request_rollback_to_source_without_image_raises_invalid_input(
+    setup: DeploymentSetup,
+) -> None:
+    source = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    setup.builds.builds[0].image_digest = None
+
+    with pytest.raises(InvalidInputError):
+        await setup.manual_service().create_deployment_request(
+            OWNER,
+            setup.service.id,
+            trigger_type=DeploymentTrigger.ROLLBACK,
+            source_deployment_request_id=source.id,
+        )
+
+    assert len(setup.requests.requests) == 1
+
+
+async def test_create_deployment_request_restart_reuses_latest_succeeded_image(
+    setup: DeploymentSetup,
+) -> None:
+    await _finished_request(setup, DeploymentStatus.SUCCEEDED, sha="old1234", message="old")
+    live = await _finished_request(setup, DeploymentStatus.SUCCEEDED, sha="new5678", message="new")
+    await _finished_request(setup, DeploymentStatus.FAILED, sha="bad0000", message="bad")
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.RESTART
+    )
+
+    assert request.trigger_type == DeploymentTrigger.RESTART
+    assert request.source_deployment_request_id == live.id
+    assert (request.source_sha, request.source_commit_message) == ("new5678", "new")
+    assert request.status == DeploymentStatus.DEPLOYING
+    job = setup.jobs.jobs[-1]
+    assert (job.kind, job.payload) == (JobKind.DEPLOY, {"build_id": setup.builds.builds[-1].id})
+
+
+async def test_create_deployment_request_restart_without_succeeded_deployment_raises_conflict(
+    setup: DeploymentSetup,
+) -> None:
+    await _finished_request(setup, DeploymentStatus.FAILED)
+
+    with pytest.raises(NoSucceededDeploymentError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=DeploymentTrigger.RESTART
+        )
+
+    assert len(setup.requests.requests) == 1
+
+
+async def test_create_deployment_request_restart_while_active_raises_in_progress(
+    setup: DeploymentSetup,
+) -> None:
+    live = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    with pytest.raises(DeploymentInProgressError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=DeploymentTrigger.RESTART
+        )
+
+    assert [r.source_deployment_request_id for r in setup.requests.requests] == [None, None]
+    assert live.status == DeploymentStatus.SUCCEEDED
+
+
+async def test_create_deployment_request_restart_same_idempotency_key_returns_first_request(
+    setup: DeploymentSetup,
+) -> None:
+    await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    service = setup.manual_service()
+    first = await service.create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.RESTART, idempotency_key="r-1"
+    )
+
+    replayed = await service.create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.RESTART, idempotency_key="r-1"
+    )
+
+    assert replayed.id == first.id
+    assert len(setup.requests.requests) == 2
 
 
 async def test_create_deployment_request_rollback_to_failed_raises_invalid_input(
