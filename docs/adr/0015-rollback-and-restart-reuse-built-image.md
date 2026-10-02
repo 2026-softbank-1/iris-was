@@ -32,7 +32,7 @@ Deploy Worker 는 이미 이 요구를 받을 준비가 돼 있다. release 의 
 - 마이그레이션 `dee7264e421e` 가 컬럼·외래 키·`deployment_trigger` CHECK 를 바꾼다. RESTART 요청이 남아 있으면 downgrade 가 실패한다(배포 이력이라 지우지 않는다).
 
 ## 미룬 것: Remove
-이 task 의 Remove(서비스를 클러스터에서 내리는 동작)는 구현하지 않았다. 이유는 클러스터 쪽 결정이 먼저 필요해서다.
+이 task 의 Remove(서비스를 클러스터에서 내리는 동작)는 이 ADR 에서 구현하지 않았다. 이유는 클러스터 쪽 결정이 먼저 필요해서다. 이후 [ADR 0016](0016-remove-service-deployment.md) 에서 정책을 정하고 구현했다.
 
 - iris-infra 의 사용자 서비스 ApplicationSet(`helm/gitops/templates/services.yaml`)이 `applicationsSync: create-update` 이고 주석이 "A removed directory must not delete a running service; deletion is a separate decision" 이라고 적는다. 그래서 Deploy Worker 가 `services/{id}/prod` 를 GitOps 에서 지워도 Application 과 Pod 는 남는다.
 - 삭제를 클러스터에 반영하려면 인프라가 정책을 `sync` 로 바꾸거나(디렉터리 삭제 = 서비스 삭제), 별도 정지 방식(예: `replicas: 0`)을 chart 에 정해야 한다. 이는 "[배포] Restart / Redeploy / Rollback / Remove 실행" task 의 범위다.

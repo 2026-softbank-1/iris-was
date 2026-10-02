@@ -100,7 +100,7 @@ class DeploymentInProgressError(ConflictError):
 
 
 class NoSucceededDeploymentError(ConflictError):
-    """재시작할 배포가 없다. 서비스에 성공한 배포가 한 번도 없다."""
+    """재시작·삭제할 배포가 없다. 성공한 배포가 없거나 이미 서비스를 내렸다."""
 
     code = "NO_SUCCEEDED_DEPLOYMENT"
 

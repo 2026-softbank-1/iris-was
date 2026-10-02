@@ -350,3 +350,90 @@ async def test_create_deployment_request_other_users_service_raises_not_found(
         await setup.manual_service().create_deployment_request(
             OWNER + 1, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
         )
+
+
+async def test_create_deployment_request_remove_takes_live_deployment_down_without_build(
+    setup: DeploymentSetup,
+) -> None:
+    live = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    builds_before = len(setup.builds.builds)
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+    )
+
+    assert (request.trigger_type, request.status) == (
+        DeploymentTrigger.REMOVE,
+        DeploymentStatus.DEPLOYING,
+    )
+    assert request.source_deployment_request_id == live.id
+    assert len(setup.builds.builds) == builds_before
+    assert setup.jobs.jobs[-1].kind == JobKind.REMOVE
+    assert [
+        (h.from_status, h.to_status)
+        for h in setup.histories.histories
+        if h.deployment_request_id == request.id
+    ] == [(None, DeploymentStatus.QUEUED), (DeploymentStatus.QUEUED, DeploymentStatus.DEPLOYING)]
+
+
+async def test_create_deployment_request_remove_without_succeeded_deployment_raises_conflict(
+    setup: DeploymentSetup,
+) -> None:
+    await _finished_request(setup, DeploymentStatus.FAILED)
+
+    with pytest.raises(NoSucceededDeploymentError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+        )
+
+
+@pytest.mark.parametrize("trigger_type", [DeploymentTrigger.REMOVE, DeploymentTrigger.RESTART])
+async def test_create_deployment_request_after_remove_has_no_running_deployment(
+    setup: DeploymentSetup, trigger_type: DeploymentTrigger
+) -> None:
+    await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    removal = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+    )
+    removal.status = DeploymentStatus.SUCCEEDED
+
+    with pytest.raises(NoSucceededDeploymentError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=trigger_type
+        )
+
+
+async def test_create_deployment_request_rollback_after_remove_brings_old_image_back(
+    setup: DeploymentSetup,
+) -> None:
+    old = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    removal = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+    )
+    removal.status = DeploymentStatus.SUCCEEDED
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER,
+        setup.service.id,
+        trigger_type=DeploymentTrigger.ROLLBACK,
+        source_deployment_request_id=old.id,
+    )
+
+    assert (request.trigger_type, request.status) == (
+        DeploymentTrigger.ROLLBACK,
+        DeploymentStatus.DEPLOYING,
+    )
+
+
+async def test_create_deployment_request_remove_while_active_raises_in_progress(
+    setup: DeploymentSetup,
+) -> None:
+    await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    with pytest.raises(DeploymentInProgressError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+        )

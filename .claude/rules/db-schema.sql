@@ -125,7 +125,7 @@ CREATE TABLE deployment_requests (
     CONSTRAINT ck_deployment_requests_environment CHECK (environment IN ('prod')),
     CONSTRAINT ck_deployment_requests_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR')),
     CONSTRAINT ck_deployment_requests_deployment_status CHECK (status IN ('QUEUED', 'BUILDING', 'DEPLOYING', 'SUCCEEDED', 'FAILED', 'ROLLED_BACK', 'MANUAL_INTERVENTION', 'SUPERSEDED')),
-    CONSTRAINT ck_deployment_requests_deployment_trigger CHECK (trigger_type IN ('MANUAL', 'PUSH', 'CLI', 'REDEPLOY', 'ROLLBACK', 'RESTART')),
+    CONSTRAINT ck_deployment_requests_deployment_trigger CHECK (trigger_type IN ('MANUAL', 'PUSH', 'CLI', 'REDEPLOY', 'ROLLBACK', 'RESTART', 'REMOVE')),
     CONSTRAINT fk_deployment_requests_requested_by_users FOREIGN KEY(requested_by) REFERENCES users (id),
     CONSTRAINT fk_deployment_requests_service_id_services FOREIGN KEY(service_id) REFERENCES services (id),
     CONSTRAINT fk_deployment_requests_source_deployment_request_id FOREIGN KEY(source_deployment_request_id) REFERENCES deployment_requests (id),
@@ -180,7 +180,7 @@ CREATE TABLE jobs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_jobs PRIMARY KEY (id),
-    CONSTRAINT ck_jobs_job_kind CHECK (kind IN ('BUILD', 'DEPLOY', 'RECONCILE', 'ROLLBACK')),
+    CONSTRAINT ck_jobs_job_kind CHECK (kind IN ('BUILD', 'DEPLOY', 'RECONCILE', 'ROLLBACK', 'REMOVE')),
     CONSTRAINT ck_jobs_job_status CHECK (status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'RETRY_WAIT', 'FAILED', 'MANUAL_INTERVENTION')),
     CONSTRAINT fk_jobs_deployment_request_id_deployment_requests FOREIGN KEY(deployment_request_id) REFERENCES deployment_requests (id)
 );

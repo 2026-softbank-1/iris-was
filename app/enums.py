@@ -6,6 +6,7 @@ class JobKind(StrEnum):
     DEPLOY = "DEPLOY"
     RECONCILE = "RECONCILE"
     ROLLBACK = "ROLLBACK"
+    REMOVE = "REMOVE"
 
 
 class JobStatus(StrEnum):
@@ -53,6 +54,7 @@ class DeploymentTrigger(StrEnum):
     REDEPLOY = "REDEPLOY"
     ROLLBACK = "ROLLBACK"
     RESTART = "RESTART"
+    REMOVE = "REMOVE"
 
 
 class BuildStatus(StrEnum):

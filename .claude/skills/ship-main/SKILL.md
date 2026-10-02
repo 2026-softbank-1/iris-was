@@ -72,7 +72,8 @@ git fetch origin && git rev-parse origin/main   # 실제 배포할 main SHA 기�
 gh workflow run deploy-platform.yml --ref main -f api=true [-f build_worker=true] [-f deploy_worker=true]
 gh run watch <run id> --exit-status
 ```
-- `api` 는 DB 마이그레이션을 포함한다. Worker 코드(`app/workers/`, `build_service.py`, `deploy_service.py`, 그들이 쓰는 모델·클라이언트)가 바뀌었을 때만 해당 Worker 를 같이 고른다.
+- `api` 는 DB 마이그레이션을 포함한다. Worker 가 import 하는 코드(`app/workers/`, `build_service.py`, `deploy_service.py`, 그들이 쓰는 `app/models/`·`app/enums.py`·`app/repositories/`·`app/clients/`)가 바뀌었을 때 해당 Worker 를 같이 고른다.
+- **새 enum 값(trigger·job kind 등)이 DB 에 쓰이면 반드시 Worker 도 배포한다.** 옛 Worker 이미지는 그 값을 모르는 enum 으로 행을 읽다가 `LookupError` 가 나고, 실패 기록 경로도 같은 행을 읽어서 job 이 `DEPLOYING` 에 멈춘다(2026-10-02 `RESTART` 사례). `api` 만 배포했다면 `-f api=false -f build_worker=true -f deploy_worker=true` 로 Worker 를 바로 배포한다.
 - 마이그레이션이 있으면 PreSync Job 이 실패했을 때 Argo sync 가 멈추고 이전 Pod 가 계속 돈다. 실패하면 원인을 보고하고, 사용자 확인 없이 DB 를 고치지 않는다.
 
 ### 7. 운영 검증 (증거)

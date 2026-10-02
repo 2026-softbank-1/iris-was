@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import httpx
@@ -87,3 +88,41 @@ async def test_find_subtree_sha_walks_nested_path() -> None:
 
     assert await client.find_subtree_sha("t", "o/r", "c1", "services/12") == "service-12"
     assert await client.find_subtree_sha("t", "o/r", "c1", "services/13") is None
+
+
+async def test_create_delete_commit_sends_null_sha_tree_entry_and_returns_commit() -> None:
+    requests: list[tuple[str, str, dict[str, object]]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else {}
+        requests.append((request.method, request.url.path, body))
+        if request.url.path.endswith("/git/commits/head"):
+            return httpx.Response(200, json={"tree": {"sha": "base-tree"}})
+        if request.url.path.endswith("/git/trees"):
+            return httpx.Response(201, json={"sha": "new-tree"})
+        return httpx.Response(201, json={"sha": "new-commit"})
+
+    client = _client(httpx.MockTransport(handle))
+
+    sha = await client.create_delete_commit("t", "o/r", "head", "services/12/prod", "remove")
+
+    assert sha == "new-commit"
+    tree_request = next(body for _, path, body in requests if path.endswith("/git/trees"))
+    assert tree_request == {
+        "base_tree": "base-tree",
+        "tree": [{"path": "services/12/prod", "sha": None, "mode": "040000", "type": "tree"}],
+    }
+    commit_request = next(body for _, path, body in requests if path.endswith("/git/commits"))
+    assert commit_request == {"message": "remove", "tree": "new-tree", "parents": ["head"]}
+
+
+async def test_create_delete_commit_missing_path_maps_to_not_found() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/git/commits/head"):
+            return httpx.Response(200, json={"tree": {"sha": "base-tree"}})
+        return httpx.Response(422, json={"message": "GitRPC::BadObjectState"})
+
+    client = _client(httpx.MockTransport(handle))
+
+    with pytest.raises(NotFoundError):
+        await client.create_delete_commit("t", "o/r", "head", "services/12/prod", "remove")
