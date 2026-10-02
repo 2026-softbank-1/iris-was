@@ -10,7 +10,7 @@ Railway 처럼 무엇이든 간단히 배포해 주는 배포 서비스 **AnyDep
 
 | 컴포넌트 | 진입점 | 하는 일 |
 |---|---|---|
-| Control API | `app/main.py` | 배포 요청 접수·상태 조회. DB 기록만 한다 |
+| Control API | `app/main.py` | 배포 요청 접수·상태 조회, 로그·메트릭 조회 |
 | Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다 |
 | Deploy Worker | `app/workers/deploy_worker.py` | `DEPLOY`·`ROLLBACK`·`RECONCILE` job 을 선점해 GitOps 저장소를 바꾸고 Argo CD 상태를 수집한다 |
 
@@ -41,7 +41,7 @@ flowchart LR
 ```
 
 - `routers/` 와 `workers/` 는 서로 참조하지 않고 `services/` 만 호출한다.
-- CodeBuild·Git(GitOps)·Argo CD 를 호출하는 로직은 Worker 에서만 실행한다. Control API 는 이 시스템들의 권한을 갖지 않는다. 단, 로그인·저장소 조회를 위한 GitHub OAuth·App 호출은 Control API 가 한다.
+- CodeBuild·Git(GitOps)·Argo CD 를 호출하는 로직은 Worker 에서만 실행한다. Control API 는 이 시스템들의 권한을 갖지 않는다. 단, 로그인·저장소 조회를 위한 GitHub OAuth·App 호출과 읽기 전용 Loki·Prometheus 조회는 Control API 가 한다.
 
 ## 개발 환경
 
@@ -75,6 +75,7 @@ LOG_LEVEL=INFO
 | 환경변수 | 설명 |
 |---|---|
 | `DATABASE_URL` | PostgreSQL 접속 URL. `postgresql+asyncpg://<USER>:<PASSWORD>@<HOST>:5432/<DB>` |
+| `OBSERVABILITY_ENDPOINTS` | target ID별 Loki·Prometheus 내부 주소(JSON). [로그·메트릭 연결 및 API](docs/observability-api.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
 | `WEB_BASE_URL` | 웹 프런트 주소. 로그인 후 이 주소로 돌려보낸다. 기본 `http://localhost:3000` |
 | `SESSION_SECRET` | 세션·OAuth state 서명 키(HS256). 없으면 로그인·인증 API 가 `503 NOT_CONFIGURED` |
@@ -98,6 +99,8 @@ App 설정에서 맞춰야 할 값:
 - 로컬에서 웹훅을 받으려면 터널로 `localhost:8000` 을 노출한다(예: `npx smee-client --url <smee 채널> --target http://localhost:8000/api/v1/webhooks/github`). 개발용 App 에서만 켠다.
 
 ## API (`/api/v1`)
+
+서비스 런타임 로그 조회(`GET /services/{id}/logs`), 로그 SSE(`/services/{id}/logs/stream`), CPU·메모리·네트워크 메트릭(`/services/{id}/metrics`)는 [관측 API 문서](docs/observability-api.md)를 따른다.
 
 서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 서버 없이 보려면 저장소의 [docs/openapi.json](docs/openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
 

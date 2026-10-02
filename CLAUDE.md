@@ -57,7 +57,7 @@ flowchart LR
 ```
 
 - `routers/` 와 `workers/` 는 서로 import 하지 않는다. 둘 다 `services/` 만 호출한다.
-- Control API 경로는 DB 기록·조회만 한다. CodeBuild·Git·Argo CD Client 를 쓰는 서비스 로직은 Worker 에서만 호출한다(원문 §3 금지 권한).
+- Control API 경로는 DB 기록·조회 및 읽기 전용 Loki·Prometheus 관측 쿼리를 처리한다. CodeBuild·Git·Argo CD Client 를 쓰는 서비스 로직은 Worker 에서만 호출한다(원문 §3 금지 권한).
 - 레포 루트의 `build-images/railpack/`, `deploy/helm/`, `deploy/argocd/`, `infra/terraform/`, `docker-compose.dev.yml` 은 원문 §8 위치대로 **필요해질 때** 만든다.
 
 ---
@@ -77,7 +77,7 @@ flowchart LR
 - Router는 얇게(로직 없음, Service 호출 + Schema 변환만). Repository는 Model만 반환. Model은 Schema를 모른다.
 - 외부 호출은 반드시 **비동기 Client**를 통한다. Service가 `httpx`·SDK를 직접 부르지 않는다.
 - 변환은 한 방향만, 대상 타입의 classmethod로(`Response.from_model`).
-- 모든 JSON 응답은 공통 봉투 **`ApiResponse[T]`**로 감싼다(`response_model_exclude_none=True`). 파일 다운로드·204는 제외. 에러도 같은 봉투(`success=False`, 도메인 예외의 `code`, 검증 실패 시 `details: list[ErrorDetail]`)로 예외 핸들러가 만든다. 에러용 dict 를 따로 만들지 않는다. 요청 ID 는 본문이 아니라 `X-Request-ID` 헤더로 준다.
+- 모든 JSON 응답은 공통 봉투 **`ApiResponse[T]`**로 감싼다(`response_model_exclude_none=True`). 파일 다운로드·204·SSE는 제외. 에러도 같은 봉투(`success=False`, 도메인 예외의 `code`, 검증 실패 시 `details: list[ErrorDetail]`)로 예외 핸들러가 만든다. 에러용 dict 를 따로 만들지 않는다. 요청 ID 는 본문이 아니라 `X-Request-ID` 헤더로 준다.
 
 ### API 문서 (엔드포인트를 추가·변경할 때마다 반드시)
 - 데코레이터에 `summary="한 줄 설명"` 과 `responses=error_responses(...)` 를 단다(`app/schemas/response.py`). 라우터 `tags` 는 `app/main.py` 의 `OPENAPI_TAGS` 에 설명과 함께 등록한다.
