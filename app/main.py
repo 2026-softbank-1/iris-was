@@ -19,6 +19,7 @@ from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.routers import (
     auth_router,
     deployment_router,
+    domain_router,
     github_router,
     project_router,
     service_router,
@@ -52,6 +53,7 @@ OPENAPI_TAGS = [
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {"name": "targets", "description": "배포 타깃(aws · local)"},
+    {"name": "domains", "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회"},
     {"name": "webhooks", "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다"},
 ]
 
@@ -82,6 +84,7 @@ app.include_router(project_router.router)
 app.include_router(service_router.router)
 app.include_router(deployment_router.router)
 app.include_router(target_router.router)
+app.include_router(domain_router.router)
 app.include_router(webhook_router.router)
 
 

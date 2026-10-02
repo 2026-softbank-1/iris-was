@@ -199,7 +199,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 |---|---|
 | `name`\* | 타깃 이름. unique (`aws`·`local`) |
 | `kind`\* | `target_kind` Enum (§5) |
-| `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사 |
+| `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사. 점이 하나인 `likelion.uk` 꼴이다(와일드카드 인증서가 label 한 단계만 덮는다). 비어 있으면 그 타깃엔 도메인이 없다. 서비스 주소는 `{서비스 이름}-{service_id}.{domain_suffix}` 로 계산하며 저장하지 않는다 |
 | `cluster_ref`\* | 클러스터 접속 정보의 비밀 저장소 참조 이름. 접속 정보 자체는 담지 않는다 |
 
 `service_targets` 는 서비스가 배포되는 타깃을 잇는다.

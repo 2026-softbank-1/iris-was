@@ -118,11 +118,13 @@ App 설정에서 맞춰야 할 값:
 | `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·재배포·롤백)·목록(최신순) |
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
 | `GET /targets` | 배포 타깃(aws·local) 목록 |
+| `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
 
 - 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제다.
 - 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`REDEPLOY`·`ROLLBACK`(`sourceDeploymentId` 의 커밋)이다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](docs/adr/0010-deployment-status-transitions-and-history.md).
 - 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.
 - 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
+- 도메인은 저장하지 않고 `{서비스 이름}-{service_id}.{타깃의 domainSuffix}` 로 계산해 보여 준다. 접미사가 없는 타깃(지금은 `local`)은 `host` 가 비어 있다. 서비스 이름·도메인 변경은 MVP 범위가 아니다. 이름을 바꾸면 주소도 바뀐다. 설계는 [ADR 0014](docs/adr/0014-service-domain-lookup.md).
 
 Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 않는다.
 
@@ -139,7 +141,7 @@ Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub Ap
 | 환경변수 | 설명 |
 |---|---|
 | `AWS_REGION` | ECR 리전 (`r-*` 태그) |
-| `BASE_DOMAIN` | 사용자 서비스 도메인. 서비스는 `{서비스 이름}-{service_id}.<BASE_DOMAIN>` 으로 열린다 |
+| `BASE_DOMAIN` | 사용자 서비스 도메인. 서비스는 `{서비스 이름}-{service_id}.<BASE_DOMAIN>` 으로 열린다. 도메인 조회 API 는 `targets.domain_suffix`(`aws` 는 `likelion.uk`)로 같은 주소를 계산하므로 두 값을 같게 둔다 |
 | `GITOPS_REPOSITORY` | `{owner}/gitops-environments`. `main` 에 fast-forward 커밋만 한다 |
 | `GITOPS_APP_ID` · `GITOPS_APP_PRIVATE_KEY` · `GITOPS_INSTALLATION_ID` | `iris-gitops` GitHub App(contents:write, GitOps 저장소에만 설치) |
 | `ARGOCD_SERVER_URL` · `ARGOCD_TOKEN` | Argo CD API 주소, project role `deploy-reader` 토큰(applications get) |
