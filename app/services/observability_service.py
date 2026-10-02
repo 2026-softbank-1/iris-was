@@ -4,8 +4,9 @@ import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
+from pydantic import HttpUrl
+
 from app.clients.observability_client import LogEntry, MetricSeries, ObservabilityClient
-from app.core.config import ObservabilityEndpoint
 from app.core.exceptions import (
     ExternalError,
     InvalidInputError,
@@ -20,11 +21,12 @@ class ObservabilityService:
         self,
         service_repository: ServiceRepository,
         client: ObservabilityClient,
-        endpoints: dict[int, ObservabilityEndpoint],
+        loki_url: HttpUrl | None,
+        prometheus_url: HttpUrl | None,
     ) -> None:
         self._service_repository = service_repository
         self._client = client
-        self._endpoints = endpoints
+        self._urls = {"loki_url": loki_url, "prometheus_url": prometheus_url}
 
     async def get_scope(self, owner_id: int, service_id: int, target_id: int) -> str:
         service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)
@@ -36,8 +38,7 @@ class ObservabilityService:
         return f"svc-{service_id}"
 
     def _get_url(self, target_id: int, kind: str) -> str:
-        endpoint = self._endpoints.get(target_id)
-        url = None if endpoint is None else getattr(endpoint, kind)
+        url = self._urls[kind]
         if url is None:
             raise NotConfiguredError("observability backend is not configured", target_id=target_id)
         return str(url)

@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from app.clients.observability_client import LogEntry, LokiPrometheusObservabilityClient
-from app.core.config import ObservabilityEndpoint, Settings
+from app.core.config import Settings
 from app.core.exceptions import ExternalError, InvalidInputError, ServiceNotFoundError
 from app.dependencies import get_current_user, get_observability_service, get_session
 from app.main import app
@@ -15,11 +15,11 @@ from app.models.user import User
 from app.services.observability_service import ObservabilityService
 
 
-def make_service(client=None, endpoints=None, owned=True):
+def make_service(client=None, loki_url=None, owned=True):
     repository = AsyncMock()
     repository.find_by_id_and_owner_id.return_value = object() if owned else None
     repository.search_target_ids_by_service_ids.return_value = {42: [1]}
-    return ObservabilityService(repository, client or AsyncMock(), endpoints or {})
+    return ObservabilityService(repository, client or AsyncMock(), loki_url, None)
 
 
 async def test_loki_query_is_scoped_and_search_cannot_inject_logql():
@@ -166,7 +166,7 @@ async def test_stream_deduplicates_overlap_and_keeps_late_entries(monkeypatch):
     late = LogEntry(str(timestamp - 1), "late", "app-a", "app")
     client = AsyncMock()
     client.search_logs.return_value = [first, late]
-    service = make_service(client, {1: ObservabilityEndpoint(loki_url="http://loki")})
+    service = make_service(client, "http://loki")
     monkeypatch.setattr("app.services.observability_service.asyncio.sleep", AsyncMock())
     stream = service.stream_logs(1, "svc-42", timestamp - 10**9, "", [first])
     await anext(stream)
@@ -188,7 +188,7 @@ async def test_stream_overflow_is_explicit_without_advancing_cursor():
 async def test_stream_heartbeat_and_upstream_error(monkeypatch):
     client = AsyncMock()
     client.search_logs.side_effect = ExternalError()
-    service = make_service(client, {1: ObservabilityEndpoint(loki_url="http://loki")})
+    service = make_service(client, "http://loki")
     monkeypatch.setattr("app.services.observability_service.asyncio.sleep", AsyncMock())
     stream = service.stream_logs(1, "svc-42", time.time_ns(), "", [])
     assert await anext(stream) == ": heartbeat\n\n"
@@ -331,13 +331,9 @@ async def test_api_other_owner_returns_404_before_backend_request(api_client):
     service._client.search_logs.assert_not_awaited()
 
 
-def test_observability_endpoints_are_read_from_separate_env_vars(monkeypatch):
-    monkeypatch.setenv("OBSERVABILITY_ENDPOINTS__1__LOKI_URL", "http://loki.observability:3100")
-    monkeypatch.setenv(
-        "OBSERVABILITY_ENDPOINTS__1__PROMETHEUS_URL",
-        "http://monitoring-prometheus.observability:9090",
-    )
+def test_backend_urls_are_read_from_env(monkeypatch):
+    monkeypatch.setenv("LOKI_URL", "http://loki.observability:3100")
+    monkeypatch.setenv("PROMETHEUS_URL", "http://monitoring-prometheus.observability:9090")
     settings = Settings(_env_file=None, database_url="postgresql+asyncpg://x")
-    endpoint = settings.observability_endpoints[1]
-    assert str(endpoint.loki_url) == "http://loki.observability:3100/"
-    assert str(endpoint.prometheus_url) == "http://monitoring-prometheus.observability:9090/"
+    assert str(settings.loki_url) == "http://loki.observability:3100/"
+    assert str(settings.prometheus_url) == "http://monitoring-prometheus.observability:9090/"
