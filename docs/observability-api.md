@@ -6,10 +6,11 @@
 
 수집·저장은 iris-infra가 맡는다(`docs/runbooks/observability.md`). workload 클러스터의 OTel agent가 `svc-*` Pod 로그와 kubelet 메트릭을 management 클러스터로 보내고, Loki와 Prometheus가 **Control API와 같은 management 클러스터**에 저장한다. 클러스터 간 조회 경로는 필요 없다.
 
-Control API에 `OBSERVABILITY_ENDPOINTS`를 JSON으로 주입한다(Secret `iris-platform-was-env`). 키는 DB의 target ID다. AWS target은 아래 두 주소를 쓴다. `local` target은 수집하지 않으므로 넣지 않는다(`503 NOT_CONFIGURED`).
+Control API에 target ID별 주소를 환경변수 두 개로 주입한다(Secret `iris-platform-was-env`). 이름의 가운데 숫자가 DB의 target ID다. AWS target은 아래 두 주소를 쓴다. `local` target은 수집하지 않으므로 넣지 않는다(`503 NOT_CONFIGURED`).
 
 ```dotenv
-OBSERVABILITY_ENDPOINTS={"<aws target ID>":{"loki_url":"http://loki.observability:3100","prometheus_url":"http://monitoring-prometheus.observability:9090"}}
+OBSERVABILITY_ENDPOINTS__<aws target ID>__LOKI_URL=http://loki.observability:3100
+OBSERVABILITY_ENDPOINTS__<aws target ID>__PROMETHEUS_URL=http://monitoring-prometheus.observability:9090
 ```
 
 - Loki 라벨: `k8s_namespace_name`(`svc-{serviceId}`), `k8s_pod_name`, `k8s_container_name`, `iris_release_id`. API는 container `app`만 조회한다.
@@ -82,6 +83,6 @@ CPU는 Pod CPU 시간의 5분 rate를 core 단위로, 메모리는 Pod working s
 
 ## 검증 범위
 
-MockTransport 및 API 테스트로 쿼리 제한, 소유권, 입력 검증, 응답 변환, SSE 커서·heartbeat·오류·종료를 검증한다. 라벨·메트릭 이름은 2026-10-02 dev 클러스터의 Loki·Prometheus에서 확인했다. API를 통한 운영 조회는 `OBSERVABILITY_ENDPOINTS` 설정과 배포 후 확인한다. DB 스키마 변경은 없다.
+MockTransport 및 API 테스트로 쿼리 제한, 소유권, 입력 검증, 응답 변환, SSE 커서·heartbeat·오류·종료를 검증한다. 라벨·메트릭 이름은 2026-10-02 dev 클러스터의 Loki·Prometheus에서 확인했다. API를 통한 운영 조회는 `OBSERVABILITY_ENDPOINTS__*` 설정과 배포 후 확인한다. DB 스키마 변경은 없다.
 
 외부 API 계약: [Loki HTTP API](https://grafana.com/docs/loki/latest/reference/loki-http-api/), [Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/).

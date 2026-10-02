@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from app.clients.observability_client import LogEntry, LokiPrometheusObservabilityClient
-from app.core.config import ObservabilityEndpoint
+from app.core.config import ObservabilityEndpoint, Settings
 from app.core.exceptions import ExternalError, InvalidInputError, ServiceNotFoundError
 from app.dependencies import get_current_user, get_observability_service, get_session
 from app.main import app
@@ -329,3 +329,15 @@ async def test_api_other_owner_returns_404_before_backend_request(api_client):
     response = await http.get("/api/v1/services/42/logs/stream", params={"targetId": 1})
     assert response.status_code == 404
     service._client.search_logs.assert_not_awaited()
+
+
+def test_observability_endpoints_are_read_from_separate_env_vars(monkeypatch):
+    monkeypatch.setenv("OBSERVABILITY_ENDPOINTS__1__LOKI_URL", "http://loki.observability:3100")
+    monkeypatch.setenv(
+        "OBSERVABILITY_ENDPOINTS__1__PROMETHEUS_URL",
+        "http://monitoring-prometheus.observability:9090",
+    )
+    settings = Settings(_env_file=None, database_url="postgresql+asyncpg://x")
+    endpoint = settings.observability_endpoints[1]
+    assert str(endpoint.loki_url) == "http://loki.observability:3100/"
+    assert str(endpoint.prometheus_url) == "http://monitoring-prometheus.observability:9090/"

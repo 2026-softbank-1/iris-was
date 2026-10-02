@@ -11,8 +11,10 @@ class ObservabilityEndpoint(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # `__` 로 중첩 값을 나눠 받는다: OBSERVABILITY_ENDPOINTS__1__LOKI_URL=...
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_nested_delimiter="__")
 
+    # target ID 별 Loki·Prometheus 내부 주소.
     observability_endpoints: dict[int, ObservabilityEndpoint] = Field(default_factory=dict)
 
     database_url: str
