@@ -1,12 +1,18 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # 로그·메트릭 백엔드(management 클러스터 내부). 없으면 관측 API 는 503 (NOT_CONFIGURED).
+    # ponytail: 모든 target 이 같은 백엔드를 쓴다(수집 대상은 AWS workload 클러스터 하나).
+    # 클러스터가 늘면 target 별 주소와 k8s_cluster_name selector 로 나눈다.
+    loki_url: HttpUrl | None = None
+    prometheus_url: HttpUrl | None = None
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
