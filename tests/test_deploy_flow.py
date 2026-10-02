@@ -34,6 +34,7 @@ from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
 )
 from app.repositories.job_repository import JobRepository
+from app.repositories.project_repository import ProjectRepository
 from app.services.deploy_service import DeployService
 from app.services.deployment_request_service import DeploymentRequestService
 from tests.worker_support import (
@@ -67,6 +68,7 @@ class FakeGitOps:
         self.head = "c0"
         self.fail_create_tree = False
         self.fail_next_update = False
+        self.fail_delete_commit = False
 
     async def create_installation_token(
         self, installation_id: int, repository_name: str | None, contents: str = "read"
@@ -88,6 +90,16 @@ class FakeGitOps:
     ) -> str:
         sha = f"c{len(self.commits)}"
         self.commits[sha] = (parent_sha, {**self.commits[parent_sha][1], path: tree_sha})
+        return sha
+
+    async def create_delete_commit(
+        self, token: str, full_name: str, parent_sha: str, path: str, message: str
+    ) -> str:
+        if self.fail_delete_commit:
+            raise ExternalError("github down")
+        sha = f"c{len(self.commits)}"
+        remaining = {k: v for k, v in self.commits[parent_sha][1].items() if k != path}
+        self.commits[sha] = (parent_sha, remaining)
         return sha
 
     async def update_branch(self, token: str, full_name: str, branch: str, commit_sha: str) -> None:
@@ -552,3 +564,186 @@ async def test_reused_image_request_deploys_source_digest_as_new_release(
     assert release is not None
     assert (release.status, request.status) == (ReleaseStatus.SUCCEEDED, DeploymentStatus.SUCCEEDED)
     assert request.source_deployment_request_id == source_request.id
+
+
+async def test_restart_after_rollback_deploys_same_digest_as_new_release(
+    session_factory: Any,
+) -> None:
+    """롤백으로 만든 요청(복사한 빌드)을 다시 원본으로 삼는 재시작도 배포된다."""
+    h = Harness(session_factory)
+    v1_id = await h.deploy_successfully()
+    await h.deploy_successfully()
+    _, v1_release, _ = await h.load(v1_id)
+    assert v1_release is not None
+
+    rollback_id = await _request_reusing_image(h, v1_id, DeploymentTrigger.ROLLBACK)
+    await h.run_next(JobKind.DEPLOY)
+    h.argo.status = _argo(h.gitops.head)
+    await h.run_next(JobKind.RECONCILE)
+    rollback_request, rollback_release, _ = await h.load(rollback_id)
+    assert rollback_release is not None
+    assert rollback_request.status == DeploymentStatus.SUCCEEDED
+
+    restart_id = await _request_reusing_image(h, rollback_id, DeploymentTrigger.RESTART)
+    await h.run_next(JobKind.DEPLOY)
+    h.argo.status = _argo(h.gitops.head)
+    await h.run_next(JobKind.RECONCILE)
+
+    request, release, jobs = await h.load(restart_id)
+    assert release is not None
+    assert request.status == DeploymentStatus.SUCCEEDED
+    assert release.image_digest == v1_release.image_digest
+    assert release.previous_good_release_id == rollback_release.id
+    assert _job_states(jobs) == [
+        (JobKind.DEPLOY, JobStatus.SUCCEEDED),
+        (JobKind.RECONCILE, JobStatus.SUCCEEDED),
+    ]
+
+
+async def _request_removal(h: Harness, live_request_id: int) -> int:
+    """실제 Repository 로 서비스를 내리는 요청(REMOVE)을 만든다. 요청 ID 를 돌려준다."""
+    async with h.session_factory.begin() as session:
+        service = await session.get_one(Service, h.service_id)
+        live = await session.get_one(DeploymentRequest, live_request_id)
+        request = await DeploymentRequestService(
+            DeploymentRequestRepository(session),
+            JobRepository(session),
+            DeploymentStatusHistoryRepository(session),
+            BuildRepository(session),
+        ).create_removal_request(
+            service,
+            source_deployment_request=live,
+            idempotency_key=f"remove-{uuid4().hex}",
+        )
+        assert request is not None
+        return request.id
+
+
+async def _online_service_count(h: Harness) -> int:
+    async with h.session_factory() as session:
+        service = await session.get_one(Service, h.service_id)
+        counts = await ProjectRepository(session).count_services_by_project_ids(
+            [service.project_id]
+        )
+    return counts[service.project_id].online_service_count
+
+
+async def test_remove_deletes_directory_and_finishes_when_application_is_gone(
+    session_factory: Any,
+) -> None:
+    h = Harness(session_factory)
+    live_id = await h.deploy_successfully()
+    path = f"services/{h.service_id}/prod"
+    assert path in h.gitops.commits[h.gitops.head][1]
+    assert await _online_service_count(h) == 1
+
+    remove_id = await _request_removal(h, live_id)
+    await h.run_next(JobKind.REMOVE)
+
+    request, release, jobs = await h.load(remove_id)
+    assert (request.trigger_type, request.status) == (
+        DeploymentTrigger.REMOVE,
+        DeploymentStatus.DEPLOYING,
+    )
+    assert release is None
+    assert path not in h.gitops.commits[h.gitops.head][1]
+    assert jobs[0].external_id == h.gitops.head
+    # Application 이 아직 있어 job 은 시도 횟수를 쓰지 않고 기다린다.
+    assert (jobs[0].status, jobs[0].attempts) == (JobStatus.QUEUED, 0)
+    commits_after_delete = len(h.gitops.commits)
+
+    h.argo.status = None
+    await h.run_next(JobKind.REMOVE)
+
+    request, _, jobs = await h.load(remove_id)
+    assert request.status == DeploymentStatus.SUCCEEDED
+    assert _job_states(jobs) == [(JobKind.REMOVE, JobStatus.SUCCEEDED)]
+    assert len(h.gitops.commits) == commits_after_delete
+    assert await _online_service_count(h) == 0
+
+    # 내려간 서비스에는 되돌릴 정상 release 가 없다.
+    new_id = await h.request_deploy()
+    await h.run_next(JobKind.DEPLOY)
+    _, new_release, _ = await h.load(new_id)
+    assert new_release is not None and new_release.previous_good_release_id is None
+
+
+async def test_remove_directory_already_gone_skips_commit(session_factory: Any) -> None:
+    h = Harness(session_factory)
+    live_id = await h.deploy_successfully()
+    path = f"services/{h.service_id}/prod"
+    h.gitops.head = await h.gitops.create_delete_commit("", "", h.gitops.head, path, "manual")
+    commits_before = len(h.gitops.commits)
+    h.argo.status = None
+    remove_id = await _request_removal(h, live_id)
+
+    await h.run_next(JobKind.REMOVE)
+
+    request, _, jobs = await h.load(remove_id)
+    assert request.status == DeploymentStatus.SUCCEEDED
+    assert (jobs[0].status, jobs[0].external_id) == (JobStatus.SUCCEEDED, None)
+    assert len(h.gitops.commits) == commits_before
+
+
+async def test_remove_application_still_present_after_deadline_needs_manual_intervention(
+    session_factory: Any,
+) -> None:
+    h = Harness(session_factory)
+    live_id = await h.deploy_successfully()
+    remove_id = await _request_removal(h, live_id)
+    async with session_factory.begin() as session:
+        await session.execute(
+            text("UPDATE jobs SET created_at = now() - interval '11 minutes' WHERE kind = 'REMOVE'")
+        )
+
+    await h.run_next(JobKind.REMOVE)
+
+    request, _, jobs = await h.load(remove_id)
+    assert request.status == DeploymentStatus.MANUAL_INTERVENTION
+    assert _job_states(jobs) == [(JobKind.REMOVE, JobStatus.MANUAL_INTERVENTION)]
+    assert f"services/{h.service_id}/prod" not in h.gitops.commits[h.gitops.head][1]
+
+
+async def test_remove_crash_after_commit_resumes_without_new_commit(session_factory: Any) -> None:
+    h = Harness(session_factory)
+    live_id = await h.deploy_successfully()
+    remove_id = await _request_removal(h, live_id)
+    h.gitops.fail_next_update = True
+
+    await h.run_next(JobKind.REMOVE)
+    _, _, jobs = await h.load(remove_id)
+    recorded_sha = jobs[0].external_id
+    assert recorded_sha is not None and jobs[0].status == JobStatus.RETRY_WAIT
+    assert h.gitops.head != recorded_sha
+    commit_count = len(h.gitops.commits)
+
+    await h.run_next(JobKind.REMOVE)
+
+    assert h.gitops.head == recorded_sha
+    assert len(h.gitops.commits) == commit_count
+    h.argo.status = None
+    await h.run_next(JobKind.REMOVE)
+    request, _, _ = await h.load(remove_id)
+    assert request.status == DeploymentStatus.SUCCEEDED
+
+
+async def test_remove_error_before_commit_exhausted_fails_and_keeps_service(
+    session_factory: Any,
+) -> None:
+    h = Harness(session_factory)
+    live_id = await h.deploy_successfully()
+    remove_id = await _request_removal(h, live_id)
+    async with session_factory.begin() as session:
+        await session.execute(text("UPDATE jobs SET max_attempts = 1 WHERE kind = 'REMOVE'"))
+    h.gitops.fail_delete_commit = True
+    head_before = h.gitops.head
+
+    await h.run_next(JobKind.REMOVE)
+
+    request, _, jobs = await h.load(remove_id)
+    assert (request.status, request.failure_code) == (
+        DeploymentStatus.FAILED,
+        FailureCode.DEPLOY_INFRA_ERROR,
+    )
+    assert _job_states(jobs) == [(JobKind.REMOVE, JobStatus.FAILED)]
+    assert h.gitops.head == head_before

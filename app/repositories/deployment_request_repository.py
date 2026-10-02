@@ -24,6 +24,16 @@ class DeploymentRequestRepository:
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
+    async def get_by_id(self, deployment_request_id: int) -> DeploymentRequest:
+        request = await self._session.scalar(
+            select(DeploymentRequest).where(DeploymentRequest.id == deployment_request_id)
+        )
+        if request is None:
+            raise DeploymentRequestNotFoundError(
+                "deployment request not found", deployment_request_id=deployment_request_id
+            )
+        return request
+
     async def find_latest_succeeded_by_service_id(
         self, service_id: int
     ) -> DeploymentRequest | None:

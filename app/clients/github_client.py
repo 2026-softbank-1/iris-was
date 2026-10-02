@@ -124,6 +124,31 @@ class GitHubClient:
         self, token: str, full_name: str, parent_sha: str, path: str, tree_sha: str, message: str
     ) -> str:
         """parent 트리에서 path 디렉터리만 tree_sha 로 바꾼 커밋. 브랜치는 움직이지 않는다."""
+        return await self._commit_tree_entry(
+            token, full_name, parent_sha, message, {"path": path, "sha": tree_sha}
+        )
+
+    async def create_delete_commit(
+        self, token: str, full_name: str, parent_sha: str, path: str, message: str
+    ) -> str:
+        """parent 트리에서 path 디렉터리를 지운 커밋. 브랜치는 움직이지 않는다.
+
+        path 가 parent 에 없으면 GitHub 이 422 를 주어 NotFoundError 가 된다. 지운 뒤 비는 부모
+        디렉터리는 GitHub 이 함께 정리한다.
+        """
+        return await self._commit_tree_entry(
+            token, full_name, parent_sha, message, {"path": path, "sha": None}
+        )
+
+    async def _commit_tree_entry(
+        self,
+        token: str,
+        full_name: str,
+        parent_sha: str,
+        message: str,
+        entry: dict[str, str | None],
+    ) -> str:
+        """parent 트리의 디렉터리 항목 하나(sha 가 None 이면 삭제)를 바꾼 커밋을 만든다."""
         parent = await self._send("GET", f"/repos/{full_name}/git/commits/{parent_sha}", token)
         root = await self._send(
             "POST",
@@ -131,7 +156,7 @@ class GitHubClient:
             token,
             json={
                 "base_tree": parent.json()["tree"]["sha"],
-                "tree": [{"path": path, "mode": "040000", "type": "tree", "sha": tree_sha}],
+                "tree": [{**entry, "mode": "040000", "type": "tree"}],
             },
         )
         commit = await self._send(

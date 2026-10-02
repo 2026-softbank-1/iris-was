@@ -7,6 +7,7 @@ from app.enums import ReleaseStatus
 from app.models.project import Project
 from app.models.release import Release
 from app.models.service import Service
+from app.repositories.release_repository import removed_after_release
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,8 @@ class ProjectRepository:
     ) -> dict[int, ServiceCounts]:
         """프로젝트별 서비스 수와 online 서비스 수.
 
-        online 은 서비스의 가장 최근 릴리스가 성공한 경우다. 릴리스가 없으면 online 이 아니다.
+        online 은 서비스의 가장 최근 릴리스가 성공했고 그 뒤에 서비스를 내리지(REMOVE) 않은 경우다.
+        릴리스가 없으면 online 이 아니다.
         """
         latest_release = (
             select(Release.service_id, func.max(Release.id).label("release_id"))
@@ -55,7 +57,9 @@ class ProjectRepository:
             select(
                 Service.project_id,
                 func.count(Service.id),
-                func.count(Release.id).filter(Release.status == ReleaseStatus.SUCCEEDED),
+                func.count(Release.id).filter(
+                    Release.status == ReleaseStatus.SUCCEEDED, ~removed_after_release()
+                ),
             )
             .select_from(Service)
             .outerjoin(latest_release, latest_release.c.service_id == Service.id)

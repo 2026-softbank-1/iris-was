@@ -1,11 +1,24 @@
-from sqlalchemy import Select, select
+from sqlalchemy import ColumnElement, Select, exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.exceptions import ConflictError, NotFoundError
-from app.enums import ReleaseStatus, TargetKind
+from app.enums import DeploymentStatus, DeploymentTrigger, ReleaseStatus, TargetKind
 from app.models import DeploymentRequest, Release, ServiceTarget, Target
+
+
+def removed_after_release() -> ColumnElement[bool]:
+    """이 release 를 만든 요청보다 나중에 서비스를 내린(성공한 REMOVE) 요청이 있다.
+
+    내려간 서비스에는 정상 release 가 없다. lastKnownGood·online 판단에서 이런 release 를 뺀다.
+    """
+    return exists().where(
+        DeploymentRequest.service_id == Release.service_id,
+        DeploymentRequest.trigger_type == DeploymentTrigger.REMOVE,
+        DeploymentRequest.status == DeploymentStatus.SUCCEEDED,
+        DeploymentRequest.id > Release.deployment_request_id,
+    )
 
 
 class ReleaseRepository:
@@ -34,6 +47,7 @@ class ReleaseRepository:
                 Release.service_id == service_id,
                 Release.target_id == target_id,
                 Release.status == ReleaseStatus.SUCCEEDED,
+                ~removed_after_release(),
             )
             .order_by(Release.id.desc())
             .limit(1)

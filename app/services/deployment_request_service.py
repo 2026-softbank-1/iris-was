@@ -22,7 +22,7 @@ class DeploymentRequestService:
     """배포 요청과 첫 job 을 함께 만든다. 트랜잭션 커밋은 호출하는 쪽이 한다.
 
     소스를 빌드하는 요청은 BUILD job, 이미 빌드한 이미지를 다시 쓰는 요청(롤백·재시작)은
-    빌드를 건너뛰고 DEPLOY job 으로 시작한다.
+    빌드를 건너뛰고 DEPLOY job, 서비스를 내리는 요청은 REMOVE job 으로 시작한다.
     """
 
     def __init__(
@@ -100,9 +100,7 @@ class DeploymentRequestService:
         if request is None:
             return None
         build = await self._build_repository.add(Build.copy_succeeded(source_build, request.id))
-        await DeploymentStatusService(
-            self._deployment_request_repository, self._deployment_status_history_repository
-        ).transition_status(request.id, DeploymentStatus.DEPLOYING)
+        await self._start_deploying(request)
         await self._job_repository.save(
             Job(
                 deployment_request_id=request.id,
@@ -111,6 +109,42 @@ class DeploymentRequestService:
             )
         )
         return request
+
+    async def create_removal_request(
+        self,
+        service: Service,
+        *,
+        source_deployment_request: DeploymentRequest,
+        idempotency_key: str,
+        requested_by: int | None = None,
+    ) -> DeploymentRequest | None:
+        """지금 떠 있는 배포(원본)를 클러스터에서 내리는 요청과 REMOVE job 을 만든다.
+
+        빌드·release 를 만들지 않는다. 요청은 QUEUED 를 거쳐 곧바로 DEPLOYING 이 되고,
+        Deploy Worker 가 GitOps 에서 서비스 디렉터리를 지운 뒤 Argo CD Application 이
+        사라지면 SUCCEEDED 로 끝낸다.
+        멱등성 키가 겹치거나 이 서비스에 진행 중인 배포가 있으면 만들지 않고 None 이다.
+        """
+        request = await self._add_request(
+            service,
+            source_sha=source_deployment_request.source_sha,
+            source_commit_message=source_deployment_request.source_commit_message,
+            trigger_type=DeploymentTrigger.REMOVE,
+            idempotency_key=idempotency_key,
+            requested_by=requested_by,
+            source_deployment_request=source_deployment_request,
+        )
+        if request is None:
+            return None
+        await self._start_deploying(request)
+        await self._job_repository.save(Job(deployment_request_id=request.id, kind=JobKind.REMOVE))
+        return request
+
+    async def _start_deploying(self, request: DeploymentRequest) -> None:
+        """빌드를 건너뛰는 요청을 QUEUED 에서 곧바로 DEPLOYING 으로 옮긴다."""
+        await DeploymentStatusService(
+            self._deployment_request_repository, self._deployment_status_history_repository
+        ).transition_status(request.id, DeploymentStatus.DEPLOYING)
 
     async def _add_request(
         self,
