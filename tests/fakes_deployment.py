@@ -17,6 +17,7 @@ from tests.fakes import (
     make_repository,
 )
 from tests.fakes_project import FakeProjectRepository, FakeServiceRepository
+from tests.fakes_variable import FakeServiceVariableRepository
 from tests.fakes_webhook import (
     FakeBuildRepository,
     FakeDeploymentRequestRepository,
@@ -41,6 +42,7 @@ class DeploymentSetup:
         self.jobs = FakeJobRepository()
         self.builds = FakeBuildRepository()
         self.histories = FakeDeploymentStatusHistoryRepository()
+        self.variables = FakeServiceVariableRepository()
         self.github = FakeSourceRepositoryClient({22: [make_repository(FULL_NAME)]})
         self.github.heads[(FULL_NAME, "main")] = CommitInfo(HEAD_SHA, "feat: add login")
         self.service: Service
@@ -68,6 +70,7 @@ class DeploymentSetup:
             self.jobs,  # type: ignore[arg-type]
             self.histories,  # type: ignore[arg-type]
             self.builds,  # type: ignore[arg-type]
+            self.variables,  # type: ignore[arg-type]
         )
 
     def manual_service(self) -> ManualDeploymentService:

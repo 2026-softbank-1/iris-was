@@ -50,3 +50,4 @@
 | [0014](0014-service-domain-lookup.md) | 서비스 도메인은 저장하지 않고 타깃 접미사로 계산해 조회만 제공한다 | 수락됨 |
 | [0015](0015-rollback-and-restart-reuse-built-image.md) | 롤백과 재시작은 이미 빌드한 이미지를 다시 배포하는 요청으로 만든다 | 수락됨 |
 | [0016](0016-remove-service-deployment.md) | 서비스 삭제는 GitOps 디렉터리를 지워 ApplicationSet 이 Application 을 정리하게 한다 | 수락됨 (인프라 적용 대기) |
+| [0017](0017-service-variables-encrypted-storage-and-deploy-snapshot.md) | 서비스 환경변수는 암호화해 DB 에 저장하고 배포 요청마다 스냅샷을 남긴다 | 제안됨 |

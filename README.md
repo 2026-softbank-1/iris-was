@@ -86,6 +86,7 @@ LOG_LEVEL=INFO
 | `GITHUB_APP_CLIENT_ID` · `GITHUB_APP_CLIENT_SECRET` | 로그인(사용자 인증)용. 없으면 `503 NOT_CONFIGURED` |
 | `GITHUB_APP_PRIVATE_KEY` | App JWT 서명용 PEM. 줄바꿈은 `\n` 도 허용. 없으면 저장소·서비스 API 가 `503 NOT_CONFIGURED` |
 | `GITHUB_WEBHOOK_SECRET` | 웹훅 서명 검증 키(App 설정의 Webhook secret 과 같은 값). 없으면 웹훅 API 가 `503 NOT_CONFIGURED` |
+| `VARIABLES_ENCRYPTION_KEY` | 서비스 환경변수 값을 DB 에 암호화해 저장하는 Fernet 키. `uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 로 만든다. 없으면 변수 API 가 `503 NOT_CONFIGURED`. 잃으면 저장된 값을 읽을 수 없다 |
 
 ## GitHub App
 
@@ -122,11 +123,15 @@ App 설정에서 맞춰야 할 값:
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
 | `GET /targets` | 배포 타깃(aws·local) 목록 |
 | `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
+| `GET·POST /services/{id}/variables` | 환경변수 목록(`variables` + 자동 주입 `systemVariables`)·추가 |
+| `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 변수 전체를 교체한다(없는 키는 삭제) |
+| `PUT·DELETE /services/{id}/variables/{key}` | 환경변수 값 수정·삭제 |
 
 - 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제다.
 - 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`REDEPLOY`(`sourceDeploymentId` 의 커밋을 다시 빌드)·`ROLLBACK`(성공한 `sourceDeploymentId` 가 만든 이미지를 빌드 없이 배포)·`RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작, 원본은 보내지 않는다)·`REMOVE`(지금 떠 있는 배포를 클러스터에서 내림, 원본은 보내지 않는다)이다. 롤백·재시작·삭제는 요청이 곧바로 `DEPLOYING` 이 되고 `QUEUED → BUILDING` 이 없다([ADR 0015](docs/adr/0015-rollback-and-restart-reuse-built-image.md)·[ADR 0016](docs/adr/0016-remove-service-deployment.md)). 삭제는 iris-infra ApplicationSet 이 디렉터리 삭제로 Application 을 정리하도록 설정돼 있어야 끝난다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](docs/adr/0010-deployment-status-transitions-and-history.md).
 - 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.
 - 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
+- 환경변수 값은 `VARIABLES_ENCRYPTION_KEY` 로 암호화해 저장하고 소유자에게만 복호화해 돌려준다. 키는 영문·숫자·밑줄이고 `PORT`·`IRIS_*` 는 플랫폼 예약이다. 배포 요청을 만들 때 변수가 `variables_snapshot` 에 암호문으로 복사된다(롤백은 원본 요청의 변수, 재배포·재시작은 지금 변수). **아직 앱 컨테이너에 전달되지는 않는다** — chart·Prod Secret 경로가 필요하다. 설계는 [ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md).
 - 도메인은 저장하지 않고 `{서비스 이름}-{service_id}.{타깃의 domainSuffix}` 로 계산해 보여 준다. 접미사가 없는 타깃(지금은 `local`)은 `host` 가 비어 있다. 서비스 이름·도메인 변경은 MVP 범위가 아니다. 이름을 바꾸면 주소도 바뀐다. 설계는 [ADR 0014](docs/adr/0014-service-domain-lookup.md).
 
 Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 않는다.

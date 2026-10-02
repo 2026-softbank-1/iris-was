@@ -14,6 +14,7 @@ from app.clients.oauth_client import GithubOAuthClient
 from app.clients.observability_client import LokiPrometheusObservabilityClient
 from app.clients.source_repository_client import GithubSourceRepositoryClient
 from app.core.config import Settings, get_settings
+from app.core.crypto import VariableCipher
 from app.core.database import get_session_factory
 from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
@@ -27,6 +28,7 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
@@ -41,6 +43,7 @@ from app.services.service_registry_service import ServiceRegistryService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
 from app.services.target_service import TargetService
+from app.services.variable_service import VariableService
 from app.services.webhook_service import WebhookService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -197,12 +200,29 @@ def get_domain_service(session: SessionDep) -> DomainService:
 DomainServiceDep = Annotated[DomainService, Depends(get_domain_service)]
 
 
+def get_variable_service(session: SessionDep, settings: SettingsDep) -> VariableService:
+    if settings.variables_encryption_key is None:
+        raise NotConfiguredError(
+            "variables encryption is not configured", setting="VARIABLES_ENCRYPTION_KEY"
+        )
+    return VariableService(
+        session,
+        ServiceRepository(session),
+        ServiceVariableRepository(session),
+        VariableCipher(settings.variables_encryption_key.get_secret_value()),
+    )
+
+
+VariableServiceDep = Annotated[VariableService, Depends(get_variable_service)]
+
+
 def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:
     return DeploymentRequestService(
         DeploymentRequestRepository(session),
         JobRepository(session),
         DeploymentStatusHistoryRepository(session),
         BuildRepository(session),
+        ServiceVariableRepository(session),
     )
 
 

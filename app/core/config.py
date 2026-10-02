@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # 로컬 http 개발에서는 false 로 둔다. 운영은 반드시 true.
     is_session_cookie_secure: bool = True
 
+    # 서비스 환경변수 값을 DB 에 암호화해 저장하는 Fernet 키(README 의 생성 명령 참고).
+    # 없으면 변수 API 는 503 (NOT_CONFIGURED). 키를 잃으면 저장된 값을 읽을 수 없다.
+    variables_encryption_key: SecretStr | None = None
+
     # GitHub App 하나로 로그인(user authorization)과 저장소 접근(installation)을 함께 쓴다.
     github_app_id: str | None = None
     github_app_slug: str | None = None

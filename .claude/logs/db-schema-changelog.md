@@ -6,6 +6,9 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
+- 2026-10-02T13:12Z · app/models/__init__.py (Edit) · +2 −0
+- 2026-10-02T13:12Z · app/models/__init__.py (Edit) · +1 −0
+- 2026-10-02T13:12Z · app/models/service_variable.py (Write) · 신규/동일
 - 2026-10-02T10:30Z · app/models/release.py (Write) · build_id, revert_commit_sha, failure_code, deadline_at, finished_at 컬럼과 진행 중 release 유일 index 추가
 - 2026-10-02T10:30Z · app/models/build.py (Write) · status, source_sha, attempt, image_tag, deploy_config, failure_code 컬럼 추가, builder nullable
 - 2026-10-02T10:30Z · app/models/deployment_request.py (Edit) · cancel_requested_at 컬럼 추가
