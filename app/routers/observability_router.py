@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, Query
 from fastapi.responses import StreamingResponse
 
+from app.clients.observability_client import MetricGrouping
 from app.core.exceptions import InvalidInputError
 from app.dependencies import CurrentUserDep, ObservabilityServiceDep, SessionDep
 from app.schemas.observability import LogEntryResponse, LogsResponse, MetricSeriesResponse
@@ -14,6 +15,17 @@ router = APIRouter(prefix="/api/v1/services", tags=["observability"])
 TargetQuery = Annotated[int, Query(alias="targetId", gt=0)]
 LimitQuery = Annotated[int, Query(ge=1, le=1000)]
 SearchQuery = Annotated[str, Query(max_length=500)]
+GroupByQuery = Annotated[
+    MetricGrouping,
+    Query(
+        alias="groupBy",
+        description=(
+            "total 은 서비스 전체 합계(metric 당 시리즈 1개), "
+            "pod 은 Pod(replica)별 시리즈(각 항목에 pod 이름). "
+            "pod 은 범위 안의 Pod 이 metric 당 50개를 넘으면 422 이다."
+        ),
+    ),
+]
 
 
 @router.get(
@@ -69,11 +81,12 @@ async def search_metrics(
     service: ObservabilityServiceDep,
     session: SessionDep,
     step: Annotated[int, Query(ge=15, le=86400)] = 60,
+    group_by: GroupByQuery = "total",
 ) -> ApiResponse[list[MetricSeriesResponse]]:
     namespace = await service.get_scope(user.id, service_id, target_id)
     service.validate_range(start, end)
     await session.close()
-    series = await service.search_metrics(target_id, namespace, start, end, step)
+    series = await service.search_metrics(target_id, namespace, start, end, step, group_by)
     return ApiResponse(data=[MetricSeriesResponse.from_series(item) for item in series])
 
 

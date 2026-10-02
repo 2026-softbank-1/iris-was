@@ -1,12 +1,18 @@
 import asyncio
 import json
 import time
+from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from pydantic import HttpUrl
 
-from app.clients.observability_client import LogEntry, MetricSeries, ObservabilityClient
+from app.clients.observability_client import (
+    LogEntry,
+    MetricGrouping,
+    MetricSeries,
+    ObservabilityClient,
+)
 from app.core.exceptions import (
     ExternalError,
     InvalidInputError,
@@ -14,6 +20,8 @@ from app.core.exceptions import (
     ServiceNotFoundError,
 )
 from app.repositories.service_repository import ServiceRepository
+
+MAX_POD_SERIES = 50
 
 
 class ObservabilityService:
@@ -60,17 +68,33 @@ class ObservabilityService:
         )
 
     async def search_metrics(
-        self, target_id: int, namespace: str, start: datetime, end: datetime, step: int
+        self,
+        target_id: int,
+        namespace: str,
+        start: datetime,
+        end: datetime,
+        step: int,
+        group_by: MetricGrouping = "total",
     ) -> list[MetricSeries]:
         if (end - start).total_seconds() / step > 1440:
             raise InvalidInputError("range and step may produce at most 1440 points per metric")
-        return await self._client.search_metrics(
+        series = await self._client.search_metrics(
             self._get_url(target_id, "prometheus_url"),
             namespace,
             start.timestamp(),
             end.timestamp(),
             step,
+            group_by,
         )
+        # 롤링 배포가 잦은 긴 범위는 Pod 이름이 바뀌며 시리즈가 늘어난다. 잘라내지 않고 거절한다.
+        if group_by == "pod":
+            pods_per_metric = Counter(item.metric for item in series)
+            if max(pods_per_metric.values(), default=0) > MAX_POD_SERIES:
+                raise InvalidInputError(
+                    "too many pods in range; narrow the time range or use groupBy=total",
+                    max_pods=MAX_POD_SERIES,
+                )
+        return series
 
     async def prepare_stream(
         self, target_id: int, namespace: str, start_ns: int, end_ns: int, search: str

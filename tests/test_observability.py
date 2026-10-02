@@ -6,20 +6,25 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app.clients.observability_client import LogEntry, LokiPrometheusObservabilityClient
+from app.clients.observability_client import (
+    LogEntry,
+    LokiPrometheusObservabilityClient,
+    MetricPoint,
+    MetricSeries,
+)
 from app.core.config import Settings
 from app.core.exceptions import ExternalError, InvalidInputError, ServiceNotFoundError
 from app.dependencies import get_current_user, get_observability_service, get_session
 from app.main import app
 from app.models.user import User
-from app.services.observability_service import ObservabilityService
+from app.services.observability_service import MAX_POD_SERIES, ObservabilityService
 
 
-def make_service(client=None, loki_url=None, owned=True):
+def make_service(client=None, loki_url=None, owned=True, prometheus_url=None):
     repository = AsyncMock()
     repository.find_by_id_and_owner_id.return_value = object() if owned else None
     repository.search_target_ids_by_service_ids.return_value = {42: [1]}
-    return ObservabilityService(repository, client or AsyncMock(), loki_url, None)
+    return ObservabilityService(repository, client or AsyncMock(), loki_url, prometheus_url)
 
 
 async def test_loki_query_is_scoped_and_search_cannot_inject_logql():
@@ -292,8 +297,6 @@ async def test_empty_prometheus_result_remains_empty():
 
 
 async def test_metrics_api_serializes_real_samples(api_client):
-    from app.clients.observability_client import MetricPoint, MetricSeries
-
     http, service, session = api_client
     service.search_metrics = AsyncMock(
         return_value=[MetricSeries("cpu", "cores", [MetricPoint(1767225600, 0.25)])]
@@ -337,3 +340,137 @@ def test_backend_urls_are_read_from_env(monkeypatch):
     settings = Settings(_env_file=None, database_url="postgresql+asyncpg://x")
     assert str(settings.loki_url) == "http://loki.observability:3100/"
     assert str(settings.prometheus_url) == "http://monitoring-prometheus.observability:9090/"
+
+
+def _matrix_response(result):
+    return httpx.Response(
+        200, json={"status": "success", "data": {"resultType": "matrix", "result": result}}
+    )
+
+
+async def test_prometheus_pod_grouping_returns_one_series_per_pod_sorted_by_name():
+    queries = []
+
+    def handler(request):
+        queries.append(request.url.params["query"])
+        return _matrix_response(
+            [
+                {"metric": {"k8s_pod_name": "app-b"}, "values": [[100, "2"], [160, "NaN"]]},
+                {"metric": {"k8s_pod_name": "app-a"}, "values": [[100, "1"], [160, "3"]]},
+            ]
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        series = await LokiPrometheusObservabilityClient(http).search_metrics(
+            "http://prom", "svc-42", 1, 300, 60, "pod"
+        )
+    cpu_time = "k8s_pod_cpu_time_seconds_total"
+    network_io = "k8s_pod_network_io_bytes_total"
+    selector = 'k8s_namespace_name="svc-42"'
+    assert queries == [
+        f"sum by (k8s_pod_name) (rate({cpu_time}{{{selector}}}[5m]))",
+        f"sum by (k8s_pod_name) (k8s_pod_memory_working_set_bytes{{{selector}}})",
+        f'sum by (k8s_pod_name) (rate({network_io}{{{selector},direction="receive"}}[5m]))',
+        f'sum by (k8s_pod_name) (rate({network_io}{{{selector},direction="transmit"}}[5m]))',
+    ]
+    assert [(item.metric, item.pod) for item in series] == [
+        (metric, pod)
+        for metric in ("cpu", "memory", "network_receive", "network_transmit")
+        for pod in ("app-a", "app-b")
+    ]
+    assert [(point.timestamp, point.value) for point in series[0].points] == [(100, 1), (160, 3)]
+    assert [(point.timestamp, point.value) for point in series[1].points] == [(100, 2)]
+
+
+async def test_prometheus_pod_grouping_without_data_returns_no_series():
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: _matrix_response([]))
+    ) as http:
+        series = await LokiPrometheusObservabilityClient(http).search_metrics(
+            "http://prom", "svc-42", 1, 300, 60, "pod"
+        )
+    assert series == []
+
+
+@pytest.mark.parametrize("labels", [{}, {"k8s_pod_name": ""}, {"k8s_pod_name": 1}])
+async def test_prometheus_pod_grouping_rejects_series_without_pod_label(labels):
+    response = _matrix_response([{"metric": labels, "values": [[100, "1"]]}])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: response)) as http:
+        with pytest.raises(ExternalError):
+            await LokiPrometheusObservabilityClient(http).search_metrics(
+                "http://prom", "svc-42", 1, 300, 60, "pod"
+            )
+
+
+async def test_prometheus_total_rejects_multiple_series():
+    response = _matrix_response(
+        [
+            {"metric": {"k8s_pod_name": "app-a"}, "values": [[100, "1"]]},
+            {"metric": {"k8s_pod_name": "app-b"}, "values": [[100, "1"]]},
+        ]
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: response)) as http:
+        with pytest.raises(ExternalError):
+            await LokiPrometheusObservabilityClient(http).search_metrics(
+                "http://prom", "svc-42", 1, 300, 60
+            )
+
+
+async def test_metrics_rejects_too_many_pod_series():
+    client = AsyncMock()
+    client.search_metrics.return_value = [
+        MetricSeries("cpu", "cores", [], f"app-{index}") for index in range(MAX_POD_SERIES + 1)
+    ]
+    service = make_service(client, prometheus_url="http://prom")
+    end = datetime.now(UTC)
+    with pytest.raises(InvalidInputError):
+        await service.search_metrics(1, "svc-42", end - timedelta(hours=1), end, 60, "pod")
+
+
+async def test_metrics_accepts_pod_series_up_to_limit_and_forwards_grouping():
+    series = [MetricSeries("cpu", "cores", [], f"app-{index}") for index in range(MAX_POD_SERIES)]
+    client = AsyncMock()
+    client.search_metrics.return_value = series
+    service = make_service(client, prometheus_url="http://prom")
+    end = datetime.now(UTC)
+    result = await service.search_metrics(1, "svc-42", end - timedelta(hours=1), end, 60, "pod")
+    assert result == series
+    assert client.search_metrics.call_args.args[-1] == "pod"
+
+
+async def test_metrics_api_group_by_pod_serializes_pod_and_omits_it_for_total(api_client):
+    http, service, _ = api_client
+    params = {"targetId": 1, "start": "2026-01-01T00:00:00Z", "end": "2026-01-01T01:00:00Z"}
+    service.search_metrics = AsyncMock(
+        return_value=[MetricSeries("cpu", "cores", [MetricPoint(1767225600, 0.25)], "app-a")]
+    )
+    response = await http.get("/api/v1/services/42/metrics", params={**params, "groupBy": "pod"})
+    assert response.status_code == 200
+    assert response.json()["data"] == [
+        {
+            "metric": "cpu",
+            "unit": "cores",
+            "points": [{"timestamp": 1767225600, "value": 0.25}],
+            "pod": "app-a",
+        }
+    ]
+    assert service.search_metrics.call_args.args[-1] == "pod"
+
+    service.search_metrics = AsyncMock(return_value=[MetricSeries("cpu", "cores", [])])
+    response = await http.get("/api/v1/services/42/metrics", params=params)
+    assert response.json()["data"] == [{"metric": "cpu", "unit": "cores", "points": []}]
+    assert service.search_metrics.call_args.args[-1] == "total"
+
+
+async def test_metrics_api_rejects_unknown_group_by(api_client):
+    http, _, _ = api_client
+    response = await http.get(
+        "/api/v1/services/42/metrics",
+        params={
+            "targetId": 1,
+            "start": "2026-01-01T00:00:00Z",
+            "end": "2026-01-01T01:00:00Z",
+            "groupBy": "namespace",
+        },
+    )
+    assert response.status_code == 422

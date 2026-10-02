@@ -1635,6 +1635,21 @@
             "title": "Metric",
             "type": "string"
           },
+          "pod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pod(replica) 이름. groupBy=pod 일 때만 있고 total 이면 생략된다.",
+            "examples": [
+              "app-5d9c7b8f6d-x2k4q"
+            ],
+            "title": "Pod"
+          },
           "points": {
             "items": {
               "$ref": "#/components/schemas/MetricPointResponse"
@@ -4554,6 +4569,22 @@
               "minimum": 15,
               "title": "Step",
               "type": "integer"
+            }
+          },
+          {
+            "description": "total 은 서비스 전체 합계(metric 당 시리즈 1개), pod 은 Pod(replica)별 시리즈(각 항목에 pod 이름). pod 은 범위 안의 Pod 이 metric 당 50개를 넘으면 422 이다.",
+            "in": "query",
+            "name": "groupBy",
+            "required": false,
+            "schema": {
+              "default": "total",
+              "description": "total 은 서비스 전체 합계(metric 당 시리즈 1개), pod 은 Pod(replica)별 시리즈(각 항목에 pod 이름). pod 은 범위 안의 Pod 이 metric 당 50개를 넘으면 422 이다.",
+              "enum": [
+                "total",
+                "pod"
+              ],
+              "title": "Groupby",
+              "type": "string"
             }
           }
         ],
