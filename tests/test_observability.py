@@ -35,11 +35,11 @@ async def test_loki_query_is_scoped_and_search_cannot_inject_logql():
                     "resultType": "streams",
                     "result": [
                         {
-                            "stream": {"pod": "app-b", "container": "app"},
+                            "stream": {"k8s_pod_name": "app-b", "k8s_container_name": "app"},
                             "values": [["200", "second\nline"]],
                         },
                         {
-                            "stream": {"pod": "app-a", "container": "app"},
+                            "stream": {"k8s_pod_name": "app-a", "k8s_container_name": "app"},
                             "values": [["100", "first"]],
                         },
                     ],
@@ -52,9 +52,12 @@ async def test_loki_query_is_scoped_and_search_cannot_inject_logql():
         entries = await LokiPrometheusObservabilityClient(http).search_logs(
             "http://loki", "svc-42", 1, 300, 100, search
         )
-    assert [entry.timestamp_ns for entry in entries] == ["100", "200"]
+    assert [(entry.timestamp_ns, entry.pod, entry.container) for entry in entries] == [
+        ("100", "app-a", "app"),
+        ("200", "app-b", "app"),
+    ]
     assert requests[0].url.params["query"] == (
-        '{namespace="svc-42",container="app"} |= ' + json.dumps(search)
+        '{k8s_namespace_name="svc-42",k8s_container_name="app"} |= ' + json.dumps(search)
     )
     assert requests[0].url.params["direction"] == "backward"
 
@@ -100,8 +103,13 @@ async def test_prometheus_queries_are_scoped_and_nonfinite_values_are_omitted():
             "http://prom", "svc-42", 1, 300, 60
         )
     assert len(series) == 4
-    assert all('namespace="svc-42"' in query for query in queries)
-    assert 'pod=~"app-.*"' in queries[2]
+    # OTel kubeletstats → Prometheus remote write 이름(2026-10-02 dev 클러스터에서 확인).
+    assert queries == [
+        'sum(rate(k8s_pod_cpu_time_seconds_total{k8s_namespace_name="svc-42"}[5m]))',
+        'sum(k8s_pod_memory_working_set_bytes{k8s_namespace_name="svc-42"})',
+        'sum(rate(k8s_pod_network_io_bytes_total{k8s_namespace_name="svc-42",direction="receive"}[5m]))',
+        'sum(rate(k8s_pod_network_io_bytes_total{k8s_namespace_name="svc-42",direction="transmit"}[5m]))',
+    ]
     assert [(point.timestamp, point.value) for point in series[0].points] == [(100, 0.25)]
     assert [item.unit for item in series] == ["cores", "bytes", "bytes/s", "bytes/s"]
 
