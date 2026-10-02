@@ -157,14 +157,22 @@ DIGEST=$(docker buildx imagetools inspect traefik/whoami:latest | awk '/^Digest:
 `seed.sql`(첫 실행만 user·service 생성. 배포마다 `:'digest'`·`:'key'` 를 바꿔 다시 실행):
 
 ```sql
-INSERT INTO users (github_user_id, login) VALUES (1, 'local') ON CONFLICT DO NOTHING;
-INSERT INTO services (owner_user_id, name, slug, github_repository_id, repository_full_name)
-SELECT id, 'whoami', 'my-app', 1, 'local/whoami' FROM users WHERE github_user_id = 1
-ON CONFLICT (slug) DO NOTHING;
+INSERT INTO users (github_id, login) VALUES (1, 'local') ON CONFLICT DO NOTHING;
+INSERT INTO github_installations (installation_id, account_login, account_type)
+VALUES (1, 'local', 'User') ON CONFLICT DO NOTHING;
+INSERT INTO projects (name, owner_id) SELECT 'local', id FROM users WHERE github_id = 1
+ON CONFLICT DO NOTHING;
+INSERT INTO services (project_id, name, source_repository_url, github_installation_id, source_branch)
+SELECT p.id, 'my-app', 'https://github.com/local/whoami', i.id, 'main'
+FROM projects p, github_installations i
+WHERE p.name = 'local' AND i.installation_id = 1
+  AND NOT EXISTS (SELECT 1 FROM services WHERE name = 'my-app');
 
 WITH request AS (
-  INSERT INTO deployment_requests (service_id, trigger, idempotency_key, status)
-  SELECT id, 'MANUAL', :'key', 'DEPLOYING' FROM services WHERE slug = 'my-app'
+  INSERT INTO deployment_requests (service_id, environment, source_sha, trigger_type,
+                                   idempotency_key, status)
+  SELECT id, 'prod', repeat('a', 40), 'MANUAL', :'key', 'DEPLOYING'
+  FROM services WHERE name = 'my-app'
   RETURNING id
 ), build AS (
   INSERT INTO builds (deployment_request_id, status, builder, source_sha,
@@ -174,8 +182,8 @@ WITH request AS (
          '{"startCommand": "/whoami --port 8080", "healthcheckTimeout": 60}'::jsonb
   FROM request RETURNING id, deployment_request_id
 )
-INSERT INTO jobs (deployment_request_id, kind, payload)
-SELECT deployment_request_id, 'DEPLOY', jsonb_build_object('build_id', id) FROM build;
+INSERT INTO jobs (deployment_request_id, kind, status, payload)
+SELECT deployment_request_id, 'DEPLOY', 'QUEUED', jsonb_build_object('build_id', id) FROM build;
 ```
 
 ```bash
@@ -200,7 +208,7 @@ kubectl -n argocd annotate applicationset iris-services argocd.argoproj.io/appli
 
 | # | 방법 | 기대 결과 |
 |---|---|---|
-| 1 신규 배포 | seed 1회 | sandbox 에 `services/{id}/prod/values.yaml` 커밋 → Application `svc-{id}` 생성 → release·요청 `SUCCEEDED`. `curl -H 'Host: my-app.localhost' localhost:8080` 응답 |
+| 1 신규 배포 | seed 1회 | sandbox 에 `services/{id}/prod/values.yaml` 커밋 → Application `svc-{id}` 생성 → release·요청 `SUCCEEDED`. `curl -H 'Host: my-app-1.localhost' localhost:8080` 응답 |
 | 2 추가 배포 | 같은 digest 로 seed 1회 더 | values 덮어쓰기 커밋, `release.id` 가 바뀌어 rollout → `SUCCEEDED`. 새 release 의 `previous_good_release_id` = 1번 |
 | 3 실패 → rollback | `digest=sha256:` + 0 64개로 seed | ImagePullBackOff → 60초 뒤 Degraded → `DEPLOY_FAILED` → ROLLBACK 이 2번 디렉터리로 되돌리는 커밋 → `ROLLED_BACK`. 2번 Pod 는 계속 응답 |
 | 4 진행 중 대기 | seed 를 연속 2회 | 두 번째 DEPLOY 가 15초 간격으로 snooze 하다 첫 배포가 끝나면 진행 |
@@ -226,7 +234,7 @@ gh api repos/<ORG>/iris-gitops-sandbox/commits --jq '.[].commit.message' | head
 
 ```bash
 k3d cluster delete iris-local
-psql softbank_iris -c "TRUNCATE releases, jobs, builds, deployment_requests, services, users RESTART IDENTITY CASCADE"
+psql softbank_iris -c "TRUNCATE releases, jobs, builds, deployment_status_histories, deployment_requests, service_targets, services, projects, user_github_installations, github_installations, users RESTART IDENTITY CASCADE"
 ```
 
 > ⚠️ `TRUNCATE` 는 되돌릴 수 없다. **로컬 DB(`softbank_iris`)인지 확인**하고 실행한다. 개발 데이터를 남기려면 seed 한 서비스의 행만 지운다.

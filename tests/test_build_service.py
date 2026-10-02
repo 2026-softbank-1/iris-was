@@ -1,11 +1,11 @@
 """BuildService·JobRepository 통합 테스트. TEST_DATABASE_URL 의 로컬 PostgreSQL 이 필요하다.
 
-테이블을 만들고 지우므로 개발 DB 가 아닌 전용 DB 를 쓴다.
+`alembic upgrade head` 가 끝난 DB 여야 한다. 데이터 테이블을 비우므로 개발 DB 가 아닌
+전용 DB 를 쓴다.
 """
 
 import asyncio
 import io
-import os
 import tarfile
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.clients.aws_clients import CodeBuildResult
 from app.core.config import BuildWorkerSettings
@@ -23,21 +23,33 @@ from app.enums import (
     BuildStatus,
     DeploymentStatus,
     DeploymentTrigger,
+    Environment,
     FailureCode,
     JobKind,
     JobStatus,
 )
-from app.models import Base, Build, DeploymentRequest, Job, Service, User
+from app.models import Build, DeploymentRequest, DeploymentStatusHistory, Job
+from app.repositories.build_repository import BuildRepository
+from app.repositories.deployment_request_repository import DeploymentRequestRepository
+from app.repositories.deployment_status_history_repository import (
+    DeploymentStatusHistoryRepository,
+)
+from app.repositories.job_repository import JobRepository
 from app.services.build_service import BuildService
+from app.services.deployment_request_service import DeploymentRequestService
+from tests.worker_support import (
+    add,
+    requires_database,
+    seed_service,
+    session_factory_with_clean_data,
+)
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
-pytestmark = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
+pytestmark = [pytest.mark.integration, requires_database]
 
 REPOSITORY_URI = "123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/1"
 SETTINGS = BuildWorkerSettings(
     github_app_id=1,
     github_app_private_key="unused",
-    github_public_installation_id=99,
     aws_region="ap-northeast-2",
     codebuild_project="iris-test-build",
     artifact_bucket="iris-test-artifacts",
@@ -50,7 +62,7 @@ class FakeGitHub:
         self.files = files
 
     async def create_installation_token(
-        self, installation_id: int, repository_id: int | None
+        self, installation_id: int, repository_name: str | None
     ) -> str:
         return "token"
 
@@ -110,41 +122,31 @@ SUCCEEDED = CodeBuildResult("SUCCEEDED", None, "https://logs.example")
 
 @pytest.fixture
 async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine(TEST_DATABASE_URL or "")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-        await connection.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+    async for factory in session_factory_with_clean_data():
+        yield factory
 
 
 async def _seed(
-    session_factory: async_sessionmaker[AsyncSession], owner_github_id: int = 1, **build: Any
+    session_factory: async_sessionmaker[AsyncSession],
+    owner_github_id: int = 1,
+    request_status: DeploymentStatus = DeploymentStatus.QUEUED,
+    **build: Any,
 ) -> Job:
     async with session_factory.begin() as session:
-        user = await session.scalar(select(User).where(User.github_user_id == owner_github_id))
-        if user is None:
-            user = User(github_user_id=owner_github_id, login=f"user{owner_github_id}")
-            await _add(session, user)
-        unique = uuid4().hex
-        service = await _add(
-            session,
-            Service(
-                owner_user_id=user.id,
-                name="web",
-                slug=f"web-{unique}",
-                github_repository_id=10,
-                repository_full_name="owner/repo",
-            ),
-        )
-        request = await _add(
+        service = await seed_service(session, owner_github_id)
+        request = await add(
             session,
             DeploymentRequest(
-                service_id=service.id, trigger=DeploymentTrigger.MANUAL, idempotency_key=unique
+                service_id=service.id,
+                environment=Environment.PROD,
+                source_sha="a" * 40,
+                trigger_type=DeploymentTrigger.MANUAL,
+                idempotency_key=uuid4().hex,
+                status=request_status,
             ),
         )
-        new_build = await _add(session, Build(deployment_request_id=request.id, **build))
-        job = await _add(
+        new_build = await add(session, Build(deployment_request_id=request.id, **build))
+        job = await add(
             session,
             Job(
                 deployment_request_id=request.id,
@@ -153,12 +155,6 @@ async def _seed(
             ),
         )
     return job
-
-
-async def _add[T](session: AsyncSession, instance: T) -> T:
-    session.add(instance)
-    await session.flush()
-    return instance
 
 
 def _service(
@@ -251,6 +247,52 @@ async def test_run_success_hands_off_to_deploy(session_factory: Any) -> None:
     ]
 
 
+async def test_run_job_from_deployment_request_service_builds_and_records_history(
+    session_factory: Any,
+) -> None:
+    async with session_factory.begin() as session:
+        service_row = await seed_service(session)
+        request = await DeploymentRequestService(
+            DeploymentRequestRepository(session),
+            JobRepository(session),
+            DeploymentStatusHistoryRepository(session),
+            BuildRepository(session),
+        ).create_deployment_request(
+            service_row,
+            source_sha="a" * 40,
+            source_commit_message="feat: x",
+            trigger_type=DeploymentTrigger.MANUAL,
+            idempotency_key="api-1",
+        )
+    assert request is not None
+    service = _service(session_factory, FakeCodeBuild(SUCCEEDED))
+    job = await _claim(service)
+
+    await service.run(job, asyncio.Event())
+
+    build, loaded_request, jobs = await _load(session_factory, job)
+    assert (loaded_request.status, build.status) == (
+        DeploymentStatus.DEPLOYING,
+        BuildStatus.SUCCEEDED,
+    )
+    assert [(j.kind, j.status) for j in jobs] == [
+        (JobKind.BUILD, JobStatus.SUCCEEDED),
+        (JobKind.DEPLOY, JobStatus.QUEUED),
+    ]
+    async with session_factory() as session:
+        histories = await session.scalars(
+            select(DeploymentStatusHistory)
+            .where(DeploymentStatusHistory.deployment_request_id == request.id)
+            .order_by(DeploymentStatusHistory.id)
+        )
+        transitions = [(h.from_status, h.to_status) for h in histories]
+    assert transitions == [
+        (None, DeploymentStatus.QUEUED),
+        (DeploymentStatus.QUEUED, DeploymentStatus.BUILDING),
+        (DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING),
+    ]
+
+
 async def test_run_build_phase_failure_marks_build_failed(session_factory: Any) -> None:
     await _seed(session_factory)
     service = _service(session_factory, FakeCodeBuild(CodeBuildResult("FAILED", "BUILD", None)))
@@ -293,6 +335,7 @@ async def test_run_codebuild_fault_resets_and_retries(
 async def test_run_recorded_codebuild_id_resumes_without_start(session_factory: Any) -> None:
     await _seed(
         session_factory,
+        request_status=DeploymentStatus.BUILDING,
         status=BuildStatus.BUILDING,
         codebuild_build_id="iris-build:existing",
         image_repository=REPOSITORY_URI,

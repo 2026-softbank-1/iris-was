@@ -6,7 +6,7 @@ from app.models import Service
 from app.services.builder_detection import detect_builder, parse_iris_config
 
 
-def _service(builder: Builder = Builder.AUTO, dockerfile_path: str | None = None) -> Service:
+def _service(builder: Builder | None = None, dockerfile_path: str | None = None) -> Service:
     return Service(builder=builder, dockerfile_path=dockerfile_path)
 
 
@@ -100,3 +100,36 @@ def test_detect_builder_railpack_passes_commands_and_deploy_config() -> None:
         "RAILPACK_START_CMD": "node dist/main.js",
     }
     assert plan.deploy_config == {"startCommand": "node dist/main.js", "healthcheckPath": "/health"}
+
+
+def test_detect_builder_without_config_uses_service_commands_from_analysis() -> None:
+    service = Service(build_command="npm run build", start_command="node dist/main.js")
+
+    plan = detect_builder({"package.json"}, None, service)
+
+    assert plan.railpack_env == {
+        "RAILPACK_BUILD_CMD": "npm run build",
+        "RAILPACK_START_CMD": "node dist/main.js",
+    }
+    assert plan.deploy_config == {"startCommand": "node dist/main.js"}
+
+
+def test_detect_builder_config_commands_win_over_service_commands() -> None:
+    config = parse_iris_config(
+        b'{"build": {"buildCommand": "make"}, "deploy": {"startCommand": "./run"}}'
+    )
+    service = Service(build_command="npm run build", start_command="node dist/main.js")
+
+    plan = detect_builder({"package.json"}, config, service)
+
+    assert plan.railpack_env == {"RAILPACK_BUILD_CMD": "make", "RAILPACK_START_CMD": "./run"}
+    assert plan.deploy_config == {"startCommand": "./run"}
+
+
+def test_detect_builder_invalid_service_start_command_raises_config_required() -> None:
+    service = Service(start_command="node 'main.js")
+
+    with pytest.raises(BuildFailedError) as exc_info:
+        detect_builder({"package.json"}, None, service)
+
+    assert exc_info.value.failure_code == FailureCode.BUILD_CONFIG_REQUIRED

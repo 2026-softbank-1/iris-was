@@ -1,17 +1,17 @@
 """DeployService 통합 테스트. TEST_DATABASE_URL 의 로컬 PostgreSQL 이 필요하다.
 
-GitOps 저장소·Argo CD·ECR 은 메모리 대역으로 바꾼다. 테이블을 만들고 지우므로 전용 DB 를 쓴다.
+GitOps 저장소·Argo CD·ECR 은 메모리 대역으로 바꾼다. `alembic upgrade head` 가 끝난 DB 여야 하고
+데이터 테이블을 비우므로 전용 DB 를 쓴다.
 """
 
 import json
-import os
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import select, text, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.clients.argocd_client import ArgoAppStatus
 from app.core.config import DeployWorkerSettings
@@ -21,17 +21,23 @@ from app.enums import (
     BuildStatus,
     DeploymentStatus,
     DeploymentTrigger,
+    Environment,
     FailureCode,
     JobKind,
     JobStatus,
     ReleaseStatus,
 )
-from app.models import Base, Build, DeploymentRequest, Job, Release, Service, User
+from app.models import Build, DeploymentRequest, Job, Release
 from app.repositories.job_repository import JobRepository
 from app.services.deploy_service import DeployService
+from tests.worker_support import (
+    add,
+    requires_database,
+    seed_service,
+    session_factory_with_clean_data,
+)
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
-pytestmark = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
+pytestmark = [pytest.mark.integration, requires_database]
 
 REPOSITORY_URI = "123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/1"
 SETTINGS = DeployWorkerSettings(
@@ -57,7 +63,7 @@ class FakeGitOps:
         self.fail_next_update = False
 
     async def create_installation_token(
-        self, installation_id: int, repository_id: int | None, contents: str = "read"
+        self, installation_id: int, repository_name: str | None, contents: str = "read"
     ) -> str:
         return "token"
 
@@ -130,12 +136,8 @@ def _argo(revision: str, health: str = "Healthy", phase: str = "Succeeded") -> A
 
 @pytest.fixture
 async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine(TEST_DATABASE_URL or "")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-        await connection.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+    async for factory in session_factory_with_clean_data():
+        yield factory
 
 
 class Harness:
@@ -158,29 +160,20 @@ class Harness:
         """같은 서비스에 빌드가 끝난 배포 요청과 DEPLOY job 을 만든다. 요청 ID 를 돌려준다."""
         async with self.session_factory.begin() as session:
             if self.service_id is None:
-                user = await _add(session, User(github_user_id=1, login="user"))
-                service = await _add(
-                    session,
-                    Service(
-                        owner_user_id=user.id,
-                        name="web",
-                        slug="web",
-                        github_repository_id=10,
-                        repository_full_name="owner/repo",
-                    ),
-                )
-                self.service_id = service.id
+                self.service_id = (await seed_service(session)).id
             unique = uuid4().hex
-            request = await _add(
+            request = await add(
                 session,
                 DeploymentRequest(
                     service_id=self.service_id,
-                    trigger=DeploymentTrigger.MANUAL,
+                    environment=Environment.PROD,
+                    source_sha="a" * 40,
+                    trigger_type=DeploymentTrigger.MANUAL,
                     idempotency_key=unique,
                     status=DeploymentStatus.DEPLOYING,
                 ),
             )
-            build = await _add(
+            build = await add(
                 session,
                 Build(
                     deployment_request_id=request.id,
@@ -240,12 +233,6 @@ class Harness:
                 )
             )
         return request, release, jobs
-
-
-async def _add[T](session: AsyncSession, instance: T) -> T:
-    session.add(instance)
-    await session.flush()
-    return instance
 
 
 def _job_states(jobs: list[Job]) -> list[tuple[JobKind, JobStatus]]:
@@ -320,8 +307,18 @@ async def test_deploy_cancel_requested_supersedes_without_release(session_factor
 
 async def test_deploy_release_in_flight_snoozes(session_factory: Any) -> None:
     h = Harness(session_factory)
-    await h.request_deploy()
+    first_id = await h.request_deploy()
     await h.run_next(JobKind.DEPLOY)
+    # 첫 요청은 실패했지만 되돌림이 끝나지 않아 release 가 진행 중이다. 요청이 FAILED 라
+    # 새 요청은 만들어지고, release 가 끝날 때까지 새 배포가 기다려야 한다.
+    async with session_factory.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE deployment_requests SET status = 'FAILED', failure_code = 'DEPLOY_FAILED'"
+                " WHERE id = :id"
+            ),
+            {"id": first_id},
+        )
     second_id = await h.request_deploy()
 
     await h.run_next(JobKind.DEPLOY)

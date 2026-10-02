@@ -30,3 +30,8 @@ class BuildRepository:
         if build is None:
             raise NotFoundError("build not found", build_id=build_id)
         return build
+
+    async def add(self, build: Build) -> Build:
+        self._session.add(build)
+        await self._session.flush()
+        return build

@@ -2,9 +2,26 @@
 from app.models.base import Base
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
+from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
+from app.models.project import Project
 from app.models.release import Release
 from app.models.service import Service
-from app.models.user import User
+from app.models.target import ServiceTarget, Target
+from app.models.user import GithubInstallation, User, UserGithubInstallation
 
-__all__ = ["Base", "Build", "DeploymentRequest", "Job", "Release", "Service", "User"]
+__all__ = [
+    "Base",
+    "Build",
+    "DeploymentRequest",
+    "DeploymentStatusHistory",
+    "GithubInstallation",
+    "Job",
+    "Project",
+    "Release",
+    "Service",
+    "ServiceTarget",
+    "Target",
+    "User",
+    "UserGithubInstallation",
+]

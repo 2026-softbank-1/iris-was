@@ -38,6 +38,7 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["integration: 실제 PostgreSQL 이 필요한 테스트 (TEST_DATABASE_URL)"]
 
 [dependency-groups]
 dev = [

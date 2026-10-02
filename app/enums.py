@@ -18,7 +18,6 @@ class JobStatus(StrEnum):
 
 
 class Builder(StrEnum):
-    AUTO = "auto"
     DOCKERFILE = "dockerfile"
     RAILPACK = "railpack"
 
@@ -27,21 +26,32 @@ class Environment(StrEnum):
     PROD = "prod"
 
 
-class DeploymentTrigger(StrEnum):
-    MANUAL = "MANUAL"
-    PUSH = "PUSH"
-
-
 class DeploymentStatus(StrEnum):
     QUEUED = "QUEUED"
-    INITIALIZING = "INITIALIZING"
     BUILDING = "BUILDING"
     DEPLOYING = "DEPLOYING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     ROLLED_BACK = "ROLLED_BACK"
     MANUAL_INTERVENTION = "MANUAL_INTERVENTION"
+    # 진행 중에 더 새로운 요청이 대신해 중단됐다. Worker 가 cancel_requested_at 을 보고 끝낸다.
     SUPERSEDED = "SUPERSEDED"
+
+
+# 서비스·환경별로 동시에 하나만 허용하는 "진행 중" 상태.
+ACTIVE_DEPLOYMENT_STATUSES = (
+    DeploymentStatus.QUEUED,
+    DeploymentStatus.BUILDING,
+    DeploymentStatus.DEPLOYING,
+)
+
+
+class DeploymentTrigger(StrEnum):
+    MANUAL = "MANUAL"
+    PUSH = "PUSH"
+    CLI = "CLI"
+    REDEPLOY = "REDEPLOY"
+    ROLLBACK = "ROLLBACK"
 
 
 class BuildStatus(StrEnum):
@@ -72,3 +82,8 @@ class FailureCode(StrEnum):
     DEPLOY_FAILED = "DEPLOY_FAILED"
     DEPLOY_TIMED_OUT = "DEPLOY_TIMED_OUT"
     DEPLOY_INFRA_ERROR = "DEPLOY_INFRA_ERROR"
+
+
+class TargetKind(StrEnum):
+    AWS = "AWS"
+    LOCAL = "LOCAL"

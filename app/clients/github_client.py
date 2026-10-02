@@ -28,12 +28,15 @@ class GitHubClient:
         self._private_key = private_key
 
     async def create_installation_token(
-        self, installation_id: int, repository_id: int | None, contents: str = "read"
+        self, installation_id: int, repository_name: str | None, contents: str = "read"
     ) -> str:
-        """contents 권한 설치 토큰(1시간)을 만든다. repository_id 가 있으면 그 레포로만 좁힌다."""
+        """contents 권한 설치 토큰(1시간)을 만든다. repository_name 이 있으면 그 레포로만 좁힌다.
+
+        repository_name 은 owner 를 뺀 저장소 이름이다. 설치 계정의 저장소만 지정할 수 있다.
+        """
         body: dict[str, object] = {"permissions": {"contents": contents}}
-        if repository_id is not None:
-            body["repository_ids"] = [repository_id]
+        if repository_name is not None:
+            body["repositories"] = [repository_name]
         response = await self._send(
             "POST",
             f"/app/installations/{installation_id}/access_tokens",

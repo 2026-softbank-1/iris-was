@@ -1,0 +1,135 @@
+from datetime import datetime
+from typing import Annotated
+
+from pydantic import Field, StringConstraints
+
+from app.enums import Builder, DeploymentStatus, DeploymentTrigger, FailureCode
+from app.models.deployment_request import DeploymentRequest
+from app.models.target import Target
+from app.schemas.response import ApiModel
+from app.services.service_registry_service import ServiceDetail
+
+ServiceName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=63)]
+Branch = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+PathText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
+Command = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+Port = Annotated[int, Field(ge=1, le=65535)]
+
+
+class ServiceCreateRequest(ApiModel):
+    """저장소를 연결해 서비스를 만든다. 이름·브랜치를 생략하면 저장소 이름·기본 브랜치를 쓴다."""
+
+    repository_url: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    name: ServiceName | None = None
+    branch: Branch | None = None
+    root_directory: PathText | None = None
+    is_auto_deploy: bool = True
+    target_ids: list[int] | None = None
+
+
+class ServiceUpdateRequest(ApiModel):
+    """보낸 필드만 바꾼다. 명시한 null 은 값을 비운다(name·sourceBranch·isAutoDeploy 제외)."""
+
+    name: ServiceName | None = None
+    source_branch: Branch | None = None
+    root_directory: PathText | None = None
+    is_auto_deploy: bool | None = None
+    builder: Builder | None = None
+    dockerfile_path: PathText | None = None
+    port: Port | None = None
+    build_command: Command | None = None
+    start_command: Command | None = None
+    target_ids: list[int] | None = None
+
+
+class LatestDeploymentResponse(ApiModel):
+    """서비스 카드에 보여줄 가장 최근 배포 요청. 서비스 상태는 `status` 로 읽는다."""
+
+    id: int
+    status: DeploymentStatus
+    source_sha: str
+    source_commit_message: str | None = None
+    trigger_type: DeploymentTrigger
+    failure_code: FailureCode | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, request: DeploymentRequest) -> "LatestDeploymentResponse":
+        return cls(
+            id=request.id,
+            status=request.status,
+            source_sha=request.source_sha,
+            source_commit_message=request.source_commit_message,
+            trigger_type=request.trigger_type,
+            failure_code=request.failure_code,
+            created_at=request.created_at,
+            updated_at=request.updated_at,
+        )
+
+
+class ServiceResponse(ApiModel):
+    id: int
+    project_id: int
+    name: str
+    source_repository_url: str
+    source_branch: str
+    root_directory: str | None = None
+    is_auto_deploy: bool
+    builder: Builder | None = None
+    dockerfile_path: str | None = None
+    platform: str
+    port: int | None = None
+    build_command: str | None = None
+    start_command: str | None = None
+    target_ids: list[int]
+    latest_deployment: LatestDeploymentResponse | None = Field(
+        default=None, description="가장 최근 배포 요청. 배포한 적이 없으면 없다."
+    )
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_detail(cls, detail: ServiceDetail) -> "ServiceResponse":
+        service = detail.service
+        return cls(
+            id=service.id,
+            project_id=service.project_id,
+            name=service.name,
+            source_repository_url=service.source_repository_url,
+            source_branch=service.source_branch,
+            root_directory=service.root_directory,
+            is_auto_deploy=service.is_auto_deploy,
+            builder=service.builder,
+            dockerfile_path=service.dockerfile_path,
+            platform=service.platform,
+            port=service.port,
+            build_command=service.build_command,
+            start_command=service.start_command,
+            target_ids=detail.target_ids,
+            latest_deployment=(
+                LatestDeploymentResponse.from_model(detail.latest_deployment)
+                if detail.latest_deployment is not None
+                else None
+            ),
+            created_at=service.created_at,
+            updated_at=service.updated_at,
+        )
+
+
+class TargetResponse(ApiModel):
+    id: int
+    name: str
+    kind: str
+    region: str | None = None
+    domain_suffix: str | None = None
+
+    @classmethod
+    def from_model(cls, target: Target) -> "TargetResponse":
+        return cls(
+            id=target.id,
+            name=target.name,
+            kind=target.kind.value,
+            region=target.region,
+            domain_suffix=target.domain_suffix,
+        )

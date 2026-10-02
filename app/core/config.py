@@ -11,6 +11,28 @@ class Settings(BaseSettings):
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
+    # 웹 프런트엔드 주소. 로그인이 끝나면 여기로 돌려보낸다.
+    web_base_url: str = "http://localhost:3000"
+
+    # 세션. 값이 없으면 로그인 API 는 503 (NOT_CONFIGURED) 을 돌려준다.
+    session_secret: SecretStr | None = None
+    session_ttl_minutes: int = 60 * 24 * 7
+    session_cookie_name: str = "anydeploy_session"
+    # 로컬 http 개발에서는 false 로 둔다. 운영은 반드시 true.
+    is_session_cookie_secure: bool = True
+
+    # GitHub App 하나로 로그인(user authorization)과 저장소 접근(installation)을 함께 쓴다.
+    github_app_id: str | None = None
+    github_app_slug: str | None = None
+    github_app_client_id: str | None = None
+    github_app_client_secret: SecretStr | None = None
+    # PEM 전체. 환경변수에는 줄바꿈을 `\n` 두 글자로 적어도 된다.
+    github_app_private_key: SecretStr | None = None
+    # 웹훅 서명(X-Hub-Signature-256) 검증용. 값이 없으면 웹훅 API 는 503 (NOT_CONFIGURED) 이다.
+    github_webhook_secret: SecretStr | None = None
+    github_web_base_url: str = "https://github.com"
+    github_api_base_url: str = "https://api.github.com"
+
 
 class BuildWorkerSettings(BaseSettings):
     """Build Worker 전용. Control API 는 이 값(GitHub App 키·AWS 리소스)을 갖지 않는다."""
@@ -20,7 +42,6 @@ class BuildWorkerSettings(BaseSettings):
     github_app_id: int
     github_app_private_key: SecretStr
     # 앱을 설치하지 않은 공개 레포는 우리 조직 설치의 토큰으로 받는다.
-    github_public_installation_id: int
     aws_region: str
     # iris-infra foundation stack 출력값(build_codebuild_project_name·build_artifact_bucket_name)
     codebuild_project: str

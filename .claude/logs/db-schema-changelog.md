@@ -6,9 +6,19 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
-- 2026-10-01T13:57Z · app/models/release.py (Write) · 신규/동일
-- 2026-10-01T13:56Z · app/models/deployment_request.py (Edit) · +5 −0
-- 2026-10-01T11:23Z · app/models/{user,service,deployment_request,job}.py (Bash) · users·services·deployment_requests·jobs 테이블 신규 (revision cf3b3859224c)
-- 2026-10-01T11:25Z · app/models/__init__.py (Write) · +6 −1
-- 2026-10-01T11:25Z · app/models/build.py (Write) · 신규/동일
-- 2026-10-01T11:24Z · app/models/base.py (Write) · created_at, updated_at 컬럼 추가
+- 2026-10-02T10:30Z · app/models/release.py (Write) · build_id, revert_commit_sha, failure_code, deadline_at, finished_at 컬럼과 진행 중 release 유일 index 추가
+- 2026-10-02T10:30Z · app/models/build.py (Write) · status, source_sha, attempt, image_tag, deploy_config, failure_code 컬럼 추가, builder nullable
+- 2026-10-02T10:30Z · app/models/deployment_request.py (Edit) · cancel_requested_at 컬럼 추가
+- 2026-10-01T15:23Z · app/models/__init__.py (Edit) · +2 −0
+- 2026-10-01T15:23Z · app/models/__init__.py (Edit) · +1 −0
+- 2026-10-01T15:22Z · app/models/deployment_request.py (Edit) · +6 −0
+- 2026-10-01T15:22Z · app/models/deployment_status_history.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/release.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/build.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/job.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/deployment_request.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/service.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/target.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/project.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/user.py (Write) · 신규/동일
+- 2026-10-01T02:33Z · app/models/base.py (Write) · created_at, updated_at, is_deleted, deleted_at 컬럼 추가

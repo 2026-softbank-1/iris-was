@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.exceptions import ConflictError, NotFoundError
-from app.enums import ReleaseStatus
-from app.models import DeploymentRequest, Release
+from app.enums import ReleaseStatus, TargetKind
+from app.models import DeploymentRequest, Release, ServiceTarget, Target
 
 
 class ReleaseRepository:
@@ -27,13 +27,32 @@ class ReleaseRepository:
             _select_with_relations().where(Release.deployment_request_id == deployment_request_id)
         )
 
-    async def find_last_known_good(self, service_id: int) -> Release | None:
+    async def find_last_known_good(self, service_id: int, target_id: int) -> Release | None:
         return await self._session.scalar(
             select(Release)
-            .where(Release.service_id == service_id, Release.status == ReleaseStatus.SUCCEEDED)
+            .where(
+                Release.service_id == service_id,
+                Release.target_id == target_id,
+                Release.status == ReleaseStatus.SUCCEEDED,
+            )
             .order_by(Release.id.desc())
             .limit(1)
         )
+
+    async def find_deploy_target(self, service_id: int) -> Target | None:
+        """서비스가 배포되는 AWS 타깃. 지정이 없으면 기본 `aws` 타깃을 쓴다."""
+        # ponytail: 서비스당 AWS 타깃 하나만 지원한다(GitOps 경로·Argo Application 이 하나다).
+        #   다중 타깃은 타깃별 GitOps 경로가 정해지면 release 를 타깃마다 만든다.
+        target = await self._session.scalar(
+            select(Target)
+            .join(ServiceTarget, ServiceTarget.target_id == Target.id)
+            .where(ServiceTarget.service_id == service_id, Target.kind == TargetKind.AWS)
+            .order_by(Target.id)
+            .limit(1)
+        )
+        if target is not None:
+            return target
+        return await self._session.scalar(select(Target).where(Target.name == "aws"))
 
     async def add(self, release: Release) -> Release:
         """진행 중 release 가 이미 있으면 ConflictError. 그 뒤 이 트랜잭션은 rollback 해야 한다."""

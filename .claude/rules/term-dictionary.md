@@ -35,7 +35,7 @@
 | Deploy Worker | `app/workers/deploy_worker.py` | DEPLOY·ROLLBACK·RECONCILE job 처리 |
 | Master Cluster | — | Control Plane·Argo CD 가 도는 EKS |
 | Prod Cluster | — | 사용자 서비스가 도는 EKS. Argo CD 만 접근한다 |
-| GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart `iris-service` 의 values). Deploy Worker 가 파일 전체를 렌더링해 커밋하고, manifest 는 Argo CD 가 chart 로 만든다. Prod namespace 는 `svc-{service_id}` |
+| GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 manifest. image digest 만 바뀐다 |
 
 ---
 
@@ -43,38 +43,45 @@
 
 ```mermaid
 erDiagram
-  users ||--o{ services : "소유"
+  users ||--o{ projects : "소유"
+  users }o--o{ github_installations : "user_github_installations"
+  projects ||--o{ services : "포함"
+  github_installations ||--o{ services : "소스 접근"
+  services }o--o{ targets : "service_targets"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
-  deployment_requests ||--o| builds : "빌드 결과"
-  deployment_requests ||--o| releases : "배포 결과"
+  deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
+  deployment_requests ||--o| builds : "빌드 결과 (한 번)"
+  deployment_requests ||--o{ releases : "타깃별 배포 결과"
+  targets ||--o{ releases : "배포 대상"
   releases |o--o| releases : "previous_good_release_id"
 ```
+
+> 빌드는 요청마다 한 번, 배포(release)는 타깃마다 한 번이다. 같은 이미지를 여러 타깃에 배포한 이력이 그대로 남는다.
 
 ---
 
 ## 4. 엔티티·테이블
 
-### 4.0 사용자 (User) — `users`\*
-
-GitHub 로그인 사용자. `github_user_id`(unique), `login`.
-
 ### 4.1 서비스 (Service) — `services`\*
 
-사용자가 배포하는 앱 하나다. 빌더는 등록 때 확정하지 않고 빌드마다 정한다(원문 §4 와 다름). 우선순위는 코드 설정(`{root_directory}/iris.json`) > 서비스 설정 > 자동 감지다. 플랫폼(`linux/amd64`)·Railpack 버전은 CodeBuild buildspec(iris-infra)에 고정한다.
+사용자가 배포하는 앱 하나다. 원문은 "서비스 등록 시 빌더를 확정해 저장"한다고만 하고 테이블은 정의하지 않는다. 빌더 필드는 서비스 저장소의 `.anydeploy/build.yaml` 에서 가져온다.
 
 | 필드 | 설명 |
 |---|---|
-| `owner_user_id`\* | 소유 사용자. 사용자별 동시 빌드 한도의 기준 |
-| `name`\* | 표시 이름 |
-| `slug`\* | 고유 식별 이름 |
-| `github_repository_id`\* | 소스 레포 ID. 레포 이름이 바뀌어도 유지된다 |
-| `repository_full_name`\* | `{owner}/{repo}` |
-| `github_installation_id`\* | GitHub App installation ID. 없으면 공개 레포로 보고 우리 조직 설치 토큰을 쓴다 |
-| `root_directory`\* | 모노레포 안 서비스 경로 (기본 `.`) |
-| `builder` | `builder` Enum (§5). 기본 `auto` |
-| `dockerfile_path` | Dockerfile 경로 (`root_directory` 기준, 기본 `Dockerfile`) |
-| `auto_deploy`\* | default 브랜치 push 때 자동 배포 |
+| `project_id`\* | 소속 프로젝트 |
+| `name`\* | 서비스 식별 이름 (slug). 프로젝트 안에서 유일하다 (삭제되지 않은 것끼리) |
+| `source_repository_url`\* | 서비스 소스 저장소 |
+| `github_installation_id`\* | 소스 저장소에 접근하는 GitHub App 설치 |
+| `source_branch`\* | 배포할 브랜치. 자동 배포의 기준이다 |
+| `root_directory`\* | 저장소 안의 서비스 위치. 없으면 저장소 루트 |
+| `is_auto_deploy`\* | 브랜치에 push 가 오면 자동으로 배포할지 |
+| `analysis_plan`\* | 코드 분석 결과(jsonb). 빌더·포트·실행 명령의 근거 |
+| `port`\*, `build_command`\*, `start_command`\* | 서비스 실행 설정 |
+| `builder` | `builder` Enum (§5). 코드 분석으로 확정하기 전까지 비어 있고, 비어 있으면 배포하지 않는다 |
+| `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
+| `platform` | 빌드 플랫폼 (`linux/amd64`) |
+| `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
 
 ### 4.2 배포 요청 (DeploymentRequest) — `deployment_requests`
 
@@ -84,13 +91,18 @@ GitHub 로그인 사용자. `github_user_id`(unique), `login`.
 |---|---|
 | `service_id` | 대상 서비스 |
 | `environment` | `environment` Enum (§5) |
-| `trigger`\* | `deployment_trigger` Enum (§5) |
-| `source_sha` | 빌드할 소스 커밋 SHA. 수동 배포는 비워 두고 Build Worker 가 default 브랜치 HEAD 로 확정한다 |
+| `source_sha` | 빌드할 소스 커밋 SHA |
 | `idempotency_key` | 중복 요청 차단 키. unique 제약을 건다\* |
-| `requested_by`\* | 요청자 |
+| `source_commit_message`\* | 소스 커밋 메시지. 이력 화면 표시용 |
+| `trigger_type`\* | `deployment_trigger` Enum (§5). 어떻게 시작된 요청인지 |
+| `requested_by`\* | 요청자 (`users.id`). push 웹훅 요청은 비어 있다 |
 | `status` | `deployment_status` Enum (§5). 원문의 "최종 상태" |
 | `failure_code`\* | 실패 사유 코드 (§5) |
-| `cancel_requested_at`\* | 같은 서비스에 새 요청이 들어와 중단을 요청한 시각. Worker 가 보고 `SUPERSEDED` 로 끝낸다 |
+| `variables_snapshot`\* | 요청 시점의 환경변수(jsonb). 재배포·롤백에 쓴다 |
+
+서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
+
+`status` 는 `DeploymentStatusService.transition_status` 로만 바꾼다. 허용된 전이인지 검사하고 이력을 남긴다 (§5 전이 표, ADR 0010).
 
 ### 4.3 작업 (Job) — `jobs`
 
@@ -101,7 +113,7 @@ PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
 | `deployment_request_id`\* | 소속 배포 요청 |
 | `kind` | `job_kind` Enum (§5) |
 | `status` | `job_status` Enum (§5) |
-| `payload` | 작업 입력 (jsonb). BUILD·DEPLOY 는 `{"build_id": int}` |
+| `payload` | 작업 입력 (jsonb\*). 스키마는 `app/schemas/` 에 정의한다 |
 | `priority` | 높을수록 먼저 선점된다 |
 | `run_after` | 이 시각 이후에만 선점할 수 있다. 재시도 백오프에 쓴다 |
 | `attempts` | 선점될 때마다 +1 |
@@ -115,41 +127,96 @@ PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
 
 | 필드 | 설명 |
 |---|---|
-| `deployment_request_id`\* | 소속 배포 요청 (1:1) |
-| `status`\* | `build_status` Enum (§5) |
-| `builder` | 실제로 사용한 빌더 (`dockerfile`·`railpack`) |
-| `source_sha`\* | 확정한 소스 커밋 SHA |
-| `codebuild_build_id` | CodeBuild 빌드 ID. 있으면 재시도 때 스냅샷·StartBuild 를 건너뛴다 |
-| `attempt`\* | CodeBuild 시작 차수. FAULT 로 다시 빌드할 때 +1. StartBuild idempotencyToken 에 쓴다 |
-| `image_repository`\* | ECR 저장소 URI (`iris/services/{service_id}`) |
-| `image_tag`\* | `b-{build_id}`. 불변 태그 |
+| `deployment_request_id`\* | 소속 배포 요청 |
+| `status`\* | `build_status` Enum (§5). Worker 의 진행 단계 |
+| `builder` | 실제로 사용한 빌더. Worker 가 소스를 보고 확정한 뒤에 채운다 |
+| `source_sha`\* | 빌드한 소스 커밋 SHA |
+| `codebuild_build_id` | CodeBuild 빌드 ID |
+| `attempt`\* | CodeBuild 를 새로 시작할 때마다 +1. StartBuild 멱등 토큰에 쓴다 |
+| `image_repository`\* | ECR 저장소 URI |
+| `image_tag`\* | 빌드가 push 한 불변 태그. 배포 기준은 digest 이고 태그는 이미지를 찾는 데만 쓴다 |
 | `image_digest` | 빌드 결과 digest |
-| `deploy_config`\* | `iris.json` 의 `deploy.*` 원본 (jsonb). Deploy Worker 가 읽는다 |
-| `failure_code`\* | 실패 사유 코드 (§5) |
+| `deploy_config`\* | 서비스 레포 설정(`iris.json`)의 `deploy.*`. Deploy Worker 가 읽는다 |
+| `failure_code`\* | 빌드 실패 사유 (§5) |
 | `log_url` | CodeBuild 로그 URL |
-| `started_at`\*, `finished_at`\* | 처리 시작·종료 시각 |
+| `started_at`\*, `finished_at`\* | 빌드 시작·종료 시각 |
 
 원문 §6 은 SBOM·스캔 결과도 저장한다고 한다. 해당 필드는 구현 순서 7단계(SBOM·이미지 서명)에서 정한다.
 
 ### 4.5 릴리스 (Release) — `releases`
 
-GitOps 에 반영된 배포 결과 1건이다.
+GitOps 에 반영된 배포 결과 1건이다. 같은 요청이라도 타깃마다 한 건씩 만든다.
 
 | 필드 | 설명 |
 |---|---|
-| `deployment_request_id` | 소속 배포 요청 (1:1) |
-| `build_id` | 배포한 빌드 |
-| `service_id` | 대상 서비스. 진행 중(`PENDING`·`ROLLING_BACK`) release 는 서비스당 하나다(부분 unique index) |
+| `deployment_request_id`\* | 소속 배포 요청 |
+| `build_id`\* | 이 release 의 이미지를 만든 빌드 |
+| `service_id`\*, `environment`\*, `target_id`\* | 대상. `last_known_good` 조회 기준. 서비스·타깃마다 진행 중 release 는 하나다 |
 | `image_digest` | 배포한 digest |
-| `gitops_commit_sha` | 서비스 디렉터리를 바꾼 GitOps 커밋. fast-forward 전에 먼저 기록한다 |
-| `revert_commit_sha` | 실패 후 이전 정상 release 로 되돌린 커밋 |
-| `previous_good_release_id` | 이 릴리스 직전의 정상 릴리스(lastKnownGood). 원문의 "이전 정상 release" |
-| `status` | `release_status` Enum (§5) |
-| `failure_code` | 실패 사유 코드 (§5) |
-| `deadline_at` | Argo CD 반영 기한. 값이 있으면 커밋이 main 에 올라간 것이다 |
-| `finished_at` | 종료 시각 |
+| `gitops_commit_sha` | digest 를 바꾼 GitOps 커밋 |
+| `revert_commit_sha`\* | 실패한 release 를 되돌린 revert commit |
+| `argo_sync_status` | Argo CD Sync 상태 (외부 값) |
+| `argo_health_status` | Argo CD Health 상태 (외부 값) |
+| `previous_good_release_id` | 이 릴리스 직전의 정상 릴리스. 원문의 "이전 정상 release" |
+| `failure_code`\* | release 실패 사유 (§5) |
+| `deadline_at`\* | Argo CD 가 이 시각까지 반영·정상화하지 못하면 실패로 본다. 값이 있으면 GitOps 커밋이 반영된 것이다 |
+| `finished_at`\* | release 가 끝난 시각 |
+| `status`\* | `release_status` Enum (§5) |
 
-environment 는 배포 요청에서, Argo CD 상태는 로그(`argo_sync_status`·`argo_health_status`)에서 본다. release 에 저장하지 않는다.
+### 4.6 사용자 (User) — `users`\*
+
+GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. GitHub 사용자 토큰은 저장하지 않는다 (로그인할 때 한 번만 쓴다).
+
+| 필드 | 설명 |
+|---|---|
+| `github_id`\* | GitHub 사용자 ID. unique |
+| `login`\* | GitHub 로그인 이름 |
+| `avatar_url`\* | 프로필 이미지 URL |
+
+### 4.7 GitHub App 설치 (GithubInstallation) — `github_installations`\*, `user_github_installations`\*
+
+| 필드 | 설명 |
+|---|---|
+| `installation_id`\* | GitHub 가 부여한 설치 ID. unique |
+| `account_login`\*, `account_type`\* | 설치된 계정(`User`·`Organization`, GitHub 값 그대로) |
+
+`user_github_installations` 는 사용자와 설치의 N:M 연결이다. 조직 설치를 여러 명이 쓰기 때문이다. 로그인할 때마다 GitHub 의 `GET /user/installations` 기준으로 맞춘다.
+
+### 4.8 프로젝트 (Project) — `projects`\*
+
+서비스를 묶는 단위다. 소유자(`owner_id`)만 접근한다. 이름은 소유자 안에서 유일하다 (삭제되지 않은 것끼리).
+
+| 필드 | 설명 |
+|---|---|
+| `name`\*, `description`\* | 이름·설명 |
+| `owner_id`\* | 소유 사용자 |
+
+### 4.9 타깃 (Target) — `targets`\*, `service_targets`\*
+
+같은 이미지를 배포할 대상이다 (Railway 의 환경과 다르다. 이 서비스의 `environment` 는 `prod` 하나뿐이다).
+
+| 필드 | 설명 |
+|---|---|
+| `name`\* | 타깃 이름. unique (`aws`·`local`) |
+| `kind`\* | `target_kind` Enum (§5) |
+| `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사 |
+| `cluster_ref`\* | 클러스터 접속 정보의 비밀 저장소 참조 이름. 접속 정보 자체는 담지 않는다 |
+
+`service_targets` 는 서비스가 배포되는 타깃을 잇는다.
+
+### 4.10 배포 상태 이력 (DeploymentStatusHistory) — `deployment_status_histories`\*
+
+배포 요청의 상태 전이 1건이다. 쌓기만 하고 고치지 않는다. 단계별 소요 시간은 이 행들의 `created_at` 차이로 계산한다.
+
+| 필드 | 설명 |
+|---|---|
+| `deployment_request_id`\* | 소속 배포 요청 |
+| `from_status`\* | 이전 상태. 요청을 만들 때 남기는 첫 행은 비어 있다 |
+| `to_status`\* | 바뀐 상태 (`deployment_status` Enum, §5) |
+| `failure_code`\* | `FAILED` 로 바뀐 전이에만 있다 (§5) |
+| `created_at` | 전이 시각 |
+
+> 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`deployment_status_histories`·`jobs`·`builds`·`releases`)은 지우지 않는다.
 
 ---
 
@@ -160,9 +227,9 @@ environment 는 배포 요청에서, Argo CD 상태는 로그(`argo_sync_status`
 | 코드 | 처리 주체 | 의미 |
 |---|---|---|
 | `BUILD` | Build Worker | CodeBuild 를 시작하고 결과(digest)를 기록한다 |
-| `DEPLOY` | Deploy Worker | 서비스 디렉터리를 렌더링해 GitOps `main` 에 커밋한다(PR 없음, fast-forward) |
-| `RECONCILE` | Deploy Worker | Argo CD 상태를 한 번 확인해 release 를 판정한다. 미완료면 snooze |
-| `ROLLBACK` | Deploy Worker | 서비스 디렉터리를 이전 정상 release 로 되돌리는 revert commit 을 만든다 |
+| `DEPLOY` | Deploy Worker | GitOps manifest 의 digest 를 바꾸는 PR·commit 을 만든다 |
+| `RECONCILE` | Deploy Worker | Argo CD 상태를 수집해 release 상태를 맞춘다\* |
+| `ROLLBACK` | Deploy Worker | 실패한 digest 를 되돌리는 revert commit 을 만든다 |
 
 ### 작업 상태 (`job_status`) — `jobs.status`
 
@@ -177,44 +244,60 @@ environment 는 배포 요청에서, Argo CD 상태는 로그(`argo_sync_status`
 
 ### 빌더 (`builder`) — `services.builder`, `builds.builder`
 
-`auto`\*(Dockerfile 이 있으면 `dockerfile`, 없으면 `railpack`. 서비스 설정에만 쓴다) · `dockerfile`(지정한 Dockerfile 로 BuildKit 빌드) · `railpack`(Railpack + BuildKit 으로 이미지 생성)
+`dockerfile`(지정한 Dockerfile 로 BuildKit 빌드) · `railpack`(Railpack + BuildKit 으로 이미지 생성)
 
 ### 환경 (`environment`)
 
 `prod` (원문에는 prod 만 있다. staging 등은 필요할 때 추가한다)
 
+### 배포 시작 방식 (`deployment_trigger`)\* — `deployment_requests.trigger_type`
+
+`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 값으로 다시) · `ROLLBACK`(이전 release 로 되돌림)
+
+### 타깃 종류 (`target_kind`)\* — `targets.kind`
+
+`AWS`(클러스터) · `LOCAL`(로컬 머신·VM, 터널로 노출)
+
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 
-`QUEUED` → `INITIALIZING`(소스 스냅샷) → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION` / `SUPERSEDED`(새 요청에 밀려 중단)
+`QUEUED` → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION` / `SUPERSEDED`
+
+화면 용어는 Initializing = `QUEUED`, Active = `SUCCEEDED` 다. 실패는 `FAILED` 하나이고 타임아웃·에러·`CrashLoopBackOff` 도 모두 `FAILED` 다. 원인은 상태가 아니라 `failure_code` 로 구분한다. `SUPERSEDED` 는 진행 중에 더 새로운 요청이 대신해 중단된 것이다(`cancel_requested_at` 을 Worker 가 보고 끝낸다). 소스 스냅샷을 만드는 동안도 `QUEUED` 다(화면의 Initializing).
+
+허용되는 전이 (표에 없는 이동은 `INVALID_STATUS_TRANSITION`, 이미 그 상태면 아무것도 하지 않는다):
+
+| from | 허용 to |
+|---|---|
+| `QUEUED` | `BUILDING`, `FAILED`, `SUPERSEDED` |
+| `BUILDING` | `DEPLOYING`, `FAILED`, `SUPERSEDED` |
+| `DEPLOYING` | `SUCCEEDED`, `FAILED`, `ROLLED_BACK`, `MANUAL_INTERVENTION`, `SUPERSEDED` |
+| `FAILED` | `ROLLED_BACK`, `MANUAL_INTERVENTION` |
+| `SUCCEEDED` · `ROLLED_BACK` · `MANUAL_INTERVENTION` · `SUPERSEDED` | (끝) |
 
 ### 빌드 상태 (`build_status`)\* — `builds.status`
 
-`PENDING` → `SNAPSHOTTING` → `BUILDING` → `SUCCEEDED` / `FAILED` / `CANCELLED`. 배포 요청 상태와 차례로 `QUEUED`·`INITIALIZING`·`BUILDING`·`DEPLOYING`·`FAILED`·`SUPERSEDED` 에 대응한다.
+`PENDING`(Worker 대기) → `SNAPSHOTTING`(소스 스냅샷 중) → `BUILDING`(CodeBuild 실행 중) → `SUCCEEDED` / `FAILED` / `CANCELLED`. 요청의 `status` 는 빌드가 직접 바꾸지 않고 Worker 가 `DeploymentStatusService` 로 옮긴다.
 
-### 배포 트리거 (`deployment_trigger`)\* — `deployment_requests.trigger`
+### 릴리스 상태 (`release_status`)\* — `releases.status`
 
-`MANUAL`(사용자 요청) · `PUSH`(default 브랜치 push webhook)
+`PENDING`(Git 반영, 동기화 대기) · `SUCCEEDED`(원문. Sync·Health·smoke test 모두 통과) · `FAILED` · `ROLLING_BACK`(revert commit 반영, 되돌림 대기) · `ROLLED_BACK`
 
-### 릴리스 상태 (`release_status`) — `releases.status`
-
-`PENDING`(커밋·동기화 대기) · `SUCCEEDED`(Synced + Healthy) · `FAILED` · `ROLLING_BACK`(revert commit 반영 대기) · `ROLLED_BACK`
-
-### 실패 코드 (`failure_code`) — `deployment_requests.failure_code`\*
+### 실패 코드 (`failure_code`) — `deployment_requests.failure_code`·`builds.failure_code`·`releases.failure_code`\*
 
 | 코드 | 의미 |
 |---|---|
-| `SOURCE_NOT_ACCESSIBLE`\* | 레포 권한이 없거나 레포가 없다 |
-| `SOURCE_REF_NOT_FOUND`\* | 소스 커밋이 없다 |
-| `SOURCE_TOO_LARGE`\* | 소스 스냅샷이 250MB 를 넘는다 |
-| `BUILD_CONFIG_REQUIRED` | 빌더 설정이 없거나 소스와 맞지 않는다 (원문 §4). buildspec pre_build 단계 실패 포함 (build·post_build 실패는 `BUILD_FAILED`, install 등 그 밖의 단계 실패는 재시도) |
-| `BUILD_TIMED_OUT`\* | 빌드가 15분을 넘었다 |
-| `BUILD_INFRA_ERROR`\* | CodeBuild FAULT·AWS·GitHub 오류가 재시도 한도까지 반복됐다 |
+| `SOURCE_NOT_ACCESSIBLE`\* | GitHub 소스에 접근할 수 없다 (설치·권한) |
+| `SOURCE_REF_NOT_FOUND`\* | 커밋·브랜치를 찾을 수 없다 |
+| `SOURCE_TOO_LARGE`\* | 소스 스냅샷이 한도를 넘는다 |
+| `BUILD_CONFIG_REQUIRED` | 빌더 설정이 없거나 소스와 맞지 않는다 (원문 §4) |
 | `BUILD_FAILED` | 빌드·테스트·스캔 실패. GitOps 는 바꾸지 않는다 (원문 §6) |
-| `DEPLOY_FAILED` | Sync operation 실패 또는 Degraded(readiness·progressDeadlineSeconds 초과) |
-| `DEPLOY_TIMED_OUT` | `releases.deadline_at` 까지 Argo CD 반영이 끝나지 않았다 |
-| `DEPLOY_INFRA_ERROR` | GitHub·Argo CD·ECR 오류가 재시도 한도까지 반복됐다 |
+| `BUILD_TIMED_OUT`\* | 빌드 제한 시간 초과 |
+| `BUILD_INFRA_ERROR`\* | 빌드 인프라 오류로 재시도를 소진했다 |
+| `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
+| `DEPLOY_TIMED_OUT`\* | Argo CD 가 `deadline_at` 까지 정상화하지 못했다 |
+| `DEPLOY_INFRA_ERROR`\* | 배포 인프라 오류로 재시도를 소진했다 |
 
-### Argo CD 상태 (외부 값, 원본 표기 그대로. DB 에 저장하지 않고 판정·로그에만 쓴다)
+### Argo CD 상태 (외부 값, 원본 표기 그대로 저장)
 
 - `argo_sync_status`: `Synced` · `OutOfSync` · `Unknown`
 - `argo_health_status`: `Healthy` · `Progressing` · `Degraded` · `Suspended` · `Missing` · `Unknown`
@@ -228,18 +311,15 @@ environment 는 배포 요청에서, Argo CD 상태는 로그(`argo_sync_status`
 | 선점 (claim) | `claim_next_job`\* | `FOR UPDATE SKIP LOCKED` 로 job 1건을 `RUNNING` 으로 바꾸고 lease 를 잡는다 |
 | lease | `locked_by`, `locked_until` | 선점한 Worker 의 작업 점유 기한 |
 | lease 갱신 | `renew_lease`\* | 실행 중인 Worker 가 `locked_until` 을 주기적으로 연장한다 |
-| lease 회수 | `claim_next_job`\* | lease 가 만료된 `RUNNING` 작업도 선점 대상이다. 별도 회수 작업은 두지 않는다 |
+| lease 회수 | `reclaim_expired_jobs`\* | lease 가 만료된 작업을 다른 Worker 가 다시 가져간다 |
 | 멱등성 키 | `idempotency_key` | 같은 요청을 다시 보내도 이미지·release 가 중복 생성되지 않게 하는 키 |
 | image digest | `image_digest` | 이미지 내용 해시 (`sha256:...`). 배포의 유일한 기준 |
 | desired state | — | GitOps 저장소 manifest 의 내용. Argo CD 가 Prod 를 이 상태로 맞춘다 |
 | Sync | `argo_sync_status` | Argo CD 가 desired state 를 클러스터에 적용하는 것. Control Plane 은 직접 호출하지 않고 Git 변경으로 유도한다 |
-| lastKnownGood | `find_last_known_good` | 서비스에서 마지막으로 `SUCCEEDED` 된 release (파생 개념, 컬럼 없음) |
-| revert commit | `revert_commit_sha` | `services/{service_id}/prod` 를 이전 정상 release 커밋의 디렉터리로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
-| 자동 rollback 조건 | — | HEAD 의 `services/{service_id}/prod` subtree = 실패 release 커밋의 subtree. "lastKnownGood = 이전 release"·"더 최신 진행 배포 없음"은 진행 중 release 를 서비스당 하나로 막는 index 가 보장한다 |
-| snooze | `JobRepository.release(job_id, delay)` | job 을 실패로 세지 않고 `run_after` 뒤로 미뤄 반납한다. 진행 중 release 대기·Argo CD 반영 대기에 쓴다 |
-| release 판정 | `evaluate_release` | Argo CD 상태 → 대기·성공·실패·기한 초과. 목표 커밋을 포함한 revision 의 상태만 본다 |
-| 배포 이미지 태그 | `r-{release_id}` | 성공한 release 의 digest 에 붙이는 ECR 태그. lifecycle 최우선 규칙이 최근 5개를 보존해 `b-*` 정리에 지워지지 않는다 |
-| 빌드 설정 | `iris.json` | 서비스 소스 저장소 `{root_directory}` 에 두는 설정 파일. 없어도 된다. 원문의 `.anydeploy/build.yaml` 을 대체한다 |
+| lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념) |
+| revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
+| 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
+| 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
 
 ---
 
@@ -253,5 +333,6 @@ environment 는 배포 요청에서, Argo CD 상태는 로그(`argo_sync_status`
 | Application | Argo CD `Application` 리소스 | 사용자 앱 | `argo_application`. 사용자 앱은 Service |
 | Build | `Build` 레코드 | CodeBuild 의 빌드 실행 | 외부 ID 는 `codebuild_build_id` |
 | Release | GitOps 반영 결과 (`Release`) | Helm release | Helm 쪽은 `helm_release` |
-| Environment | 배포 대상 환경 (`prod`) | 환경변수 | 환경변수는 `env_vars` |
+| Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `env_vars`, 배포 대상은 `target` |
+| Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
 | Rollback | job `ROLLBACK` = revert commit | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분 |

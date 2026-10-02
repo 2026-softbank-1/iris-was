@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.enums import JobKind, JobStatus
-from app.models import DeploymentRequest, Job, Service
+from app.models import DeploymentRequest, Job, Project, Service
 
 # ponytail: 스냅샷(다운로드·업로드) 동안은 lease 를 갱신하지 않는다. 5분 안에 끝난다고 본다.
 #   넘기는 일이 생기면 job 처리 중 lease 를 갱신하는 heartbeat 태스크를 둔다.
@@ -34,16 +34,18 @@ class JobRepository:
         running = aliased(Job)
         running_request = aliased(DeploymentRequest)
         running_service = aliased(Service)
+        running_project = aliased(Project)
         running_builds = (
             select(func.count())
             .select_from(running)
             .join(running_request, running_request.id == running.deployment_request_id)
             .join(running_service, running_service.id == running_request.service_id)
+            .join(running_project, running_project.id == running_service.project_id)
             .where(
                 running.kind == JobKind.BUILD,
                 running.status == JobStatus.RUNNING,
                 running.locked_until >= now,
-                running_service.owner_user_id == Service.owner_user_id,
+                running_project.owner_id == Project.owner_id,
             )
             .scalar_subquery()
         )
@@ -51,6 +53,7 @@ class JobRepository:
             select(Job.id)
             .join(DeploymentRequest, DeploymentRequest.id == Job.deployment_request_id)
             .join(Service, Service.id == DeploymentRequest.service_id)
+            .join(Project, Project.id == Service.project_id)
             .where(
                 Job.kind.in_(kinds),
                 or_(
@@ -124,6 +127,11 @@ class JobRepository:
 
     def add(self, job: Job) -> None:
         self._session.add(job)
+
+    async def save(self, job: Job) -> Job:
+        self._session.add(job)
+        await self._session.flush()
+        return job
 
     async def _update(self, job_id: int, **values: Any) -> None:
         await self._session.execute(update(Job).where(Job.id == job_id).values(**values))

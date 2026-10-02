@@ -18,13 +18,14 @@ from app.clients.argocd_client import ArgoAppStatus, ArgoCdClient
 from app.clients.aws_clients import EcrClient
 from app.clients.github_client import GitHubClient
 from app.core.config import DeployWorkerSettings
-from app.core.exceptions import ConflictError, ExternalError, GitOpsConflictError
-from app.enums import Builder, DeploymentStatus, FailureCode, JobKind, ReleaseStatus
+from app.core.exceptions import ConflictError, ExternalError, GitOpsConflictError, NotFoundError
+from app.enums import Builder, DeploymentStatus, Environment, FailureCode, JobKind, ReleaseStatus
 from app.models import Job, Release
 from app.repositories.build_repository import BuildRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
+from app.services.deployment_status_service import DeploymentStatusService
 
 logger = logging.getLogger(__name__)
 
@@ -203,18 +204,23 @@ class DeployService:
                 )
                 request = build.deployment_request
                 if request.cancel_requested_at is not None:
-                    request.finish(DeploymentStatus.SUPERSEDED)
+                    await _move_request(session, request.id, DeploymentStatus.SUPERSEDED)
                     await JobRepository(session).mark_succeeded(job.id)
                     logger.info("deployment superseded", extra={"action": "deploy"})
                     return None
                 releases = ReleaseRepository(session)
-                last_good = await releases.find_last_known_good(request.service_id)
+                target = await releases.find_deploy_target(request.service_id)
+                if target is None:
+                    raise NotFoundError("deploy target not found", service_id=request.service_id)
+                last_good = await releases.find_last_known_good(request.service_id, target.id)
                 assert build.image_digest is not None
                 await releases.add(
                     Release(
                         deployment_request_id=request.id,
                         build_id=build.id,
                         service_id=request.service_id,
+                        environment=Environment.PROD,
+                        target_id=target.id,
                         image_digest=build.image_digest,
                         previous_good_release_id=last_good.id if last_good else None,
                     )
@@ -236,7 +242,7 @@ class DeployService:
         assert build.builder is not None
         files = {
             VALUES_FILE_NAME: render_service_values(
-                slug=service.slug,
+                slug=f"{service.name}-{service.id}",
                 release_id=release.id,
                 image_repository=build.image_repository,
                 image_digest=release.image_digest,
@@ -341,8 +347,14 @@ class DeployService:
             release = await ReleaseRepository(session).get_by_id(release.id, for_update=True)
             if release.status == ReleaseStatus.ROLLING_BACK:
                 release.roll_back()
+                await _move_request(
+                    session, release.deployment_request_id, DeploymentStatus.ROLLED_BACK
+                )
             else:
                 release.succeed()
+                await _move_request(
+                    session, release.deployment_request_id, DeploymentStatus.SUCCEEDED
+                )
             await JobRepository(session).mark_succeeded(job.id)
         logger.info(
             "release finished",
@@ -365,16 +377,31 @@ class DeployService:
         async with self._session_factory.begin() as session:
             release = await ReleaseRepository(session).get_by_id(release.id, for_update=True)
             if release.status == ReleaseStatus.ROLLING_BACK:
-                release.fail(
-                    release.failure_code or failure_code, DeploymentStatus.MANUAL_INTERVENTION
+                release.fail(release.failure_code or failure_code)
+                await _move_request(
+                    session, release.deployment_request_id, DeploymentStatus.MANUAL_INTERVENTION
                 )
                 needs_manual = True
             elif release.previous_good_release_id is not None:
+                # 요청은 FAILED 로 두고, 되돌림이 끝나면 ROLLED_BACK 으로 옮긴다. 되돌리는 동안
+                # 새 배포가 끼어들지 못하게 하는 것은 release 의 진행 중 index 다.
                 release.record_failure(failure_code)
+                await _move_request(
+                    session,
+                    release.deployment_request_id,
+                    DeploymentStatus.FAILED,
+                    failure_code,
+                )
                 _add_job(session, release, JobKind.ROLLBACK)
             else:
                 # 첫 배포는 되돌릴 곳이 없다. Git·Pod 를 그대로 두고 다음 배포가 덮어쓴다.
                 release.fail(failure_code)
+                await _move_request(
+                    session,
+                    release.deployment_request_id,
+                    DeploymentStatus.FAILED,
+                    failure_code,
+                )
             await JobRepository(session).mark_succeeded(job.id)
         extra = {
             "action": "reconcile",
@@ -455,9 +482,9 @@ class DeployService:
     async def _block_rollback(self, job: Job, release: Release) -> None:
         async with self._session_factory.begin() as session:
             release = await ReleaseRepository(session).get_by_id(release.id, for_update=True)
-            release.fail(
-                release.failure_code or FailureCode.DEPLOY_FAILED,
-                DeploymentStatus.MANUAL_INTERVENTION,
+            release.fail(release.failure_code or FailureCode.DEPLOY_FAILED)
+            await _move_request(
+                session, release.deployment_request_id, DeploymentStatus.MANUAL_INTERVENTION
             )
             await JobRepository(session).mark_manual_intervention(job.id, "gitops head changed")
         logger.error(
@@ -527,16 +554,27 @@ class DeployService:
                 build = await BuildRepository(session).get_by_id(
                     int(job.payload["build_id"]), for_update=True
                 )
-                build.deployment_request.finish(
-                    DeploymentStatus.FAILED, FailureCode.DEPLOY_INFRA_ERROR
+                await _move_request(
+                    session,
+                    build.deployment_request_id,
+                    DeploymentStatus.FAILED,
+                    FailureCode.DEPLOY_INFRA_ERROR,
                 )
             elif not release.is_finished:
                 release = await ReleaseRepository(session).get_by_id(release.id, for_update=True)
                 failure_code = release.failure_code or FailureCode.DEPLOY_INFRA_ERROR
+                release.fail(failure_code)
                 if release.gitops_commit_sha is None:
-                    release.fail(failure_code)
+                    await _move_request(
+                        session,
+                        release.deployment_request_id,
+                        DeploymentStatus.FAILED,
+                        failure_code,
+                    )
                 else:
-                    release.fail(failure_code, DeploymentStatus.MANUAL_INTERVENTION)
+                    await _move_request(
+                        session, release.deployment_request_id, DeploymentStatus.MANUAL_INTERVENTION
+                    )
                     needs_manual = True
             await JobRepository(session).mark_failed(job.id, error)
         if needs_manual:
@@ -560,6 +598,18 @@ class DeployService:
     @property
     def _repository(self) -> str:
         return self._settings.gitops_repository
+
+
+async def _move_request(
+    session: AsyncSession,
+    deployment_request_id: int,
+    to_status: DeploymentStatus,
+    failure_code: FailureCode | None = None,
+) -> None:
+    """요청 상태는 DeploymentStatusService 로만 바꾼다. 같은 트랜잭션에서 이력도 남긴다."""
+    await DeploymentStatusService.create(session).transition_status(
+        deployment_request_id, to_status, failure_code=failure_code
+    )
 
 
 def _add_job(session: AsyncSession, release: Release, kind: JobKind) -> None:

@@ -1,4 +1,4 @@
-"""빌더 결정 규칙. 우선순위: 코드 설정(iris.json) > 서비스 설정 > 자동 감지."""
+"""빌더 결정 규칙. 우선순위: 코드 설정(iris.json) > 서비스 설정(코드 분석 결과) > 자동 감지."""
 
 import posixpath
 import shlex
@@ -80,12 +80,13 @@ def parse_iris_config(content: bytes) -> IrisConfig:
 def detect_builder(file_names: set[str], config: IrisConfig | None, service: Service) -> BuildPlan:
     """file_names 는 root_directory 기준 상대 경로다."""
     config = config or IrisConfig()
+    # 서비스의 builder 가 비어 있으면(분석으로 확정 전) 소스를 보고 정한다.
     builder = config.build.builder or service.builder
     dockerfile_path = posixpath.normpath(
         config.build.dockerfile_path or service.dockerfile_path or DEFAULT_DOCKERFILE_PATH
     )
     has_dockerfile = dockerfile_path in file_names
-    if builder == Builder.AUTO:
+    if builder is None:
         builder = Builder.DOCKERFILE if has_dockerfile else Builder.RAILPACK
     if builder == Builder.DOCKERFILE and not has_dockerfile:
         raise BuildFailedError(
@@ -94,11 +95,22 @@ def detect_builder(file_names: set[str], config: IrisConfig | None, service: Ser
             dockerfile_path=dockerfile_path,
         )
 
+    # 코드 설정이 없으면 서비스에 저장된 실행 설정(코드 분석 결과)을 쓴다.
+    build_command = config.build.build_command or service.build_command
+    start_command = config.deploy.start_command or service.start_command
     railpack_env: dict[str, str] = {}
     if builder == Builder.RAILPACK:
-        if config.build.build_command:
-            railpack_env["RAILPACK_BUILD_CMD"] = config.build.build_command
-        if config.deploy.start_command:
-            railpack_env["RAILPACK_START_CMD"] = config.deploy.start_command
+        if build_command:
+            railpack_env["RAILPACK_BUILD_CMD"] = build_command
+        if start_command:
+            railpack_env["RAILPACK_START_CMD"] = start_command
     deploy_config = config.deploy.model_dump(by_alias=True, exclude_unset=True)
+    if start_command and "startCommand" not in deploy_config:
+        deploy_config["startCommand"] = start_command
+        try:
+            DeployConfig.model_validate(deploy_config)
+        except ValidationError as exc:
+            raise BuildFailedError(
+                FailureCode.BUILD_CONFIG_REQUIRED, "invalid service start command"
+            ) from exc
     return BuildPlan(builder, dockerfile_path, railpack_env, deploy_config)

@@ -20,11 +20,14 @@ from app.clients.aws_clients import ArtifactStore, CodeBuildClient, EcrClient
 from app.clients.github_client import GitHubClient, SourceTooLargeError
 from app.core.config import BuildWorkerSettings
 from app.core.exceptions import BuildFailedError, ExternalError, ForbiddenError, NotFoundError
-from app.enums import FailureCode, JobKind
+from app.enums import DeploymentStatus, FailureCode, JobKind
 from app.models import Build, Job
 from app.repositories.build_repository import BuildRepository
+from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
 from app.services.builder_detection import CONFIG_FILE_NAME, detect_builder, parse_iris_config
+from app.services.deployment_status_service import DeploymentStatusService
+from app.services.repository_url import parse_repository_url
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +91,11 @@ class BuildService:
             build = await BuildRepository(session).get_by_id(_build_id(job), for_update=True)
             if not build.is_finished:
                 build.fail(error.failure_code)
+                await DeploymentStatusService.create(session).transition_status(
+                    build.deployment_request_id,
+                    DeploymentStatus.FAILED,
+                    failure_code=error.failure_code,
+                )
             await JobRepository(session).mark_failed(job.id, error.message)
 
     async def retry_or_fail(self, job: Job, error: Exception) -> None:
@@ -101,14 +109,17 @@ class BuildService:
 
     async def _start_codebuild(self, job: Job, build: Build) -> Build:
         service = build.deployment_request.service
+        owner, repository_name = parse_repository_url(service.source_repository_url)
+        repository_full_name = f"{owner}/{repository_name}"
+        async with self._session_factory() as session:
+            installation = await GithubInstallationRepository(session).get_by_id(
+                service.github_installation_id
+            )
         with _source_errors(FailureCode.SOURCE_NOT_ACCESSIBLE):
             token = await self._github.create_installation_token(
-                service.github_installation_id or self._settings.github_public_installation_id,
-                service.github_repository_id if service.github_installation_id else None,
+                installation.installation_id, repository_name
             )
-            source_sha = build.source_sha or build.deployment_request.source_sha
-            if source_sha is None:
-                source_sha = await self._github.get_branch_sha(token, service.repository_full_name)
+        source_sha = build.source_sha or build.deployment_request.source_sha
         async with self._session_factory.begin() as session:
             (await BuildRepository(session).get_by_id(build.id, for_update=True)).start_snapshot(
                 source_sha
@@ -119,7 +130,7 @@ class BuildService:
             with _source_errors(FailureCode.SOURCE_REF_NOT_FOUND):
                 await self._github.download_tarball(
                     token,
-                    service.repository_full_name,
+                    repository_full_name,
                     source_sha,
                     snapshot_path,
                     self._settings.snapshot_max_bytes,
@@ -153,6 +164,9 @@ class BuildService:
             build = await BuildRepository(session).get_by_id(build.id, for_update=True)
             build.start_codebuild(
                 codebuild_build_id, plan.builder, image_repository, image_tag, plan.deploy_config
+            )
+            await DeploymentStatusService.create(session).transition_status(
+                build.deployment_request_id, DeploymentStatus.BUILDING
             )
             await JobRepository(session).record_external_id(job.id, codebuild_build_id)
         logger.info(
@@ -221,10 +235,17 @@ class BuildService:
             build = await BuildRepository(session).get_by_id(build_id, for_update=True)
             jobs = JobRepository(session)
             if not build.is_finished:
+                statuses = DeploymentStatusService.create(session)
                 if cancel or build.deployment_request.cancel_requested_at is not None:
                     build.cancel()
+                    await statuses.transition_status(
+                        build.deployment_request_id, DeploymentStatus.SUPERSEDED
+                    )
                 elif image_digest is not None:
                     build.succeed(image_digest)
+                    await statuses.transition_status(
+                        build.deployment_request_id, DeploymentStatus.DEPLOYING
+                    )
                     jobs.add(
                         Job(
                             deployment_request_id=build.deployment_request_id,
@@ -251,11 +272,11 @@ def _describe(error: Exception) -> str:
     return f"{type(error).__name__}: {error}"[:_MAX_ERROR_LENGTH]
 
 
-def _normalize_root(root_directory: str) -> str:
-    return posixpath.normpath(root_directory).strip("/") or "."
+def _normalize_root(root_directory: str | None) -> str:
+    return posixpath.normpath(root_directory or ".").strip("/") or "."
 
 
-def _scan_snapshot(path: Path, root_directory: str) -> tuple[set[str], bytes | None]:
+def _scan_snapshot(path: Path, root_directory: str | None) -> tuple[set[str], bytes | None]:
     """tarball 을 풀지 않고 root_directory 아래 파일 이름과 iris.json 내용을 읽는다."""
     root = _normalize_root(root_directory)
     prefix = "" if root == "." else f"{root}/"

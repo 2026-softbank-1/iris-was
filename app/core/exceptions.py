@@ -60,6 +60,51 @@ class ExternalError(AppError):
     retryable = True
 
 
+class NotConfiguredError(AppError):
+    """필요한 설정(시크릿 등)이 없어 기능을 쓸 수 없다. 어떤 설정인지는 fields 에 담는다."""
+
+    code = "NOT_CONFIGURED"
+    status_code = 503
+
+
+class RepositoryNotAccessibleError(ForbiddenError):
+    """GitHub App 이 설치되지 않았거나 권한을 주지 않은 저장소. 설치·권한 확인을 안내한다."""
+
+    code = "REPOSITORY_NOT_ACCESSIBLE"
+
+
+class ProjectNotFoundError(NotFoundError):
+    code = "PROJECT_NOT_FOUND"
+
+
+class ServiceNotFoundError(NotFoundError):
+    code = "SERVICE_NOT_FOUND"
+
+
+class DeploymentRequestNotFoundError(NotFoundError):
+    code = "DEPLOYMENT_REQUEST_NOT_FOUND"
+
+
+class ProjectNameConflictError(ConflictError):
+    code = "PROJECT_NAME_CONFLICT"
+
+
+class ServiceNameConflictError(ConflictError):
+    code = "SERVICE_NAME_CONFLICT"
+
+
+class DeploymentInProgressError(ConflictError):
+    """같은 서비스·환경에 진행 중인 배포가 있어 새 배포 요청을 만들 수 없다."""
+
+    code = "DEPLOYMENT_IN_PROGRESS"
+
+
+class InvalidStatusTransitionError(ConflictError):
+    """배포 요청 상태 전이 표에 없는 이동. 현재 상태와 요청한 상태를 fields 에 담는다."""
+
+    code = "INVALID_STATUS_TRANSITION"
+
+
 class GitOpsConflictError(ConflictError):
     """GitOps 브랜치가 그새 움직여 fast-forward 할 수 없다. HEAD 위에 커밋을 다시 만든다."""
 

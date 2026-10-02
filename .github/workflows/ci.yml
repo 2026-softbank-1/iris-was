@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main, "release/**"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app scripts
+      # DB 없이 도는 단위 테스트. API 문서(openapi.json) 최신 여부도 여기서 검사한다.
+      - run: uv run pytest
+
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: iris
+          POSTGRES_PASSWORD: iris
+          POSTGRES_DB: softbank_iris
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U iris" --health-interval 5s --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://iris:iris@localhost:5432/softbank_iris
+      TEST_DATABASE_URL: postgresql+asyncpg://iris:iris@localhost:5432/softbank_iris
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - name: Alembic head 가 하나인지 확인
+        run: test "$(uv run alembic heads | grep -c '(head)')" = "1"
+      - run: uv run alembic upgrade head
+      - name: 모델과 마이그레이션이 같은지 확인
+        run: uv run alembic check
+      - name: Repository 통합 테스트
+        run: uv run pytest -m integration
+      - name: 마이그레이션 왕복
+        run: uv run alembic downgrade base && uv run alembic upgrade head
