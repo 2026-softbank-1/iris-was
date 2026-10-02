@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     # 웹 프런트엔드 주소. 로그인이 끝나면 여기로 돌려보낸다.
     web_base_url: str = "http://localhost:3000"
+    # CORS 로 허용할 Origin 정규식(전체 일치). 쿠키 인증이라 `*` 대신 Origin 을 되돌려 줘야 한다.
+    # 기본값: likelion.uk 와 모든 하위 도메인(https), localhost·127.0.0.1 의 모든 포트.
+    cors_allow_origin_regex: str = (
+        r"https://([a-z0-9-]+\.)*likelion\.uk|https?://(localhost|127\.0\.0\.1)(:\d+)?"
+    )
 
     # 세션. 값이 없으면 로그인 API 는 503 (NOT_CONFIGURED) 을 돌려준다.
     session_secret: SecretStr | None = None

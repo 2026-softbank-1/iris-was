@@ -6,6 +6,7 @@ from typing import Annotated
 
 import httpx
 from fastapi import Depends, FastAPI, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -14,7 +15,7 @@ from app.core.config import get_settings
 from app.core.database import get_engine
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.routers import (
     auth_router,
     deployment_router,
@@ -64,6 +65,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(RequestContextMiddleware)
+# 마지막에 추가한 미들웨어가 가장 바깥이다. 500 응답과 preflight 에도 CORS 헤더가 붙어야 한다.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=get_settings().cors_allow_origin_regex,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=[REQUEST_ID_HEADER],
+)
 register_exception_handlers(app)
 app.include_router(auth_router.router)
 app.include_router(user_router.router)
