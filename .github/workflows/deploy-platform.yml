@@ -1,0 +1,99 @@
+name: Deploy platform
+
+# 수동 배포 전용. iris/was 이미지를 빌드·push 하고, 고른 컴포넌트의 digest 만
+# iris-gitops-environments 의 platform values 에 커밋한다. Argo CD 가 management EKS 에 반영한다.
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: Control API (DB migration 포함)
+        type: boolean
+        default: true
+      build_worker:
+        description: Build Worker
+        type: boolean
+        default: false
+      deploy_worker:
+        description: Deploy Worker
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency: deploy-platform
+
+env:
+  AWS_ACCOUNT_ID: '187069338876'
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: iris/was
+  VALUES_FILE: platform/aws-dev-management/values.yaml
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Select components
+        env:
+          API: ${{ inputs.api }}
+          BUILD_WORKER: ${{ inputs.build_worker }}
+          DEPLOY_WORKER: ${{ inputs.deploy_worker }}
+        run: |
+          # ECR push 역할(iris-dev-github-ecr-was)은 main 만 신뢰한다.
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo '::error::main 에서만 배포한다.'; exit 1; }
+          c=''
+          [[ "$API" == true ]] && c+=' api'
+          [[ "$BUILD_WORKER" == true ]] && c+=' buildWorker'
+          [[ "$DEPLOY_WORKER" == true ]] && c+=' deployWorker'
+          [[ -n "$c" ]] || { echo '::error::배포할 컴포넌트를 하나 이상 고른다.'; exit 1; }
+          echo "COMPONENTS=${c# }" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/iris-dev-github-ecr-was
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and push image
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: bash scripts/build-push-ecr.sh push
+      # iris-gitops-environments 하나에 contents:write 만 가진 1시간 토큰
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: '5148916'
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          repositories: iris-gitops-environments
+          permission-contents: write
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/iris-gitops-environments
+          token: ${{ steps.token.outputs.token }}
+          path: gitops
+      - name: Commit digests
+        working-directory: gitops
+        env:
+          DIGEST: ${{ steps.image.outputs.image_digest }}
+        run: |
+          mkdir -p "$(dirname "$VALUES_FILE")"
+          [[ -f "$VALUES_FILE" ]] || echo '{}' > "$VALUES_FILE"
+          jq -S --arg d "$DIGEST" --arg c "$COMPONENTS" \
+            'reduce ($c | split(" "))[] as $k (.; .[$k].digest = $d)' "$VALUES_FILE" > v.tmp
+          mv v.tmp "$VALUES_FILE"
+          git config user.name 'iris-platform-deploy[bot]'
+          git config user.email 'iris-platform-deploy@users.noreply.github.com'
+          git add "$VALUES_FILE"
+          git diff --cached --quiet && { echo 'Already deployed.'; exit 0; }
+          git commit -q -m "deploy platform ${COMPONENTS// /,}: iris-was ${GITHUB_SHA::7}" \
+            -m "Iris-Source-Sha: $GITHUB_SHA"$'\n'"Iris-Image-Digest: $DIGEST"
+          # Deploy Worker 의 services/ 커밋과 겹치면 rebase 후 다시 push (다른 파일이라 충돌 없음)
+          for _ in 1 2 3; do git push -q origin HEAD:main && exit 0; git pull -q --rebase origin main; done
+          exit 1
