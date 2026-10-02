@@ -24,6 +24,7 @@ from app.repositories.deployment_status_history_repository import (
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.release_repository import ReleaseRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
@@ -31,6 +32,7 @@ from app.services.auth_service import AuthService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.project_service import ProjectService
 from app.services.service_registry_service import ServiceRegistryService
@@ -182,6 +184,15 @@ def get_service_registry_service(
 
 
 ServiceRegistryServiceDep = Annotated[ServiceRegistryService, Depends(get_service_registry_service)]
+
+
+def get_domain_service(session: SessionDep) -> DomainService:
+    return DomainService(
+        ServiceRepository(session), TargetRepository(session), ReleaseRepository(session)
+    )
+
+
+DomainServiceDep = Annotated[DomainService, Depends(get_domain_service)]
 
 
 def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:

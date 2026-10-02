@@ -26,7 +26,7 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
 from app.services.deployment_status_service import DeploymentStatusService
-from app.services.service_registry_service import slugify_service_name
+from app.services.domain_service import service_host_label
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +79,6 @@ def evaluate_release(
     if now > deadline_at:
         return Verdict.TIMED_OUT
     return Verdict.WAIT
-
-
-def service_host_label(name: str, service_id: int) -> str:
-    """서비스 도메인의 첫 label. chart 는 소문자·숫자·하이픈 DNS label(63자 이하)만 받는다.
-
-    이름은 사용자가 정할 수 있고 프로젝트 안에서만 유일해서, 변환한 뒤 service_id 를 붙인다.
-    """
-    suffix = f"-{service_id}"
-    return slugify_service_name(name, 63 - len(suffix)) + suffix
 
 
 def render_service_values(
