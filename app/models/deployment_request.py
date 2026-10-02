@@ -53,6 +53,12 @@ class DeploymentRequest(TimestampMixin, Base):
     )
     # 요청 시점의 환경변수. 같은 값으로 다시 배포하거나 되돌릴 때 쓴다.
     variables_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 재배포·롤백·재시작이 따라가는 원본 배포 요청. 직접 만든 요청은 None 이다.
+    source_deployment_request_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "deployment_requests.id", name="fk_deployment_requests_source_deployment_request_id"
+        )
+    )
     # 더 새로운 요청이 이 요청을 대신하면 기록한다. Worker 가 보고 SUPERSEDED 로 끝낸다.
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

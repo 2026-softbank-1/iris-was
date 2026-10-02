@@ -75,6 +75,7 @@ class DeploymentSetup:
             self.session,  # type: ignore[arg-type]
             self.services,  # type: ignore[arg-type]
             self.requests,  # type: ignore[arg-type]
+            self.builds,  # type: ignore[arg-type]
             self.deployment_request_service(),
             SourceRepositoryService(self.installations, self.github),  # type: ignore[arg-type]
         )

@@ -230,6 +230,7 @@ def get_manual_deployment_service(
         session,
         ServiceRepository(session),
         DeploymentRequestRepository(session),
+        BuildRepository(session),
         deployment_request_service,
         source_repository_service,
     )
