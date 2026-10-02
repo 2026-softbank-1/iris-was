@@ -115,6 +115,63 @@
         "title": "ApiResponse[DeploymentResponse]",
         "type": "object"
       },
+      "ApiResponse_LogsResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LogsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[LogsResponse]",
+        "type": "object"
+      },
       "ApiResponse_NoneType_": {
         "properties": {
           "code": {
@@ -744,6 +801,67 @@
         "title": "ApiResponse[list[InstallationResponse]]",
         "type": "object"
       },
+      "ApiResponse_list_MetricSeriesResponse__": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MetricSeriesResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[MetricSeriesResponse]]",
+        "type": "object"
+      },
       "ApiResponse_list_ServiceResponse__": {
         "properties": {
           "code": {
@@ -1347,6 +1465,99 @@
           "updatedAt"
         ],
         "title": "LatestDeploymentResponse",
+        "type": "object"
+      },
+      "LogEntryResponse": {
+        "properties": {
+          "container": {
+            "title": "Container",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "pod": {
+            "title": "Pod",
+            "type": "string"
+          },
+          "timestampNs": {
+            "title": "Timestampns",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestampNs",
+          "message",
+          "pod",
+          "container"
+        ],
+        "title": "LogEntryResponse",
+        "type": "object"
+      },
+      "LogsResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/LogEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "isTruncated": {
+            "title": "Istruncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entries",
+          "isTruncated"
+        ],
+        "title": "LogsResponse",
+        "type": "object"
+      },
+      "MetricPointResponse": {
+        "properties": {
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "timestamp",
+          "value"
+        ],
+        "title": "MetricPointResponse",
+        "type": "object"
+      },
+      "MetricSeriesResponse": {
+        "properties": {
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MetricPointResponse"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "unit",
+          "points"
+        ],
+        "title": "MetricSeriesResponse",
         "type": "object"
       },
       "Page_DeploymentResponse_": {
@@ -2178,7 +2389,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -2390,7 +2601,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -2483,7 +2694,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -2582,7 +2793,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3179,7 +3390,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3438,7 +3649,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3660,7 +3871,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3763,6 +3974,427 @@
         "summary": "배포 요청 상세 (상태 이력·단계별 소요 시간)",
         "tags": [
           "deployments"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/logs": {
+      "get": {
+        "operationId": "search_logs_api_v1_services__service_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Targetid",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 500,
+              "title": "Search",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_LogsResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스 런타임 로그 조회",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/logs/stream": {
+      "get": {
+        "description": "logs 이벤트의 data는 로그 배열, id는 다음 조회 시작 시각(ns)이다. Last-Event-ID 또는 cursor로 재연결한다. 5분마다 재연결하여 권한을 재확인한다. overflow/error 이벤트를 받으면 연결을 닫고 과거 로그 API로 조회한다.",
+        "operationId": "stream_logs_api_v1_services__service_id__logs_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Targetid",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 500,
+              "title": "Search",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 20,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 20,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스 런타임 로그 SSE 구독",
+        "tags": [
+          "observability"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/metrics": {
+      "get": {
+        "operationId": "search_metrics_api_v1_services__service_id__metrics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Targetid",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 86400,
+              "minimum": 15,
+              "title": "Step",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_MetricSeriesResponse__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스 CPU·메모리·네트워크 시계열 조회",
+        "tags": [
+          "observability"
         ]
       }
     },
@@ -3934,6 +4566,10 @@
     }
   },
   "tags": [
+    {
+      "description": "서비스 런타임 로그·메트릭·SSE",
+      "name": "observability"
+    },
     {
       "description": "GitHub 로그인·로그아웃",
       "name": "auth"

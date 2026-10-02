@@ -1,12 +1,19 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import BaseModel, Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ObservabilityEndpoint(BaseModel):
+    loki_url: HttpUrl | None = None
+    prometheus_url: HttpUrl | None = None
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    observability_endpoints: dict[int, ObservabilityEndpoint] = Field(default_factory=dict)
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

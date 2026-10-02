@@ -19,6 +19,7 @@ from app.routers import (
     auth_router,
     deployment_router,
     github_router,
+    observability_router,
     project_router,
     service_router,
     target_router,
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 OPENAPI_TAGS = [
+    {"name": "observability", "description": "서비스 런타임 로그·메트릭·SSE"},
     {"name": "auth", "description": "GitHub 로그인·로그아웃"},
     {"name": "user", "description": "현재 사용자"},
     {"name": "github", "description": "GitHub App 설치와 저장소·브랜치 조회"},
@@ -66,6 +68,7 @@ app = FastAPI(
 app.add_middleware(RequestContextMiddleware)
 register_exception_handlers(app)
 app.include_router(auth_router.router)
+app.include_router(observability_router.router)
 app.include_router(user_router.router)
 app.include_router(github_router.router)
 app.include_router(project_router.router)

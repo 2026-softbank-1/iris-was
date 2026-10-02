@@ -11,6 +11,7 @@ from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBea
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.oauth_client import GithubOAuthClient
+from app.clients.observability_client import LokiPrometheusObservabilityClient
 from app.clients.source_repository_client import GithubSourceRepositoryClient
 from app.core.config import Settings, get_settings
 from app.core.database import get_session_factory
@@ -31,6 +32,7 @@ from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.manual_deployment_service import ManualDeploymentService
+from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.session_service import SessionService
@@ -279,3 +281,18 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+def get_observability_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    http_client: HttpClientDep,
+) -> ObservabilityService:
+    return ObservabilityService(
+        ServiceRepository(session),
+        LokiPrometheusObservabilityClient(http_client),
+        settings.observability_endpoints,
+    )
+
+
+ObservabilityServiceDep = Annotated[ObservabilityService, Depends(get_observability_service)]
