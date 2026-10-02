@@ -17,3 +17,5 @@ vendor/*
 !vendor/README.md
 !vendor/analyzer-manifest.json
 !vendor/iris_analyzer-0.1.0-py3-none-any.whl
+!vendor/ai_error_check_agent-0.2.0-py3-none-any.whl
+!vendor/diagnosis-manifest.json

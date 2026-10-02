@@ -19,7 +19,9 @@ from app.routers import (
     analysis_router,
     auth_router,
     deployment_router,
+    diagnosis_router,
     github_router,
+    pipeline_router,
     project_router,
     service_router,
     target_router,
@@ -52,6 +54,8 @@ OPENAPI_TAGS = [
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {"name": "analysis", "description": "고정 소스 분석·근거 검증·명시적 서비스 설정 확인"},
+    {"name": "pipelines", "description": "분석·부족정보확인·계획·빌드·배포 원클릭 흐름"},
+    {"name": "diagnosis", "description": "실패 배포 로그에 대한 별도 진단 작업과 근거·해결안"},
     {"name": "targets", "description": "배포 타깃(aws · local)"},
     {"name": "webhooks", "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다"},
 ]
@@ -74,6 +78,8 @@ app.include_router(project_router.router)
 app.include_router(service_router.router)
 app.include_router(deployment_router.router)
 app.include_router(analysis_router.router)
+app.include_router(pipeline_router.router)
+app.include_router(diagnosis_router.router)
 app.include_router(target_router.router)
 app.include_router(webhook_router.router)
 

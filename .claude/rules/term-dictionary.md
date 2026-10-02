@@ -343,3 +343,13 @@ SUCCEEDED는 분석 실행이 정상 종료됐다는 뜻이다. 분석 정보 �
 | Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `env_vars`, 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
 | Rollback | job `ROLLBACK` = revert commit | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분 |
+
+
+## 8. 분석 파이프라인과 실패 진단 (2026-10-02 추가)
+
+- `PipelineRun` / `pipeline_runs`: 소유자·GitHub 설치·고정 SHA·서비스 설정·타깃을 고정한 분석부터 배포까지의 작업. 사용자 요청 또는 관리된 서비스의 push가 접수한다.
+- `PipelineStatus`: `QUEUED → ANALYZING → AWAITING_INPUT → PLANNING → BUILDING → DEPLOYING → SUCCEEDED`, 실패/취소는 `FAILED`/`CANCELLED`. 질문이 없으면 AWAITING_INPUT을 생략한다. 계획 미리보기는 `SUCCEEDED`, stage `plan_ready`이며 빌드하지 않는다.
+- `execution_plan` / `plan_digest`: 분석 결과·원문 snapshot·입력·타깃을 묶은 `iris.pipeline-plan.v1`과 SHA-256. Worker는 큐 설정과 이 계획의 동일성을 검사한다. analyzer dossier의 `executionAuthorized:false`는 보존하고 플랫폼 요청의 실행 권한과 혼동하지 않는다.
+- `DeploymentDiagnosis` / `deployment_diagnoses`: FAILED 배포의 실행 회차별 실제 로그 진단. QUEUED/RUNNING/SUCCEEDED/FAILED/TIMED_OUT은 진단 작업 상태이며 배포 상태를 변경하지 않는다. remediation은 적용 조건·검증·rollback을 포함한 제안이며 자동 실행하지 않는다.
+- `Build.source_snapshot_key/source_archive_digest/source_sha/build_config`: 분석과 비교한 소스 snapshot을 S3에 보관하고 재현 가능한 아카이브 digest 및 확인된 설정을 기록한다.
+- `Release.image_repository/revert_commit_sha/deadline_at`: digest의 ECR 저장소, 안전한 revert commit 및 rollout 관찰 기한. rollout 실패 자동 복구는 같은 서비스 경로가 바뀌지 않은 경우에만 허용한다.

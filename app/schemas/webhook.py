@@ -41,6 +41,9 @@ class GithubInstallationEvent(BaseModel):
 
 
 class WebhookReceiptResponse(ApiModel):
+    pipeline_ids: list[str] = Field(
+        default_factory=list, description="push로 접수한 분석 선행 파이프라인 ID"
+    )
     is_handled: bool = Field(description="이 이벤트로 처리한 일이 있었는지", examples=[True])
     deployment_request_ids: list[int] = Field(
         default_factory=list, description="push 로 새로 만든 배포 요청 ID", examples=[[12]]

@@ -110,6 +110,41 @@ class LocalAnalyzerClient:
         async with self._slots:
             return await self._analyze(source_root, source_sha, root.as_posix(), mode, on_progress)
 
+    async def plan(
+        self,
+        analysis: dict[str, Any],
+        readiness: dict[str, Any],
+        request: dict[str, Any],
+        mode: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if mode not in {"static", "opencode"}:
+            raise InvalidInputError("invalid planning mode")
+        try:
+            from iris_analyzer.contracts import AnalyzerError
+            from iris_analyzer.deployment.client import plan_async
+            from iris_analyzer.opencode import ModelConfig
+
+            config = ModelConfig(**self._config) if mode == "opencode" and self._config else None
+            if mode == "opencode" and config is None:
+                raise NotConfiguredError("planning model is not configured")
+            async with self._slots:
+                dossier, report = await plan_async(
+                    analysis,
+                    readiness,
+                    request,
+                    config=config,
+                    ledger=self._budget_ledger,
+                    executable=self._executable,
+                    max_cost_usd=self._max_cost_usd,
+                )
+            return dict(dossier), self._public_report(report)
+        except ImportError:
+            raise NotConfiguredError("analysis worker package is unavailable") from None
+        except AnalyzerError as error:
+            raise AnalysisExecutionError("deployment planning failed", reason=error.code) from None
+        except (OSError, ValueError, TypeError, KeyError, ValidationError):
+            raise AnalysisExecutionError("planning output could not be validated") from None
+
     async def _analyze(
         self,
         source_root: Path,

@@ -129,3 +129,27 @@ class ModelNotConfiguredError(NotConfiguredError):
 
 class InvalidAnalyzerResultError(ExternalError):
     code = "INVALID_ANALYZER_RESULT"
+
+
+class PipelineNotFoundError(NotFoundError):
+    code = "PIPELINE_NOT_FOUND"
+
+
+class PipelineInProgressError(ConflictError):
+    code = "PIPELINE_IN_PROGRESS"
+
+
+class PipelineNotReadyError(ConflictError):
+    code = "PIPELINE_NOT_READY"
+
+
+class PipelineRequiredError(ConflictError):
+    code = "PIPELINE_REQUIRED"
+
+
+class PipelineStaleError(ConflictError):
+    code = "PIPELINE_STALE"
+
+
+class IdempotencyConflictError(ConflictError):
+    code = "IDEMPOTENCY_CONFLICT"

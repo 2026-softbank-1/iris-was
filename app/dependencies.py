@@ -17,6 +17,7 @@ from app.clients.unavailable_analysis_source_client import UnavailableAnalysisSo
 from app.core.analysis_config import AnalysisSettings, get_analysis_settings
 from app.core.config import Settings, get_settings
 from app.core.database import get_session_factory
+from app.core.diagnosis_config import DiagnosisSettings, get_diagnosis_settings
 from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -35,7 +36,9 @@ from app.services.auth_service import AuthService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.diagnosis_service import DiagnosisService
 from app.services.manual_deployment_service import ManualDeploymentService
+from app.services.pipeline_service import PipelineService
 from app.services.project_service import ProjectService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.session_service import SessionService
@@ -95,6 +98,24 @@ def get_analysis_service(
 
 
 AnalysisServiceDep = Annotated[AnalysisService, Depends(get_analysis_service)]
+
+
+def get_pipeline_service(
+    session: SessionDep, source_client: AnalysisSourceClientDep, settings: AnalysisSettingsDep
+) -> PipelineService:
+    return PipelineService(session, source_client, settings)
+
+
+PipelineServiceDep = Annotated[PipelineService, Depends(get_pipeline_service)]
+
+DiagnosisSettingsDep = Annotated[DiagnosisSettings, Depends(get_diagnosis_settings)]
+
+
+def get_diagnosis_service(session: SessionDep, settings: DiagnosisSettingsDep) -> DiagnosisService:
+    return DiagnosisService(session, settings)
+
+
+DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
 
 
 def _require_session_secret(settings: Settings) -> str:
@@ -238,7 +259,9 @@ DeploymentRequestServiceDep = Annotated[
 
 def get_deployment_status_service(session: SessionDep) -> DeploymentStatusService:
     return DeploymentStatusService(
-        DeploymentRequestRepository(session), DeploymentStatusHistoryRepository(session)
+        DeploymentRequestRepository(session),
+        DeploymentStatusHistoryRepository(session),
+        session=session,
     )
 
 

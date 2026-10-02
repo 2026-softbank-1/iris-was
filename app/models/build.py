@@ -1,6 +1,8 @@
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.enums import Builder
@@ -24,3 +26,7 @@ class Build(TimestampMixin, Base):
     log_url: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_sha: Mapped[str | None] = mapped_column(String(64))
+    source_archive_digest: Mapped[str | None] = mapped_column(String(80))
+    source_snapshot_key: Mapped[str | None] = mapped_column(Text)
+    build_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

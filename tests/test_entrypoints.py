@@ -1,10 +1,12 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.database import get_engine
 from app.main import app
+from app.services.deploy_service import DeployService
 from app.workers import build_worker, deploy_worker
 
 
@@ -36,8 +38,11 @@ async def test_build_worker_run_stops_when_event_set() -> None:
 
 async def test_deploy_worker_run_stops_on_signal_during_poll() -> None:
     stop = asyncio.Event()
-    task = asyncio.create_task(deploy_worker.run(stop))
+    service = AsyncMock(spec=DeployService)
+    service.claim_next_job.return_value = None
+    task = asyncio.create_task(deploy_worker.run_slot(service, stop, 5))
     await asyncio.sleep(0.05)
     stop.set()
 
     await asyncio.wait_for(task, timeout=1)
+    service.claim_next_job.assert_awaited_once()
