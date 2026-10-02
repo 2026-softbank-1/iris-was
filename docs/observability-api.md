@@ -79,6 +79,19 @@ source.addEventListener('error', (event) => {
 {"success":true,"data":[{"metric":"cpu","unit":"cores","points":[{"timestamp":1790812800,"value":0.25}]},{"metric":"memory","unit":"bytes","points":[]},{"metric":"network_receive","unit":"bytes/s","points":[]},{"metric":"network_transmit","unit":"bytes/s","points":[]}]}
 ```
 
+`groupBy`는 `total`(기본) 또는 `pod`이다. `total`은 서비스 전체 합계로 metric당 시리즈 1개를 주고 위 응답과 같다. `pod`은 Pod(replica)별로 나눠 metric당 Pod 수만큼 시리즈를 주며, 각 항목에 `pod` 이름이 붙는다. 화면의 Sum/Replicas 토글에 대응한다.
+
+`GET /api/v1/services/{serviceId}/metrics?targetId=1&start=...&end=...&step=60&groupBy=pod`
+
+```json
+{"success":true,"data":[{"metric":"cpu","unit":"cores","pod":"app-5d9c7b8f6d-x2k4q","points":[{"timestamp":1790812800,"value":0.12}]},{"metric":"cpu","unit":"cores","pod":"app-5d9c7b8f6d-z9m7w","points":[{"timestamp":1790812800,"value":0.13}]}]}
+```
+
+- 시리즈는 metric 순서(`cpu`, `memory`, `network_receive`, `network_transmit`) 안에서 `pod` 이름순이다. Pod마다 살아 있던 구간의 포인트만 있어서 시리즈마다 길이가 다를 수 있다.
+- 데이터가 없으면 `total`은 빈 `points`를 가진 항목을 주지만 `pod`은 그 metric의 항목을 주지 않는다(전부 없으면 빈 배열).
+- 롤링 배포가 잦은 긴 범위는 Pod 이름이 계속 바뀐다. 범위 안의 Pod이 metric당 50개를 넘으면 잘라내지 않고 `422`로 거절한다. 시간 범위를 좁히거나 `total`을 쓴다.
+- Pod 라벨은 Loki와 같은 OTel 리소스 속성에서 온 `k8s_pod_name`이다. 라벨 이름은 배포 후 실제 `groupBy=pod` 응답으로 확인한다.
+
 CPU는 Pod CPU 시간의 5분 rate를 core 단위로, 메모리는 Pod working set을 byte 단위로 집계한다. 네트워크는 Pod 인터페이스의 5분 rate이며 공용 인터넷 트래픽만 분리한 값이 아니다. 수집 주기가 30초라 최근 1분 안팎은 비어 있을 수 있다. NaN/Inf 샘플은 제외하고, 없는 메트릭을 0으로 채우지 않는다. 프론트는 timestamp를 실제 시간축에 매핑하고 30초 정도 간격으로 조회한다.
 
 ## 검증 범위
