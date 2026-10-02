@@ -103,6 +103,8 @@ erDiagram
 
 서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
 
+`REMOVE` 요청은 지금 떠 있는 배포(`source_deployment_request_id`)를 클러스터에서 내린다. 빌드·release 를 만들지 않고 REMOVE job 으로 시작하며, 서비스 정의는 남는다 (ADR 0016).
+
 `ROLLBACK`·`RESTART` 요청은 소스를 다시 빌드하지 않는다. 원본 요청의 빌드가 만든 이미지를 가리키는 성공한 `builds` 행을 복사해 새 요청에 붙이고, BUILD 대신 DEPLOY job 으로 시작한다 (ADR 0015). 새 release 가 만들어지므로 같은 digest 라도 Pod 가 새로 뜬다.
 
 `status` 는 `DeploymentStatusService.transition_status` 로만 바꾼다. 허용된 전이인지 검사하고 이력을 남긴다 (§5 전이 표, ADR 0010).
@@ -233,6 +235,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | `DEPLOY` | Deploy Worker | GitOps manifest 의 digest 를 바꾸는 PR·commit 을 만든다 |
 | `RECONCILE` | Deploy Worker | Argo CD 상태를 수집해 release 상태를 맞춘다\* |
 | `ROLLBACK` | Deploy Worker | 실패한 digest 를 되돌리는 revert commit 을 만든다 |
+| `REMOVE` | Deploy Worker | GitOps 의 서비스 디렉터리를 지우고 Argo CD Application 이 사라질 때까지 기다린다 |
 
 ### 작업 상태 (`job_status`) — `jobs.status`
 
@@ -255,7 +258,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 ### 배포 시작 방식 (`deployment_trigger`)\* — `deployment_requests.trigger_type`
 
-`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 커밋을 다시 빌드해 배포) · `ROLLBACK`(성공했던 이전 배포의 이미지를 빌드 없이 다시 배포) · `RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작)
+`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 커밋을 다시 빌드해 배포) · `ROLLBACK`(성공했던 이전 배포의 이미지를 빌드 없이 다시 배포) · `RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작) · `REMOVE`(지금 떠 있는 배포를 클러스터에서 내림)
 
 사용자가 시작하는 `ROLLBACK`(이 값)과 Deploy Worker 가 실패한 release 를 자동으로 되돌리는 job `ROLLBACK` 은 다르다. 앞쪽은 새 배포 요청이고 뒤쪽은 revert commit 이다 (§7).
 
@@ -279,7 +282,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | `FAILED` | `ROLLED_BACK`, `MANUAL_INTERVENTION` |
 | `SUCCEEDED` · `ROLLED_BACK` · `MANUAL_INTERVENTION` · `SUPERSEDED` | (끝) |
 
-`QUEUED → DEPLOYING` 은 빌드를 건너뛰는 `ROLLBACK`·`RESTART` 요청이 만들어지는 순간에만 쓴다. 이 요청은 `BUILDING` 을 거치지 않는다.
+`QUEUED → DEPLOYING` 은 빌드를 건너뛰는 `ROLLBACK`·`RESTART`·`REMOVE` 요청이 만들어지는 순간에만 쓴다. 이 요청은 `BUILDING` 을 거치지 않는다. `REMOVE` 요청은 Application 이 사라지면 `SUCCEEDED`, 기한 안에 사라지지 않거나 GitOps 를 바꾼 뒤 실패하면 `MANUAL_INTERVENTION`, GitOps 를 바꾸기 전에 재시도를 소진하면 `FAILED` 다.
 
 ### 빌드 상태 (`build_status`)\* — `builds.status`
 
@@ -323,7 +326,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | image digest | `image_digest` | 이미지 내용 해시 (`sha256:...`). 배포의 유일한 기준 |
 | desired state | — | GitOps 저장소 manifest 의 내용. Argo CD 가 Prod 를 이 상태로 맞춘다 |
 | Sync | `argo_sync_status` | Argo CD 가 desired state 를 클러스터에 적용하는 것. Control Plane 은 직접 호출하지 않고 Git 변경으로 유도한다 |
-| lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념) |
+| lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념). 그 뒤에 성공한 `REMOVE` 요청이 있으면 서비스가 내려간 것이라 없다 |
 | revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
 | 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
 | 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
