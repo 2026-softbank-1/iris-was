@@ -49,6 +49,8 @@ erDiagram
   github_installations ||--o{ services : "소스 접근"
   services }o--o{ targets : "service_targets"
   services ||--o{ deployment_requests : "배포 요청"
+  services ||--o{ service_analyses : "고정 소스 분석"
+  users ||--o{ service_analyses : "분석 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
   deployment_requests ||--o| builds : "빌드 결과 (한 번)"
@@ -209,7 +211,34 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 ---
 
+### 4.11 서비스 분석 (ServiceAnalysis) — `service_analyses`
+
+서비스의 고정 소스 분석 요청 1건이다. 배포 요청·작업과 별도의 상태를 갖는다. 같은 서비스에서 대기·실행 중인 분석은 하나만 허용하며 기존 결과를 덮어쓰지 않는다.
+
+| 필드 | 설명 |
+|---|---|
+| `id` | 서버가 생성하는 UUID 문자열 작업 ID |
+| `service_id`, `requested_by` | 분석 대상 서비스와 요청 사용자. 각각 로컬 `services.id`, `users.id` 참조 |
+| `source_repository_url`, `source_branch`, `source_sha`, `root_directory` | 접수 시 고정한 소스 식별자와 저장소 기준 서비스 루트 |
+| `github_installation_id` | 소스 조회에 쓰는 외부 GitHub installation ID 스냅샷. 로컬 설치 PK가 아니며 FK도 아니다 |
+| `mode`, `status`, `stage` | 요청 실행 모드, 분석 작업 상태, 현재 진행 단계 |
+| `model_selection` | 접수 시 고정한 provider·model·outputMode·timeoutSeconds 등 허용된 비밀이 아닌 실행 설정(JSONB). static에서는 null이며 자격증명은 포함하지 않는다 |
+| `source_snapshot_id`, `context_hash`, `result_digest` | 분석 소스·입력·결과의 무결성 식별자 |
+| `analysis_status` | 코드 분석 내용 상태: complete / needs_input / unsupported. 작업 상태와 구분 |
+| `analysis_result`, `verification_report`, `source_readiness`, `deployment_dossier`, `run_report` | JSONB 분석·검증·준비·계획·실행 기록. 원문 소스와 자격증명은 저장하지 않는다 |
+| `evidence` | JSONB 마스킹 근거와 출처 위치. 사용자가 결과를 확인하는 자료 |
+| `builder_recommendation`, `review_required` | 서비스 소유자가 확인할 추천 빌더와 검토 여부 |
+| `error_code` | 실패 안내용 정제된 오류 코드 |
+| `attempts`, `lease_token`, `locked_until` | 선점 횟수, 선점마다 바뀌는 UUID token, 실행 점유 만료 시각 |
+| `confirmed_at`, `selected_service_candidate_id` | 사용자 확인 시각과 고정 분석 결과에서 선택한 서비스 candidate |
+
 ## 5. Enum 값 정의
+
+### 분석 작업 상태 (`analysis_job_status`) — `service_analyses.status`
+
+`QUEUED` · `RUNNING` · `SUCCEEDED` · `FAILED` · `CANCELLED`
+
+SUCCEEDED는 분석 실행이 정상 종료됐다는 뜻이다. 분석 정보 부족·미지원, 사용자 서비스 설정 확정, 빌드 성공, 배포 승인을 의미하지 않는다. 분석 작업의 실패·취소는 배포 요청 상태를 변경하지 않는다.
 
 ### 작업 종류 (`job_kind`) — `jobs.kind`
 

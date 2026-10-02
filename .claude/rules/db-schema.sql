@@ -220,3 +220,48 @@ CREATE TABLE deployment_status_histories (
 );
 
 CREATE INDEX ix_deployment_status_histories_deployment_request_id_created_at ON deployment_status_histories (deployment_request_id, created_at);
+
+CREATE TABLE service_analyses (
+    id VARCHAR(36) NOT NULL,
+    service_id BIGINT NOT NULL,
+    requested_by BIGINT NOT NULL,
+    source_repository_url VARCHAR(500) NOT NULL,
+    source_branch VARCHAR(255) NOT NULL,
+    source_sha VARCHAR(40) NOT NULL,
+    root_directory VARCHAR(255) NOT NULL,
+    github_installation_id BIGINT NOT NULL,
+    mode VARCHAR(12) NOT NULL,
+    model_selection JSONB,
+    status VARCHAR(32) DEFAULT 'QUEUED' NOT NULL,
+    stage VARCHAR(64) DEFAULT 'queued' NOT NULL,
+    source_snapshot_id VARCHAR(128),
+    context_hash VARCHAR(128),
+    result_digest VARCHAR(128),
+    analysis_status VARCHAR(32),
+    analysis_result JSONB,
+    verification_report JSONB,
+    source_readiness JSONB,
+    deployment_dossier JSONB,
+    run_report JSONB,
+    evidence JSONB,
+    builder_recommendation VARCHAR(32),
+    review_required BOOLEAN DEFAULT true NOT NULL,
+    error_code VARCHAR(64),
+    attempts INTEGER DEFAULT 0 NOT NULL,
+    lease_token VARCHAR(36),
+    locked_until TIMESTAMP WITH TIME ZONE,
+    confirmed_at TIMESTAMP WITH TIME ZONE,
+    selected_service_candidate_id VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    CONSTRAINT pk_service_analyses PRIMARY KEY (id),
+    CONSTRAINT fk_service_analyses_service_id_services FOREIGN KEY(service_id) REFERENCES services (id),
+    CONSTRAINT fk_service_analyses_requested_by_users FOREIGN KEY(requested_by) REFERENCES users (id),
+    CONSTRAINT ck_service_analyses_analysis_job_status CHECK (status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'))
+);
+
+CREATE INDEX ix_service_analyses_latest ON service_analyses (service_id, created_at DESC);
+
+CREATE INDEX ix_service_analyses_queue ON service_analyses (status, locked_until);
+
+CREATE UNIQUE INDEX uq_service_analyses_active ON service_analyses (service_id) WHERE status IN ('QUEUED', 'RUNNING');

@@ -16,12 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy app scripts
+      - run: uv sync --frozen --extra analysis
+      - run: uv run --extra analysis ruff check .
+      - run: uv run --extra analysis ruff format --check .
+      - run: uv run --extra analysis mypy app scripts
       # DB 없이 도는 단위 테스트. API 문서(openapi.json) 최신 여부도 여기서 검사한다.
-      - run: uv run pytest
+      - run: uv run --extra analysis pytest
 
   database:
     runs-on: ubuntu-latest
@@ -42,13 +42,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra analysis
       - name: Alembic head 가 하나인지 확인
-        run: test "$(uv run alembic heads | grep -c '(head)')" = "1"
-      - run: uv run alembic upgrade head
+        run: test "$(uv run --extra analysis alembic heads | grep -c '(head)')" = "1"
+      - run: uv run --extra analysis alembic upgrade head
       - name: 모델과 마이그레이션이 같은지 확인
-        run: uv run alembic check
+        run: uv run --extra analysis alembic check
       - name: Repository 통합 테스트
-        run: uv run pytest -m integration
+        run: uv run --extra analysis pytest -m integration
       - name: 마이그레이션 왕복
-        run: uv run alembic downgrade base && uv run alembic upgrade head
+        run: uv run --extra analysis alembic downgrade base && uv run --extra analysis alembic upgrade head

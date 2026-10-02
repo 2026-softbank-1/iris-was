@@ -32,6 +32,24 @@ class ServiceRepository:
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
+    async def find_by_id_and_owner_id_for_update(
+        self, service_id: int, owner_id: int
+    ) -> Service | None:
+        """Serialize analysis admission and explicit setting confirmation for this service."""
+        stmt = (
+            select(Service)
+            .join(Project, Project.id == Service.project_id)
+            .where(
+                Service.id == service_id,
+                Project.owner_id == owner_id,
+                Service.is_deleted.is_(False),
+                Project.is_deleted.is_(False),
+            )
+            .with_for_update(of=Service)
+            .execution_options(populate_existing=True)
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
     async def search_auto_deploy_by_repository_url_and_branch(
         self, repository_url: str, branch: str
     ) -> list[Service]:

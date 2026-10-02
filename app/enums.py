@@ -17,6 +17,14 @@ class JobStatus(StrEnum):
     MANUAL_INTERVENTION = "MANUAL_INTERVENTION"
 
 
+class AnalysisJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
 class Builder(StrEnum):
     DOCKERFILE = "dockerfile"
     RAILPACK = "railpack"
