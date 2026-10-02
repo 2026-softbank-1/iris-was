@@ -13,6 +13,7 @@ from app.services.deployment_request_service import DeploymentRequestService
 from app.services.webhook_service import WebhookService
 from tests.fakes import FakeGithubInstallationRepository, FakeSession
 from tests.fakes_webhook import (
+    FakeBuildRepository,
     FakeDeploymentRequestRepository,
     FakeDeploymentStatusHistoryRepository,
     FakeJobRepository,
@@ -59,6 +60,7 @@ class Parts:
         self.session = FakeSession()
         self.requests = FakeDeploymentRequestRepository()
         self.jobs = FakeJobRepository()
+        self.builds = FakeBuildRepository()
         self.histories = FakeDeploymentStatusHistoryRepository()
         self.installations = FakeGithubInstallationRepository()
         self.service = WebhookService(
@@ -69,6 +71,7 @@ class Parts:
                 self.requests,  # type: ignore[arg-type]
                 self.jobs,  # type: ignore[arg-type]
                 self.histories,  # type: ignore[arg-type]
+                self.builds,  # type: ignore[arg-type]
             ),
             SECRET,
         )
@@ -121,8 +124,9 @@ async def test_push_creates_deployment_request_and_build_job() -> None:
     assert request.requested_by is None
     job = parts.jobs.jobs[0]
     assert job.kind == JobKind.BUILD
-    assert job.payload["source_sha"] == SHA
-    assert job.payload["source_branch"] == "main"
+    build = parts.builds.builds[0]
+    assert build.deployment_request_id == request.id
+    assert job.payload == {"build_id": build.id}
     first_history = parts.histories.histories[0]
     assert (first_history.from_status, first_history.to_status) == (
         None,

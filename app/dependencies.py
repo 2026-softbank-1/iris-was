@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
+from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -188,6 +189,7 @@ def get_deployment_request_service(session: SessionDep) -> DeploymentRequestServ
         DeploymentRequestRepository(session),
         JobRepository(session),
         DeploymentStatusHistoryRepository(session),
+        BuildRepository(session),
     )
 
 

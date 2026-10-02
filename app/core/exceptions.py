@@ -11,6 +11,8 @@ raise 는 Service·Repository·Client 에서 하고, HTTP 변환은 exception_ha
 
 from typing import ClassVar
 
+from app.enums import FailureCode
+
 
 class AppError(Exception):
     code: ClassVar[str] = "INTERNAL_ERROR"
@@ -101,3 +103,22 @@ class InvalidStatusTransitionError(ConflictError):
     """배포 요청 상태 전이 표에 없는 이동. 현재 상태와 요청한 상태를 fields 에 담는다."""
 
     code = "INVALID_STATUS_TRANSITION"
+
+
+class GitOpsConflictError(ConflictError):
+    """GitOps 브랜치가 그새 움직여 fast-forward 할 수 없다. HEAD 위에 커밋을 다시 만든다."""
+
+    code = "GITOPS_CONFLICT"
+
+
+class BuildFailedError(AppError):
+    """빌드를 더 진행할 수 없는 실패. 재시도하지 않고 failure_code 로 배포 요청을 끝낸다."""
+
+    code = "BUILD_FAILED"
+    status_code = 422
+
+    def __init__(
+        self, failure_code: FailureCode, message: str | None = None, **fields: object
+    ) -> None:
+        super().__init__(message or failure_code, **fields)
+        self.failure_code = failure_code

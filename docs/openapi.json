@@ -1182,7 +1182,8 @@
           "SUCCEEDED",
           "FAILED",
           "ROLLED_BACK",
-          "MANUAL_INTERVENTION"
+          "MANUAL_INTERVENTION",
+          "SUPERSEDED"
         ],
         "title": "DeploymentStatus",
         "type": "string"
@@ -1259,9 +1260,16 @@
       },
       "FailureCode": {
         "enum": [
+          "SOURCE_NOT_ACCESSIBLE",
+          "SOURCE_REF_NOT_FOUND",
+          "SOURCE_TOO_LARGE",
           "BUILD_CONFIG_REQUIRED",
           "BUILD_FAILED",
-          "DEPLOY_FAILED"
+          "BUILD_TIMED_OUT",
+          "BUILD_INFRA_ERROR",
+          "DEPLOY_FAILED",
+          "DEPLOY_TIMED_OUT",
+          "DEPLOY_INFRA_ERROR"
         ],
         "title": "FailureCode",
         "type": "string"

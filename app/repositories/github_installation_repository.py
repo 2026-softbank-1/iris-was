@@ -2,12 +2,21 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import NotFoundError
 from app.models.user import GithubInstallation, UserGithubInstallation
 
 
 class GithubInstallationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get_by_id(self, github_installation_id: int) -> GithubInstallation:
+        installation = await self._session.get(GithubInstallation, github_installation_id)
+        if installation is None:
+            raise NotFoundError(
+                "github installation not found", github_installation_id=github_installation_id
+            )
+        return installation
 
     async def find_by_installation_id(self, installation_id: int) -> GithubInstallation | None:
         stmt = select(GithubInstallation).where(
