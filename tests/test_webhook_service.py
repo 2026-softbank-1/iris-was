@@ -12,6 +12,7 @@ from app.models.user import GithubInstallation
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.webhook_service import WebhookService
 from tests.fakes import FakeGithubInstallationRepository, FakeSession
+from tests.fakes_variable import FakeServiceVariableRepository
 from tests.fakes_webhook import (
     FakeBuildRepository,
     FakeDeploymentRequestRepository,
@@ -62,6 +63,7 @@ class Parts:
         self.jobs = FakeJobRepository()
         self.builds = FakeBuildRepository()
         self.histories = FakeDeploymentStatusHistoryRepository()
+        self.variables = FakeServiceVariableRepository()
         self.installations = FakeGithubInstallationRepository()
         self.service = WebhookService(
             self.session,  # type: ignore[arg-type]
@@ -72,6 +74,7 @@ class Parts:
                 self.jobs,  # type: ignore[arg-type]
                 self.histories,  # type: ignore[arg-type]
                 self.builds,  # type: ignore[arg-type]
+                self.variables,  # type: ignore[arg-type]
             ),
             SECRET,
         )
@@ -106,6 +109,15 @@ async def test_receive_with_non_json_body_raises_invalid_input() -> None:
         await parts.service.receive_github_event(
             event="push", delivery_id="d", signature=signature, body=body
         )
+
+
+async def test_push_snapshots_current_variables() -> None:
+    parts = Parts([_service()])
+    await parts.variables.replace_all(1, {"A": "enc(1)"})
+
+    await parts.receive("push", _push())
+
+    assert parts.requests.requests[0].variables_snapshot == {"A": "enc(1)"}
 
 
 async def test_push_creates_deployment_request_and_build_job() -> None:

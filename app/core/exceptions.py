@@ -85,12 +85,26 @@ class DeploymentRequestNotFoundError(NotFoundError):
     code = "DEPLOYMENT_REQUEST_NOT_FOUND"
 
 
+class VariableNotFoundError(NotFoundError):
+    code = "VARIABLE_NOT_FOUND"
+
+
 class ProjectNameConflictError(ConflictError):
     code = "PROJECT_NAME_CONFLICT"
 
 
 class ServiceNameConflictError(ConflictError):
     code = "SERVICE_NAME_CONFLICT"
+
+
+class VariableConflictError(ConflictError):
+    code = "VARIABLE_CONFLICT"
+
+
+class VariableDecryptionError(AppError):
+    """저장된 변수 값을 복호화하지 못했다. 암호화 키가 바뀌었거나 값이 손상됐다."""
+
+    code = "VARIABLE_DECRYPTION_FAILED"
 
 
 class DeploymentInProgressError(ConflictError):

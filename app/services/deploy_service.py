@@ -20,7 +20,15 @@ from app.clients.aws_clients import EcrClient
 from app.clients.github_client import GitHubClient
 from app.core.config import DeployWorkerSettings
 from app.core.exceptions import ConflictError, ExternalError, GitOpsConflictError, NotFoundError
-from app.enums import Builder, DeploymentStatus, Environment, FailureCode, JobKind, ReleaseStatus
+from app.enums import (
+    APP_PORT,
+    Builder,
+    DeploymentStatus,
+    Environment,
+    FailureCode,
+    JobKind,
+    ReleaseStatus,
+)
 from app.models import Job, Release
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -36,7 +44,6 @@ JOB_KINDS = frozenset({JobKind.DEPLOY, JobKind.RECONCILE, JobKind.ROLLBACK, JobK
 GITOPS_BRANCH = "main"
 GITOPS_ENVIRONMENT = "prod"
 VALUES_FILE_NAME = "values.yaml"
-APP_PORT = 8080
 RECONCILE_INTERVAL = timedelta(seconds=10)
 IN_FLIGHT_SNOOZE = timedelta(seconds=15)
 # 첫 배포의 ApplicationSet 폴링(약 3분)과 Application 폴링(최대 약 3분)을 감안한 여유.

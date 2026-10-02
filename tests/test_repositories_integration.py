@@ -34,6 +34,7 @@ from app.repositories.deployment_status_history_repository import (
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository, ServiceCounts
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
@@ -256,6 +257,7 @@ async def _queued_request(session: AsyncSession, service: Service) -> Deployment
         JobRepository(session),
         DeploymentStatusHistoryRepository(session),
         BuildRepository(session),
+        ServiceVariableRepository(session),
     ).create_deployment_request(
         service,
         source_sha="c" * 40,
@@ -368,3 +370,80 @@ async def test_deployment_status_history_rejects_unknown_status(session: AsyncSe
                 ),
                 {"id": request.id},
             )
+
+
+async def test_service_variable_add_if_absent_skips_existing_key(session: AsyncSession) -> None:
+    _, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    repository = ServiceVariableRepository(session)
+
+    first = await repository.add_if_absent(service.id, "A", "enc-1")
+    duplicate = await repository.add_if_absent(service.id, "A", "enc-2")
+
+    assert first is not None and first.id is not None
+    assert duplicate is None
+    found = await repository.find_by_service_id_and_key(service.id, "A")
+    assert found is not None and found.encrypted_value == "enc-1"
+
+
+async def test_service_variable_replace_all_upserts_and_removes_missing_keys(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    web = await services.save(_service(project, installation, "web"))
+    api = await services.save(_service(project, installation, "api"))
+    repository = ServiceVariableRepository(session)
+    await repository.replace_all(web.id, {"KEEP": "old", "DROP": "x"})
+    await repository.replace_all(api.id, {"OTHER": "y"})
+
+    await repository.replace_all(web.id, {"KEEP": "new", "ADDED": "z"})
+
+    found = await repository.search_by_service_id(web.id)
+    assert [(v.key, v.encrypted_value) for v in found] == [("ADDED", "z"), ("KEEP", "new")]
+    assert [v.key for v in await repository.search_by_service_id(api.id)] == ["OTHER"]
+
+
+async def test_service_variable_replace_all_empty_clears_only_that_service(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    web = await services.save(_service(project, installation, "web"))
+    api = await services.save(_service(project, installation, "api"))
+    repository = ServiceVariableRepository(session)
+    await repository.replace_all(web.id, {"A": "1"})
+    await repository.replace_all(api.id, {"B": "2"})
+
+    await repository.replace_all(web.id, {})
+
+    assert await repository.search_by_service_id(web.id) == []
+    assert [v.key for v in await repository.search_by_service_id(api.id)] == ["B"]
+
+
+async def test_service_variable_delete_removes_row(session: AsyncSession) -> None:
+    _, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    repository = ServiceVariableRepository(session)
+    variable = await repository.add_if_absent(service.id, "A", "1")
+    assert variable is not None
+
+    await repository.delete(variable)
+
+    assert await repository.find_by_service_id_and_key(service.id, "A") is None
+
+
+async def test_deployment_request_service_snapshots_variables_into_jsonb(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    await ServiceVariableRepository(session).replace_all(service.id, {"A": "enc-a", "B": "enc-b"})
+
+    request = await _queued_request(session, service)
+
+    stored = await DeploymentRequestRepository(session).find_by_id_and_service_id(
+        request.id, service.id
+    )
+    assert stored is not None
+    assert stored.variables_snapshot == {"A": "enc-a", "B": "enc-b"}

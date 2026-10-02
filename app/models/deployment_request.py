@@ -51,7 +51,7 @@ class DeploymentRequest(TimestampMixin, Base):
     failure_code: Mapped[FailureCode | None] = mapped_column(
         enum_column(FailureCode, "failure_code")
     )
-    # 요청 시점의 환경변수. 같은 값으로 다시 배포하거나 되돌릴 때 쓴다.
+    # 요청 시점의 환경변수(키 → 암호문). 평문은 담지 않는다. 롤백이 그때의 변수로 되돌릴 때 쓴다.
     variables_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # 재배포·롤백·재시작이 따라가는 원본 배포 요청. 직접 만든 요청은 None 이다.
     source_deployment_request_id: Mapped[int | None] = mapped_column(
