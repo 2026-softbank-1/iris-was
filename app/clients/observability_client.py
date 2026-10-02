@@ -11,6 +11,11 @@ from app.core.exceptions import ExternalError
 
 MetricKind = Literal["cpu", "memory", "network_receive", "network_transmit"]
 
+# OTel 수집기의 리소스 속성(k8s.namespace.name 등)을 Loki·Prometheus 가 `_` 로 바꾼 라벨이다.
+NAMESPACE_LABEL = "k8s_namespace_name"
+POD_LABEL = "k8s_pod_name"
+CONTAINER_LABEL = "k8s_container_name"
+
 
 @dataclass(frozen=True)
 class LogEntry:
@@ -81,7 +86,7 @@ class LokiPrometheusObservabilityClient:
         direction: Literal["forward", "backward"] = "backward",
     ) -> list[LogEntry]:
         # namespace 는 인증된 서비스 ID 에서만 만든다. 사용자 검색은 문자열 리터럴로 인코딩한다.
-        query = f'{{namespace={json.dumps(namespace)},container="app"}}'
+        query = f'{{{NAMESPACE_LABEL}={json.dumps(namespace)},{CONTAINER_LABEL}="app"}}'
         if search:
             query += f" |= {json.dumps(search, ensure_ascii=False)}"
         payload = await self._get(
@@ -106,15 +111,15 @@ class LokiPrometheusObservabilityClient:
                         raise ValueError("invalid log entry")
                     int(timestamp_ns)
                     if not all(
-                        isinstance(labels.get(key, ""), str) for key in ("pod", "container")
+                        isinstance(labels.get(key, ""), str) for key in (POD_LABEL, CONTAINER_LABEL)
                     ):
                         raise ValueError("invalid log labels")
                     entries.append(
                         LogEntry(
                             timestamp_ns,
                             message,
-                            labels.get("pod", ""),
-                            labels.get("container", ""),
+                            labels.get(POD_LABEL, ""),
+                            labels.get(CONTAINER_LABEL, ""),
                         )
                     )
             return sorted(
@@ -131,20 +136,22 @@ class LokiPrometheusObservabilityClient:
         end: float,
         step: int,
     ) -> list[MetricSeries]:
-        selector = f'namespace="{namespace}",container="app",image!=""'
-        network = f'namespace="{namespace}",pod=~"app-.*",interface!="lo"'
+        # 수집기는 svc-* Pod 의 kubeletstats 메트릭 3종만 보낸다.
+        # Pod 단위지만 iris-service Pod 는 컨테이너가 하나라 값이 같다.
+        selector = f'{NAMESPACE_LABEL}="{namespace}"'
+        network_io = "k8s_pod_network_io_bytes_total"
         queries: list[tuple[MetricKind, str, str]] = [
-            ("cpu", "cores", f"sum(rate(container_cpu_usage_seconds_total{{{selector}}}[5m]))"),
-            ("memory", "bytes", f"sum(container_memory_working_set_bytes{{{selector}}})"),
+            ("cpu", "cores", f"sum(rate(k8s_pod_cpu_time_seconds_total{{{selector}}}[5m]))"),
+            ("memory", "bytes", f"sum(k8s_pod_memory_working_set_bytes{{{selector}}})"),
             (
                 "network_receive",
                 "bytes/s",
-                f"sum(rate(container_network_receive_bytes_total{{{network}}}[5m]))",
+                f'sum(rate({network_io}{{{selector},direction="receive"}}[5m]))',
             ),
             (
                 "network_transmit",
                 "bytes/s",
-                f"sum(rate(container_network_transmit_bytes_total{{{network}}}[5m]))",
+                f'sum(rate({network_io}{{{selector},direction="transmit"}}[5m]))',
             ),
         ]
         series = []

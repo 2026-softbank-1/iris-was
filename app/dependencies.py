@@ -291,7 +291,8 @@ def get_observability_service(
     return ObservabilityService(
         ServiceRepository(session),
         LokiPrometheusObservabilityClient(http_client),
-        settings.observability_endpoints,
+        settings.loki_url,
+        settings.prometheus_url,
     )
 
 
