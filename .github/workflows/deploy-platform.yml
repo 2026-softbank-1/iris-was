@@ -1,7 +1,8 @@
 name: Deploy platform
 
 # 수동 배포 전용. iris/was 이미지를 빌드·push 하고, 고른 컴포넌트의 digest 만
-# iris-gitops-environments 의 platform values 에 커밋한다. Argo CD 가 management EKS 에 반영한다.
+# iris-gitops-environments 의 이 레포 전용 파일(platform/aws-dev-management/was.yaml)에 커밋한다.
+# 컴포넌트 실행 방식은 iris-infra clusters/aws-dev-management/values/platform.yaml 이 정한다.
 on:
   workflow_dispatch:
     inputs:
@@ -28,7 +29,7 @@ env:
   AWS_ACCOUNT_ID: '187069338876'
   AWS_REGION: ap-northeast-2
   ECR_REPOSITORY: iris/was
-  VALUES_FILE: platform/aws-dev-management/values.yaml
+  VALUES_FILE: platform/aws-dev-management/was.yaml
 
 jobs:
   deploy:
@@ -45,8 +46,8 @@ jobs:
           [[ "$GITHUB_REF" == refs/heads/main ]] || { echo '::error::main 에서만 배포한다.'; exit 1; }
           c=''
           [[ "$API" == true ]] && c+=' api'
-          [[ "$BUILD_WORKER" == true ]] && c+=' buildWorker'
-          [[ "$DEPLOY_WORKER" == true ]] && c+=' deployWorker'
+          [[ "$BUILD_WORKER" == true ]] && c+=' build-worker'
+          [[ "$DEPLOY_WORKER" == true ]] && c+=' deploy-worker'
           [[ -n "$c" ]] || { echo '::error::배포할 컴포넌트를 하나 이상 고른다.'; exit 1; }
           echo "COMPONENTS=${c# }" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
@@ -86,7 +87,7 @@ jobs:
           mkdir -p "$(dirname "$VALUES_FILE")"
           [[ -f "$VALUES_FILE" ]] || echo '{}' > "$VALUES_FILE"
           jq -S --arg d "$DIGEST" --arg c "$COMPONENTS" \
-            'reduce ($c | split(" "))[] as $k (.; .[$k].digest = $d)' "$VALUES_FILE" > v.tmp
+            'reduce ($c | split(" "))[] as $k (.; .components[$k].digest = $d)' "$VALUES_FILE" > v.tmp
           mv v.tmp "$VALUES_FILE"
           git config user.name 'iris-platform-deploy[bot]'
           git config user.email 'iris-platform-deploy@users.noreply.github.com'
