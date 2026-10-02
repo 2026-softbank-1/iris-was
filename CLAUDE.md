@@ -101,6 +101,7 @@ flowchart LR
 ### 배포 도메인
 - jobs 큐는 at-least-once 로 전달된다. Worker 작업은 **멱등**해야 한다. 외부 호출 직후 외부 ID(CodeBuild ID·commit SHA)를 먼저 기록하고, 재시도 시 그 ID 로 기존 결과를 조회한다.
 - job 선점 트랜잭션은 짧게 끝낸다. CodeBuild·Git·Argo CD 대기는 트랜잭션 밖에서 한다.
+- 서비스 host 는 저장하지 않고 `build_service_host`(`app/services/domain_service.py`) 한 곳에서 계산한다. API 조회와 Deploy Worker 가 같은 규칙을 쓴다.
 - 배포 기준은 **image digest** 다. `latest` 같은 mutable tag 를 배포에 쓰지 않는다.
 - GitOps 저장소는 revert commit 으로만 되돌린다. `git push --force` 는 금지다. 자동 rollback 은 용어 사전 §6 의 세 조건을 모두 만족할 때만 한다.
 - 컴포넌트끼리 Secret·IAM Role·자격증명을 공유하지 않는다.
