@@ -49,6 +49,16 @@ class FakeDeploymentRequestRepository:
             None,
         )
 
+    async def find_latest_succeeded_by_service_id(
+        self, service_id: int
+    ) -> DeploymentRequest | None:
+        succeeded = [
+            r
+            for r in self.requests
+            if r.service_id == service_id and r.status == DeploymentStatus.SUCCEEDED
+        ]
+        return max(succeeded, key=lambda r: (r.created_at, r.id), default=None)
+
     async def get_by_id_for_update(self, deployment_request_id: int) -> DeploymentRequest:
         request = next((r for r in self.requests if r.id == deployment_request_id), None)
         if request is None:
@@ -120,6 +130,11 @@ class FakeDeploymentStatusHistoryRepository:
 class FakeBuildRepository:
     def __init__(self) -> None:
         self.builds: list[Build] = []
+
+    async def find_by_deployment_request_id(self, deployment_request_id: int) -> Build | None:
+        return next(
+            (b for b in self.builds if b.deployment_request_id == deployment_request_id), None
+        )
 
     async def add(self, build: Build) -> Build:
         build.id = len(self.builds) + 1

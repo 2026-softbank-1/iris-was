@@ -47,6 +47,24 @@ class Build(TimestampMixin, Base):
 
     deployment_request: Mapped[DeploymentRequest] = relationship(lazy="raise")
 
+    @classmethod
+    def copy_succeeded(cls, source: "Build", deployment_request_id: int) -> "Build":
+        """빌드 없이 원본의 이미지를 쓰는 요청(롤백·재시작)의 빌드. 이미지를 그대로 가리킨다."""
+        now = now_utc()
+        return cls(
+            deployment_request_id=deployment_request_id,
+            status=BuildStatus.SUCCEEDED,
+            builder=source.builder,
+            source_sha=source.source_sha,
+            image_repository=source.image_repository,
+            image_tag=source.image_tag,
+            image_digest=source.image_digest,
+            deploy_config=source.deploy_config,
+            log_url=source.log_url,
+            started_at=now,
+            finished_at=now,
+        )
+
     @property
     def is_finished(self) -> bool:
         return self.status in (BuildStatus.SUCCEEDED, BuildStatus.FAILED, BuildStatus.CANCELLED)

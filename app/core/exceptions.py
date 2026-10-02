@@ -99,6 +99,12 @@ class DeploymentInProgressError(ConflictError):
     code = "DEPLOYMENT_IN_PROGRESS"
 
 
+class NoSucceededDeploymentError(ConflictError):
+    """재시작할 배포가 없다. 서비스에 성공한 배포가 한 번도 없다."""
+
+    code = "NO_SUCCEEDED_DEPLOYMENT"
+
+
 class InvalidStatusTransitionError(ConflictError):
     """배포 요청 상태 전이 표에 없는 이동. 현재 상태와 요청한 상태를 fields 에 담는다."""
 

@@ -98,9 +98,12 @@ erDiagram
 | `requested_by`\* | 요청자 (`users.id`). push 웹훅 요청은 비어 있다 |
 | `status` | `deployment_status` Enum (§5). 원문의 "최종 상태" |
 | `failure_code`\* | 실패 사유 코드 (§5) |
-| `variables_snapshot`\* | 요청 시점의 환경변수(jsonb). 재배포·롤백에 쓴다 |
+| `variables_snapshot`\* | 요청 시점의 환경변수(jsonb). 재배포·롤백·재시작은 원본 요청의 값을 그대로 가져온다 |
+| `source_deployment_request_id`\* | 재배포·롤백·재시작이 따라가는 원본 배포 요청 (`deployment_requests.id`). 직접 만든 요청은 비어 있다 |
 
 서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
+
+`ROLLBACK`·`RESTART` 요청은 소스를 다시 빌드하지 않는다. 원본 요청의 빌드가 만든 이미지를 가리키는 성공한 `builds` 행을 복사해 새 요청에 붙이고, BUILD 대신 DEPLOY job 으로 시작한다 (ADR 0015). 새 release 가 만들어지므로 같은 digest 라도 Pod 가 새로 뜬다.
 
 `status` 는 `DeploymentStatusService.transition_status` 로만 바꾼다. 허용된 전이인지 검사하고 이력을 남긴다 (§5 전이 표, ADR 0010).
 
@@ -252,7 +255,9 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 ### 배포 시작 방식 (`deployment_trigger`)\* — `deployment_requests.trigger_type`
 
-`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 값으로 다시) · `ROLLBACK`(이전 release 로 되돌림)
+`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 커밋을 다시 빌드해 배포) · `ROLLBACK`(성공했던 이전 배포의 이미지를 빌드 없이 다시 배포) · `RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작)
+
+사용자가 시작하는 `ROLLBACK`(이 값)과 Deploy Worker 가 실패한 release 를 자동으로 되돌리는 job `ROLLBACK` 은 다르다. 앞쪽은 새 배포 요청이고 뒤쪽은 revert commit 이다 (§7).
 
 ### 타깃 종류 (`target_kind`)\* — `targets.kind`
 
@@ -268,11 +273,13 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 | from | 허용 to |
 |---|---|
-| `QUEUED` | `BUILDING`, `FAILED`, `SUPERSEDED` |
+| `QUEUED` | `BUILDING`, `DEPLOYING`, `FAILED`, `SUPERSEDED` |
 | `BUILDING` | `DEPLOYING`, `FAILED`, `SUPERSEDED` |
 | `DEPLOYING` | `SUCCEEDED`, `FAILED`, `ROLLED_BACK`, `MANUAL_INTERVENTION`, `SUPERSEDED` |
 | `FAILED` | `ROLLED_BACK`, `MANUAL_INTERVENTION` |
 | `SUCCEEDED` · `ROLLED_BACK` · `MANUAL_INTERVENTION` · `SUPERSEDED` | (끝) |
+
+`QUEUED → DEPLOYING` 은 빌드를 건너뛰는 `ROLLBACK`·`RESTART` 요청이 만들어지는 순간에만 쓴다. 이 요청은 `BUILDING` 을 거치지 않는다.
 
 ### 빌드 상태 (`build_status`)\* — `builds.status`
 
@@ -335,4 +342,4 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | Release | GitOps 반영 결과 (`Release`) | Helm release | Helm 쪽은 `helm_release` |
 | Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `env_vars`, 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
-| Rollback | job `ROLLBACK` = revert commit | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분 |
+| Rollback | job `ROLLBACK` = revert commit(자동). 트리거 `ROLLBACK` = 사용자가 이전 이미지로 시작한 새 배포 요청 | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분. 요청은 `deployment_request`, revert 는 `revert_commit` |

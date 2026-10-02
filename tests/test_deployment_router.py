@@ -92,6 +92,8 @@ async def test_create_deployment_request_while_active_returns_conflict(
         {"triggerType": "REDEPLOY"},
         {"triggerType": "ROLLBACK", "sourceDeploymentId": 1, "sourceSha": "abcdef1"},
         {"triggerType": "MANUAL", "sourceSha": "not-hex"},
+        {"triggerType": "RESTART", "sourceDeploymentId": 1},
+        {"triggerType": "RESTART", "sourceSha": "abcdef1"},
     ],
 )
 async def test_create_deployment_request_with_invalid_body_returns_validation_error(
@@ -101,6 +103,35 @@ async def test_create_deployment_request_with_invalid_body_returns_validation_er
 
     assert response.status_code == 422
     assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+async def test_create_deployment_request_restart_returns_deploying_with_source(
+    client: DeploymentClient,
+) -> None:
+    first = await client.post(client.url, json={"triggerType": "MANUAL"})
+    source_id = first.json()["data"]["id"]
+    build = client.setup.builds.builds[0]
+    build.image_repository = "123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/1"
+    build.succeed("sha256:" + "b" * 64)
+    client.setup.requests.requests[0].status = DeploymentStatus.SUCCEEDED
+
+    response = await client.post(client.url, json={"triggerType": "RESTART"})
+
+    body = response.json()
+    assert response.status_code == 201
+    assert body["data"]["triggerType"] == "RESTART"
+    assert body["data"]["status"] == "DEPLOYING"
+    assert body["data"]["sourceDeploymentId"] == source_id
+    assert body["data"]["isActive"] is True
+
+
+async def test_create_deployment_request_restart_without_succeeded_deployment_returns_conflict(
+    client: DeploymentClient,
+) -> None:
+    response = await client.post(client.url, json={"triggerType": "RESTART"})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "NO_SUCCEEDED_DEPLOYMENT"
 
 
 async def test_create_deployment_request_of_other_users_service_returns_not_found(
