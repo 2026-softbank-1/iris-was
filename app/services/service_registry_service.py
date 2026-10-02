@@ -40,8 +40,8 @@ class ServiceDetail:
     latest_deployment: DeploymentRequest | None = None
 
 
-def slugify_service_name(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:63].strip("-")
+def slugify_service_name(value: str, max_length: int = 63) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:max_length].strip("-")
     return slug or "service"
 
 
