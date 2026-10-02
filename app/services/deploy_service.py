@@ -26,6 +26,7 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.service_registry_service import slugify_service_name
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +81,18 @@ def evaluate_release(
     return Verdict.WAIT
 
 
+def service_host_label(name: str, service_id: int) -> str:
+    """서비스 도메인의 첫 label. chart 는 소문자·숫자·하이픈 DNS label(63자 이하)만 받는다.
+
+    이름은 사용자가 정할 수 있고 프로젝트 안에서만 유일해서, 변환한 뒤 service_id 를 붙인다.
+    """
+    suffix = f"-{service_id}"
+    return slugify_service_name(name, 63 - len(suffix)) + suffix
+
+
 def render_service_values(
     *,
-    slug: str,
+    host_label: str,
     release_id: int,
     image_repository: str,
     image_digest: str,
@@ -105,7 +115,7 @@ def render_service_values(
         "release": {"id": release_id, "sourceSha": source_sha},
         "containerPort": APP_PORT,
         "health": health,
-        "route": {"host": f"{slug}.{base_domain}"},
+        "route": {"host": f"{host_label}.{base_domain}"},
     }
     # Railpack 은 빌드 때 start command 를 이미지에 넣는다. Dockerfile 은 ENTRYPOINT·CMD 를
     # exec form 으로 덮어쓴다(셸을 거치지 않아 $VAR 가 풀리지 않는다. 필요하면 sh -c 로 감싼다).
@@ -242,7 +252,7 @@ class DeployService:
         assert build.builder is not None
         files = {
             VALUES_FILE_NAME: render_service_values(
-                slug=f"{service.name}-{service.id}",
+                host_label=service_host_label(service.name, service.id),
                 release_id=release.id,
                 image_repository=build.image_repository,
                 image_digest=release.image_digest,

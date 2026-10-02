@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -7,7 +8,12 @@ import pytest
 from app.clients.argocd_client import ArgoAppStatus
 from app.enums import Builder
 from app.services.builder_detection import DeployConfig
-from app.services.deploy_service import Verdict, evaluate_release, render_service_values
+from app.services.deploy_service import (
+    Verdict,
+    evaluate_release,
+    render_service_values,
+    service_host_label,
+)
 
 NOW = datetime(2026, 10, 1, tzinfo=UTC)
 DEADLINE = NOW + timedelta(minutes=5)
@@ -68,7 +74,7 @@ def test_evaluate_release_previous_failed_operation_waits() -> None:
 
 def _render(deploy: DeployConfig, builder: Builder = Builder.DOCKERFILE) -> dict[str, Any]:
     content = render_service_values(
-        slug="my-app",
+        host_label="my-app",
         release_id=345,
         image_repository="123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/12",
         image_digest="sha256:abc",
@@ -120,3 +126,37 @@ def test_render_service_values_start_command_overrides_dockerfile_only(
     values = _render(DeployConfig(start_command=start_command), builder)
 
     assert values.get("command") == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "service_id", "expected"),
+    [
+        ("web", 12, "web-12"),
+        ("My App", 12, "my-app-12"),
+        ("web_api.v2", 7, "web-api-v2-7"),
+        ("내 서비스", 3, "service-3"),
+        ("---", 3, "service-3"),
+    ],
+)
+def test_service_host_label_makes_dns_label_unique_by_id(
+    name: str, service_id: int, expected: str
+) -> None:
+    assert service_host_label(name, service_id) == expected
+
+
+@pytest.mark.parametrize("service_id", [1, 12, 123456])
+def test_service_host_label_long_name_stays_within_dns_label_limit(service_id: int) -> None:
+    label = service_host_label("a" * 63, service_id)
+
+    assert len(label) <= 63
+    assert label.endswith(f"-{service_id}")
+    assert re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", label)
+
+
+def test_service_host_label_truncation_never_leaves_trailing_hyphen() -> None:
+    name = "a" * 58 + "-b"
+
+    label = service_host_label(name, 12)
+
+    assert "--" not in label
+    assert re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", label)
