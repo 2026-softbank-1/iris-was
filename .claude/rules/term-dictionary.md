@@ -128,10 +128,16 @@ PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
 | 필드 | 설명 |
 |---|---|
 | `deployment_request_id`\* | 소속 배포 요청 |
-| `builder` | 실제로 사용한 빌더 |
+| `status`\* | `build_status` Enum (§5). Worker 의 진행 단계 |
+| `builder` | 실제로 사용한 빌더. Worker 가 소스를 보고 확정한 뒤에 채운다 |
+| `source_sha`\* | 빌드한 소스 커밋 SHA |
 | `codebuild_build_id` | CodeBuild 빌드 ID |
+| `attempt`\* | CodeBuild 를 새로 시작할 때마다 +1. StartBuild 멱등 토큰에 쓴다 |
 | `image_repository`\* | ECR 저장소 URI |
+| `image_tag`\* | 빌드가 push 한 불변 태그. 배포 기준은 digest 이고 태그는 이미지를 찾는 데만 쓴다 |
 | `image_digest` | 빌드 결과 digest |
+| `deploy_config`\* | 서비스 레포 설정(`iris.json`)의 `deploy.*`. Deploy Worker 가 읽는다 |
+| `failure_code`\* | 빌드 실패 사유 (§5) |
 | `log_url` | CodeBuild 로그 URL |
 | `started_at`\*, `finished_at`\* | 빌드 시작·종료 시각 |
 
@@ -144,12 +150,17 @@ GitOps 에 반영된 배포 결과 1건이다. 같은 요청이라도 타깃마�
 | 필드 | 설명 |
 |---|---|
 | `deployment_request_id`\* | 소속 배포 요청 |
-| `service_id`\*, `environment`\*, `target_id`\* | 대상. `last_known_good` 조회 기준 |
+| `build_id`\* | 이 release 의 이미지를 만든 빌드 |
+| `service_id`\*, `environment`\*, `target_id`\* | 대상. `last_known_good` 조회 기준. 서비스·타깃마다 진행 중 release 는 하나다 |
 | `image_digest` | 배포한 digest |
 | `gitops_commit_sha` | digest 를 바꾼 GitOps 커밋 |
+| `revert_commit_sha`\* | 실패한 release 를 되돌린 revert commit |
 | `argo_sync_status` | Argo CD Sync 상태 (외부 값) |
 | `argo_health_status` | Argo CD Health 상태 (외부 값) |
 | `previous_good_release_id` | 이 릴리스 직전의 정상 릴리스. 원문의 "이전 정상 release" |
+| `failure_code`\* | release 실패 사유 (§5) |
+| `deadline_at`\* | Argo CD 가 이 시각까지 반영·정상화하지 못하면 실패로 본다. 값이 있으면 GitOps 커밋이 반영된 것이다 |
+| `finished_at`\* | release 가 끝난 시각 |
 | `status`\* | `release_status` Enum (§5) |
 
 ### 4.6 사용자 (User) — `users`\*
@@ -188,7 +199,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 |---|---|
 | `name`\* | 타깃 이름. unique (`aws`·`local`) |
 | `kind`\* | `target_kind` Enum (§5) |
-| `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사 |
+| `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사. 점이 하나인 `likelion.uk` 꼴이다(와일드카드 인증서가 label 한 단계만 덮는다). 비어 있으면 그 타깃엔 도메인이 없다. 서비스 주소는 `{서비스 이름}-{service_id}.{domain_suffix}` 로 계산하며 저장하지 않는다 |
 | `cluster_ref`\* | 클러스터 접속 정보의 비밀 저장소 참조 이름. 접속 정보 자체는 담지 않는다 |
 
 `service_targets` 는 서비스가 배포되는 타깃을 잇는다.
@@ -249,31 +260,42 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 
-`QUEUED` → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION`
+`QUEUED` → `BUILDING` → `DEPLOYING` → `SUCCEEDED` / `FAILED` / `ROLLED_BACK` / `MANUAL_INTERVENTION` / `SUPERSEDED`
 
-화면 용어는 Initializing = `QUEUED`, Active = `SUCCEEDED` 다. 실패는 `FAILED` 하나이고 타임아웃·에러·`CrashLoopBackOff` 도 모두 `FAILED` 다. 원인은 상태가 아니라 `failure_code` 로 구분한다.
+화면 용어는 Initializing = `QUEUED`, Active = `SUCCEEDED` 다. 실패는 `FAILED` 하나이고 타임아웃·에러·`CrashLoopBackOff` 도 모두 `FAILED` 다. 원인은 상태가 아니라 `failure_code` 로 구분한다. `SUPERSEDED` 는 진행 중에 더 새로운 요청이 대신해 중단된 것이다(`cancel_requested_at` 을 Worker 가 보고 끝낸다). 소스 스냅샷을 만드는 동안도 `QUEUED` 다(화면의 Initializing).
 
 허용되는 전이 (표에 없는 이동은 `INVALID_STATUS_TRANSITION`, 이미 그 상태면 아무것도 하지 않는다):
 
 | from | 허용 to |
 |---|---|
-| `QUEUED` | `BUILDING`, `FAILED` |
-| `BUILDING` | `DEPLOYING`, `FAILED` |
-| `DEPLOYING` | `SUCCEEDED`, `FAILED`, `ROLLED_BACK`, `MANUAL_INTERVENTION` |
+| `QUEUED` | `BUILDING`, `FAILED`, `SUPERSEDED` |
+| `BUILDING` | `DEPLOYING`, `FAILED`, `SUPERSEDED` |
+| `DEPLOYING` | `SUCCEEDED`, `FAILED`, `ROLLED_BACK`, `MANUAL_INTERVENTION`, `SUPERSEDED` |
 | `FAILED` | `ROLLED_BACK`, `MANUAL_INTERVENTION` |
-| `SUCCEEDED` · `ROLLED_BACK` · `MANUAL_INTERVENTION` | (끝) |
+| `SUCCEEDED` · `ROLLED_BACK` · `MANUAL_INTERVENTION` · `SUPERSEDED` | (끝) |
+
+### 빌드 상태 (`build_status`)\* — `builds.status`
+
+`PENDING`(Worker 대기) → `SNAPSHOTTING`(소스 스냅샷 중) → `BUILDING`(CodeBuild 실행 중) → `SUCCEEDED` / `FAILED` / `CANCELLED`. 요청의 `status` 는 빌드가 직접 바꾸지 않고 Worker 가 `DeploymentStatusService` 로 옮긴다.
 
 ### 릴리스 상태 (`release_status`)\* — `releases.status`
 
-`PENDING`(Git 반영, 동기화 대기) · `SUCCEEDED`(원문. Sync·Health·smoke test 모두 통과) · `FAILED` · `ROLLED_BACK`
+`PENDING`(Git 반영, 동기화 대기) · `SUCCEEDED`(원문. Sync·Health·smoke test 모두 통과) · `FAILED` · `ROLLING_BACK`(revert commit 반영, 되돌림 대기) · `ROLLED_BACK`
 
-### 실패 코드 (`failure_code`) — `deployment_requests.failure_code`\*
+### 실패 코드 (`failure_code`) — `deployment_requests.failure_code`·`builds.failure_code`·`releases.failure_code`\*
 
 | 코드 | 의미 |
 |---|---|
+| `SOURCE_NOT_ACCESSIBLE`\* | GitHub 소스에 접근할 수 없다 (설치·권한) |
+| `SOURCE_REF_NOT_FOUND`\* | 커밋·브랜치를 찾을 수 없다 |
+| `SOURCE_TOO_LARGE`\* | 소스 스냅샷이 한도를 넘는다 |
 | `BUILD_CONFIG_REQUIRED` | 빌더 설정이 없거나 소스와 맞지 않는다 (원문 §4) |
 | `BUILD_FAILED` | 빌드·테스트·스캔 실패. GitOps 는 바꾸지 않는다 (원문 §6) |
+| `BUILD_TIMED_OUT`\* | 빌드 제한 시간 초과 |
+| `BUILD_INFRA_ERROR`\* | 빌드 인프라 오류로 재시도를 소진했다 |
 | `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
+| `DEPLOY_TIMED_OUT`\* | Argo CD 가 `deadline_at` 까지 정상화하지 못했다 |
+| `DEPLOY_INFRA_ERROR`\* | 배포 인프라 오류로 재시도를 소진했다 |
 
 ### Argo CD 상태 (외부 값, 원본 표기 그대로 저장)
 

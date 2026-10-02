@@ -27,7 +27,7 @@ app/
 ├─ models/         SQLAlchemy 모델
 ├─ clients/        CodeBuild·ECR·GitOps(Git)·Argo CD 비동기 클라이언트
 ├─ core/           설정·예외·로깅
-└─ enums.py        JobKind · JobStatus · Builder
+└─ enums.py        JobKind · JobStatus · Builder · BuildStatus · FailureCode 등
 alembic/           DB 마이그레이션
 tests/
 ```
@@ -78,6 +78,7 @@ LOG_LEVEL=INFO
 | `LOKI_URL`, `PROMETHEUS_URL` | 로그·메트릭 백엔드 내부 주소. 없으면 관측 API 503. [로그·메트릭 연결 및 API](docs/observability-api.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
 | `WEB_BASE_URL` | 웹 프런트 주소. 로그인 후 이 주소로 돌려보낸다. 기본 `http://localhost:3000` |
+| `CORS_ALLOW_ORIGIN_REGEX` | CORS 허용 Origin 정규식(전체 일치). 기본은 `likelion.uk`·하위 도메인(https)과 `localhost`·`127.0.0.1` 모든 포트. 메서드·헤더는 전부 허용하고 쿠키(credentials)도 허용한다 |
 | `SESSION_SECRET` | 세션·OAuth state 서명 키(HS256). 없으면 로그인·인증 API 가 `503 NOT_CONFIGURED` |
 | `SESSION_TTL_MINUTES` | 세션 유효 시간(분). 기본 7일 |
 | `IS_SESSION_COOKIE_SECURE` | 쿠키 Secure 속성. 기본 `true`, http 로컬 개발에서는 `false` |
@@ -120,11 +121,33 @@ App 설정에서 맞춰야 할 값:
 | `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·재배포·롤백)·목록(최신순) |
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
 | `GET /targets` | 배포 타깃(aws·local) 목록 |
+| `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
 
 - 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제다.
 - 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`REDEPLOY`·`ROLLBACK`(`sourceDeploymentId` 의 커밋)이다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](docs/adr/0010-deployment-status-transitions-and-history.md).
 - 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.
 - 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
+- 도메인은 저장하지 않고 `{서비스 이름}-{service_id}.{타깃의 domainSuffix}` 로 계산해 보여 준다. 접미사가 없는 타깃(지금은 `local`)은 `host` 가 비어 있다. 서비스 이름·도메인 변경은 MVP 범위가 아니다. 이름을 바꾸면 주소도 바뀐다. 설계는 [ADR 0014](docs/adr/0014-service-domain-lookup.md).
+
+Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 않는다.
+
+| 환경변수 | 설명 |
+|---|---|
+| `GITHUB_APP_ID` · `GITHUB_APP_PRIVATE_KEY` | Iris GitHub App ID·private key(PEM). 운영은 Secrets Manager → K8s Secret 으로 주입 |
+| `AWS_REGION` | CodeBuild·ECR·S3 리전 |
+| `CODEBUILD_PROJECT` · `ARTIFACT_BUCKET` | iris-infra `aws/dev/foundation` 출력값. dev: `iris-dev-build` · `iris-dev-build-artifacts-<ACCOUNT_ID>-ap-northeast-2` |
+| `CONCURRENCY` | Worker 1개가 동시에 처리할 BUILD job 수. 기본 4 |
+| `USER_CONCURRENT_BUILD_LIMIT` · `BUILD_TIMEOUT_MINUTES` · `SNAPSHOT_MAX_BYTES` | 사용자별 동시 빌드 2 · 빌드 15분 · 스냅샷 250MB |
+
+Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub App·자격증명을 공유하지 않는다.
+
+| 환경변수 | 설명 |
+|---|---|
+| `AWS_REGION` | ECR 리전 (`r-*` 태그) |
+| `BASE_DOMAIN` | 사용자 서비스 도메인. 서비스는 `{서비스 이름}-{service_id}.<BASE_DOMAIN>` 으로 열린다. 도메인 조회 API 는 `targets.domain_suffix`(`aws` 는 `likelion.uk`)로 같은 주소를 계산하므로 두 값을 같게 둔다 |
+| `GITOPS_REPOSITORY` | `{owner}/gitops-environments`. `main` 에 fast-forward 커밋만 한다 |
+| `GITOPS_APP_ID` · `GITOPS_APP_PRIVATE_KEY` · `GITOPS_INSTALLATION_ID` | `iris-gitops` GitHub App(contents:write, GitOps 저장소에만 설치) |
+| `ARGOCD_SERVER_URL` · `ARGOCD_TOKEN` | Argo CD API 주소, project role `deploy-reader` 토큰(applications get) |
 
 ## 실행
 
@@ -134,7 +157,11 @@ uv run python -m app.workers.build_worker     # Build Worker
 uv run python -m app.workers.deploy_worker    # Deploy Worker
 ```
 
-Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다.
+Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다. Build Worker 는 CodeBuild 를 기다리던 job 을 반납하고, 다른 Worker 가 기록된 `codebuild_build_id` 로 이어서 처리한다. 스냅샷(최대 250MB 다운로드·업로드) 중에는 반납하지 않으므로 Pod `terminationGracePeriodSeconds` 를 120 이상으로 둔다.
+
+Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
+
+Deploy Worker 흐름: DEPLOY 선점 → release(PENDING) 생성(서비스·타깃마다 1개, 진행 중이면 snooze) → `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart values) 렌더링 → 커밋 SHA 기록 → `main` fast-forward → RECONCILE 이 10초마다 Argo CD 상태 확인(대기 중에는 job 을 잡지 않고 snooze) → 성공이면 ECR `r-{release_id}` 태그·`SUCCEEDED`, 실패면 이전 정상 release 의 디렉터리로 되돌리는 revert commit(ROLLBACK). 상세는 [.claude/docs/deploy-worker-plan.md](.claude/docs/deploy-worker-plan.md), 로컬 테스트는 [docs/deploy-worker-test-guide.md](docs/deploy-worker-test-guide.md).
 
 로그는 stdout 에 JSON 한 줄씩 나간다. 로컬에서는 `... | jq` 로 보면 편하다. 로깅·응답·예외 구조는 [docs/api-response-logging-template.md](docs/api-response-logging-template.md) 참조.
 
@@ -183,11 +210,24 @@ uv run alembic downgrade -1 && uv run alembic upgrade head
 
 마이그레이션 작성 규칙은 [.claude/rules/db-migration.md](.claude/rules/db-migration.md) 를 따른다.
 
+## 배포 (management EKS)
+
+GitHub Actions **Deploy platform**(`workflow_dispatch`, main 전용)으로만 배포한다.
+
+1. 실행 시 `api`(Control API, DB migration 포함)·`build_worker`·`deploy_worker` 중 배포할 것을 고른다.
+2. 이미지를 한 번 빌드해 ECR `iris/was`에 push 하고, 고른 컴포넌트의 digest 만 `iris-gitops-environments`의 이 레포 전용 파일 `platform/aws-dev-management/was.yaml`(`api`·`buildWorker`·`deployWorker` 의 `digest`)에 커밋한다.
+3. management EKS의 Argo CD(`iris-platform`)가 반영한다. DB 스키마 변경은 api 배포의 migration 으로만 적용된다.
+
+GitHub 설정은 secret `GITOPS_APP_PRIVATE_KEY`(GitHub App `softbank-iris-github-app`, ID `5148916`) 하나다. 계정·ECR 역할(`iris-dev-github-ecr-was`)·저장소 이름은 workflow 상수다.
+
+Secret·RDS·rollback 절차는 iris-infra `docs/runbooks/deploy-platform.md`를 본다.
+
 ## 자주 쓰는 명령
 
 ```bash
 uv run ruff check . && uv run ruff format --check .   # 린트·포맷
 uv run mypy app                                       # 타입 검사
 uv run pytest                                         # 테스트
+TEST_DATABASE_URL=postgresql+asyncpg://<USER>:<PASSWORD>@localhost:5432/softbank_iris_test uv run pytest  # 통합 테스트 포함. `alembic upgrade head` 를 끝낸 전용 DB 여야 한다(데이터 테이블을 비운다)
 uv run alembic revision --autogenerate -m "..."       # 마이그레이션 생성
 ```

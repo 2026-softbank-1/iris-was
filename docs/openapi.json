@@ -862,6 +862,67 @@
         "title": "ApiResponse[list[MetricSeriesResponse]]",
         "type": "object"
       },
+      "ApiResponse_list_ServiceDomainResponse__": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ServiceDomainResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[ServiceDomainResponse]]",
+        "type": "object"
+      },
       "ApiResponse_list_ServiceResponse__": {
         "properties": {
           "code": {
@@ -1300,7 +1361,8 @@
           "SUCCEEDED",
           "FAILED",
           "ROLLED_BACK",
-          "MANUAL_INTERVENTION"
+          "MANUAL_INTERVENTION",
+          "SUPERSEDED"
         ],
         "title": "DeploymentStatus",
         "type": "string"
@@ -1377,9 +1439,16 @@
       },
       "FailureCode": {
         "enum": [
+          "SOURCE_NOT_ACCESSIBLE",
+          "SOURCE_REF_NOT_FOUND",
+          "SOURCE_TOO_LARGE",
           "BUILD_CONFIG_REQUIRED",
           "BUILD_FAILED",
-          "DEPLOY_FAILED"
+          "BUILD_TIMED_OUT",
+          "BUILD_INFRA_ERROR",
+          "DEPLOY_FAILED",
+          "DEPLOY_TIMED_OUT",
+          "DEPLOY_INFRA_ERROR"
         ],
         "title": "FailureCode",
         "type": "string"
@@ -1869,6 +1938,68 @@
         "title": "ServiceCreateRequest",
         "type": "object"
       },
+      "ServiceDomainResponse": {
+        "description": "서비스가 한 타깃에서 열리는 공개 주소.",
+        "properties": {
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`{서비스 이름}-{서비스 id}.{타깃 접미사}`. 도메인 규칙이 없는 타깃은 없다.",
+            "examples": [
+              "my-app-12.likelion.uk"
+            ],
+            "title": "Host"
+          },
+          "isConnected": {
+            "description": "배포가 성공해 주소로 접속할 수 있다. 첫 배포가 끝나기 전에는 false 다.",
+            "title": "Isconnected",
+            "type": "boolean"
+          },
+          "targetId": {
+            "title": "Targetid",
+            "type": "integer"
+          },
+          "targetKind": {
+            "$ref": "#/components/schemas/TargetKind"
+          },
+          "targetName": {
+            "examples": [
+              "aws"
+            ],
+            "title": "Targetname",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`https://{host}`. host 가 없으면 없다.",
+            "examples": [
+              "https://my-app-12.likelion.uk"
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "targetId",
+          "targetName",
+          "targetKind",
+          "isConnected"
+        ],
+        "title": "ServiceDomainResponse",
+        "type": "object"
+      },
       "ServiceResponse": {
         "properties": {
           "buildCommand": {
@@ -2138,6 +2269,14 @@
         },
         "title": "ServiceUpdateRequest",
         "type": "object"
+      },
+      "TargetKind": {
+        "enum": [
+          "AWS",
+          "LOCAL"
+        ],
+        "title": "TargetKind",
+        "type": "string"
       },
       "TargetResponse": {
         "properties": {
@@ -3977,6 +4116,76 @@
         ]
       }
     },
+    "/api/v1/services/{service_id}/domains": {
+      "get": {
+        "operationId": "search_domains_api_v1_services__service_id__domains_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_ServiceDomainResponse__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스 도메인 목록 (타깃별)",
+        "tags": [
+          "domains"
+        ]
+      }
+    },
     "/api/v1/services/{service_id}/logs": {
       "get": {
         "operationId": "search_logs_api_v1_services__service_id__logs_get",
@@ -4597,6 +4806,10 @@
     {
       "description": "배포 타깃(aws · local)",
       "name": "targets"
+    },
+    {
+      "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회",
+      "name": "domains"
     },
     {
       "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다",

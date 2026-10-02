@@ -1,6 +1,8 @@
 import logging
 from collections.abc import Mapping
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.exceptions import InvalidInputError, InvalidStatusTransitionError
 from app.enums import DeploymentStatus, FailureCode
 from app.models.deployment_request import DeploymentRequest
@@ -15,14 +17,19 @@ logger = logging.getLogger(__name__)
 # 같은 서비스·환경에서 진행 중인 배포는 하나뿐이다. 진행 중 상태(QUEUED·BUILDING·DEPLOYING)끼리는
 # 앞으로만 움직이고, 끝난 상태로만 빠져나간다.
 ALLOWED_TRANSITIONS: Mapping[DeploymentStatus, frozenset[DeploymentStatus]] = {
-    DeploymentStatus.QUEUED: frozenset({DeploymentStatus.BUILDING, DeploymentStatus.FAILED}),
-    DeploymentStatus.BUILDING: frozenset({DeploymentStatus.DEPLOYING, DeploymentStatus.FAILED}),
+    DeploymentStatus.QUEUED: frozenset(
+        {DeploymentStatus.BUILDING, DeploymentStatus.FAILED, DeploymentStatus.SUPERSEDED}
+    ),
+    DeploymentStatus.BUILDING: frozenset(
+        {DeploymentStatus.DEPLOYING, DeploymentStatus.FAILED, DeploymentStatus.SUPERSEDED}
+    ),
     DeploymentStatus.DEPLOYING: frozenset(
         {
             DeploymentStatus.SUCCEEDED,
             DeploymentStatus.FAILED,
             DeploymentStatus.ROLLED_BACK,
             DeploymentStatus.MANUAL_INTERVENTION,
+            DeploymentStatus.SUPERSEDED,
         }
     ),
     # 실패를 확인한 뒤에 되돌리거나 운영자에게 넘길 수 있다.
@@ -32,6 +39,7 @@ ALLOWED_TRANSITIONS: Mapping[DeploymentStatus, frozenset[DeploymentStatus]] = {
     DeploymentStatus.SUCCEEDED: frozenset(),
     DeploymentStatus.ROLLED_BACK: frozenset(),
     DeploymentStatus.MANUAL_INTERVENTION: frozenset(),
+    DeploymentStatus.SUPERSEDED: frozenset(),
 }
 
 
@@ -49,6 +57,11 @@ class DeploymentStatusService:
     ) -> None:
         self._deployment_request_repository = deployment_request_repository
         self._deployment_status_history_repository = deployment_status_history_repository
+
+    @classmethod
+    def create(cls, session: AsyncSession) -> "DeploymentStatusService":
+        """같은 세션(=같은 트랜잭션)에서 상태를 옮기려는 Worker 용."""
+        return cls(DeploymentRequestRepository(session), DeploymentStatusHistoryRepository(session))
 
     async def transition_status(
         self,

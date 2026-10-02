@@ -19,6 +19,11 @@ class Settings(BaseSettings):
 
     # 웹 프런트엔드 주소. 로그인이 끝나면 여기로 돌려보낸다.
     web_base_url: str = "http://localhost:3000"
+    # CORS 로 허용할 Origin 정규식(전체 일치). 쿠키 인증이라 `*` 대신 Origin 을 되돌려 줘야 한다.
+    # 기본값: likelion.uk 와 모든 하위 도메인(https), localhost·127.0.0.1 의 모든 포트.
+    cors_allow_origin_regex: str = (
+        r"https://([a-z0-9-]+\.)*likelion\.uk|https?://(localhost|127\.0\.0\.1)(:\d+)?"
+    )
 
     # 세션. 값이 없으면 로그인 API 는 503 (NOT_CONFIGURED) 을 돌려준다.
     session_secret: SecretStr | None = None
@@ -40,6 +45,52 @@ class Settings(BaseSettings):
     github_api_base_url: str = "https://api.github.com"
 
 
+class BuildWorkerSettings(BaseSettings):
+    """Build Worker 전용. Control API 는 이 값(GitHub App 키·AWS 리소스)을 갖지 않는다."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    github_app_id: int
+    github_app_private_key: SecretStr
+    # 앱을 설치하지 않은 공개 레포는 우리 조직 설치의 토큰으로 받는다.
+    aws_region: str
+    # iris-infra foundation stack 출력값(build_codebuild_project_name·build_artifact_bucket_name)
+    codebuild_project: str
+    artifact_bucket: str
+
+    concurrency: int = 4
+    user_concurrent_build_limit: int = 2
+    build_timeout_minutes: int = 15
+    snapshot_max_bytes: int = 250 * 1024 * 1024
+    poll_interval_seconds: float = 10.0
+
+
+class DeployWorkerSettings(BaseSettings):
+    """Deploy Worker 전용. Build Worker 와 GitHub App·자격증명을 공유하지 않는다."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    aws_region: str
+    # 사용자 서비스 도메인. Control Plane 과 다른 등록 도메인이다.
+    base_domain: str
+    gitops_repository: str  # {owner}/{repo}
+    gitops_app_id: int
+    gitops_app_private_key: SecretStr
+    gitops_installation_id: int
+    argocd_server_url: str
+    argocd_token: SecretStr
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_build_worker_settings() -> BuildWorkerSettings:
+    return BuildWorkerSettings()
+
+
+@lru_cache
+def get_deploy_worker_settings() -> DeployWorkerSettings:
+    return DeployWorkerSettings()

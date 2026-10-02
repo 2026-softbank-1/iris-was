@@ -40,11 +40,7 @@ async def test_create_deployment_request_manual_uses_branch_head(setup: Deployme
     assert (request.trigger_type, request.requested_by) == (DeploymentTrigger.MANUAL, OWNER)
     assert request.status == DeploymentStatus.QUEUED
     job = setup.jobs.jobs[0]
-    assert (job.kind, job.payload["source_sha"], job.payload["source_branch"]) == (
-        JobKind.BUILD,
-        HEAD_SHA,
-        "main",
-    )
+    assert (job.kind, job.payload) == (JobKind.BUILD, {"build_id": setup.builds.builds[0].id})
     assert [(h.from_status, h.to_status) for h in setup.histories.histories] == [
         (None, DeploymentStatus.QUEUED)
     ]

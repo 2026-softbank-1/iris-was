@@ -31,12 +31,18 @@ async def test_build_worker_run_stops_when_event_set() -> None:
     stop = asyncio.Event()
     stop.set()
 
-    await asyncio.wait_for(build_worker.run(stop), timeout=1)
+    # stop 이 이미 켜져 있어 service 를 쓰지 않는다.
+    run = build_worker.run(stop, service=None, concurrency=1)  # type: ignore[arg-type]
+    await asyncio.wait_for(run, timeout=1)
 
 
 async def test_deploy_worker_run_stops_on_signal_during_poll() -> None:
+    class NoJobService:
+        async def claim_next_job(self) -> None:
+            return None
+
     stop = asyncio.Event()
-    task = asyncio.create_task(deploy_worker.run(stop))
+    task = asyncio.create_task(deploy_worker.run(stop, NoJobService()))  # type: ignore[arg-type]
     await asyncio.sleep(0.05)
     stop.set()
 

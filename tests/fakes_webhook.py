@@ -5,6 +5,7 @@ from itertools import count
 from app.core.exceptions import DeploymentRequestNotFoundError
 from app.enums import ACTIVE_DEPLOYMENT_STATUSES, DeploymentStatus
 from app.models.base import now_utc
+from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
@@ -114,6 +115,16 @@ class FakeDeploymentStatusHistoryRepository:
             (h for h in self.histories if h.deployment_request_id == deployment_request_id),
             key=lambda h: (h.created_at, h.id),
         )
+
+
+class FakeBuildRepository:
+    def __init__(self) -> None:
+        self.builds: list[Build] = []
+
+    async def add(self, build: Build) -> Build:
+        build.id = len(self.builds) + 1
+        self.builds.append(build)
+        return build
 
 
 class FakeJobRepository:

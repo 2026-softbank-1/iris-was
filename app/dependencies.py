@@ -17,6 +17,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
+from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -24,6 +25,7 @@ from app.repositories.deployment_status_history_repository import (
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.release_repository import ReleaseRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
@@ -31,6 +33,7 @@ from app.services.auth_service import AuthService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
@@ -185,11 +188,21 @@ def get_service_registry_service(
 ServiceRegistryServiceDep = Annotated[ServiceRegistryService, Depends(get_service_registry_service)]
 
 
+def get_domain_service(session: SessionDep) -> DomainService:
+    return DomainService(
+        ServiceRepository(session), TargetRepository(session), ReleaseRepository(session)
+    )
+
+
+DomainServiceDep = Annotated[DomainService, Depends(get_domain_service)]
+
+
 def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:
     return DeploymentRequestService(
         DeploymentRequestRepository(session),
         JobRepository(session),
         DeploymentStatusHistoryRepository(session),
+        BuildRepository(session),
     )
 
 

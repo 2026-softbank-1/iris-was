@@ -20,11 +20,13 @@ from app.enums import (
     FailureCode,
     ReleaseStatus,
 )
+from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.project import Project
 from app.models.release import Release
 from app.models.service import Service
 from app.models.user import GithubInstallation, User
+from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -100,10 +102,14 @@ async def test_count_services_counts_online_by_latest_release(session: AsyncSess
         (broken, [ReleaseStatus.SUCCEEDED, ReleaseStatus.FAILED]),
     ):
         request = await _deployment_request(session, service, user)
+        build = Build(deployment_request_id=request.id)
+        session.add(build)
+        await session.flush()
         for release_status in statuses:
             session.add(
                 Release(
                     deployment_request_id=request.id,
+                    build_id=build.id,
                     service_id=service.id,
                     environment=Environment.PROD,
                     target_id=target_id,
@@ -249,6 +255,7 @@ async def _queued_request(session: AsyncSession, service: Service) -> Deployment
         DeploymentRequestRepository(session),
         JobRepository(session),
         DeploymentStatusHistoryRepository(session),
+        BuildRepository(session),
     ).create_deployment_request(
         service,
         source_sha="c" * 40,

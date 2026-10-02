@@ -6,6 +6,7 @@ from typing import Annotated
 
 import httpx
 from fastapi import Depends, FastAPI, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -14,10 +15,11 @@ from app.core.config import get_settings
 from app.core.database import get_engine
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.routers import (
     auth_router,
     deployment_router,
+    domain_router,
     github_router,
     observability_router,
     project_router,
@@ -53,6 +55,7 @@ OPENAPI_TAGS = [
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {"name": "targets", "description": "배포 타깃(aws · local)"},
+    {"name": "domains", "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회"},
     {"name": "webhooks", "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다"},
 ]
 
@@ -66,6 +69,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(RequestContextMiddleware)
+# 마지막에 추가한 미들웨어가 가장 바깥이다. 500 응답과 preflight 에도 CORS 헤더가 붙어야 한다.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=get_settings().cors_allow_origin_regex,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=[REQUEST_ID_HEADER],
+)
 register_exception_handlers(app)
 app.include_router(auth_router.router)
 app.include_router(observability_router.router)
@@ -75,6 +87,7 @@ app.include_router(project_router.router)
 app.include_router(service_router.router)
 app.include_router(deployment_router.router)
 app.include_router(target_router.router)
+app.include_router(domain_router.router)
 app.include_router(webhook_router.router)
 
 
