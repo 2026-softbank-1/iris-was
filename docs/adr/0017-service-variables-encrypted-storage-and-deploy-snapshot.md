@@ -51,5 +51,9 @@ Notion task "[API] 환경변수 API"는 변수 CRUD, Raw(`.env`) 일괄 저장, 
 - **Secret 공유**: Deploy Worker 가 복호화 키를 받는다. 지금은 모든 WAS 컴포넌트가 `.env` Secret 하나를 `envFrom` 으로 받아 별도 설정이 필요 없지만, "컴포넌트끼리 Secret 을 공유하지 않는다" 원칙과는 어긋난다. Worker 전용 키·KMS 로 나누는 것은 후속이다.
 - **운영 반영 (2026-10-03)**: Argo root 를 iris-infra `bba1453` 으로 옮겨 chart 0.6.0 과 controller 를 반영했고, controller 키를 Secrets Manager `iris/dev/sealed-secrets-key` 에 백업했으며, 공개 인증서를 Secret `iris-platform-was-env` 의 `SEALED_SECRETS_CERT` 로 추가해 Deploy Worker 를 재시작했다. 기능은 켜진 상태다.
 - **클러스터에서 확인한 것**: 임시 namespace 에서 `SecretSealer` 가 만든 값을 controller 가 원문 그대로 풀었고(여러 줄·한글·URL), 빈 값(`KEY=`)도 빈 Secret 값으로 풀리며 `envFrom` 으로 읽은 Pod 의 환경변수도 같았다. 다른 namespace 용으로 봉인한 값은 거절됐다. 앞서 걱정한 `kubeseal` JSON 의 빈 값 `null` 은 도구 출력 표현일 뿐이었다.
-- **남은 것**: 실제 서비스로 API 에서 변수 등록 → 배포 → 앱에서 값과 `IRIS_*` 읽기 → 롤백 시 이전 값 복원까지 end-to-end 로 확인한다. 기존 서비스를 건드리지 않도록 시험 서비스를 쓴다.
+- **end-to-end 확인 (2026-10-03)**: 시험 서비스(`railway-deploy-demo` 저장소)에서 API 로 변수 4개(여러 줄·한글·빈 값 포함)를 등록하고 배포했다. 실행 중 Pod 가 값을 모두 원문 그대로 받았고(해시 비교), GitOps `values.yaml` 에는 봉인된 값만 있었으며 평문 조각은 없었다. `IRIS_SERVICE_NAME`·`IRIS_TARGET_NAME`·`IRIS_DEPLOYMENT_ID` 도 주입됐다.
+  - 변수를 고치고(값 변경·삭제·추가) **RESTART** 하니 새 값이 반영됐고 삭제한 변수는 사라졌으며 이전 Secret 은 정리됐다.
+  - 첫 배포로 **ROLLBACK** 하니 그때의 변수가 복원됐다. 롤백은 서비스의 현재 변수가 아니라 배포의 스냅샷을 되돌리므로, 롤백 직후에는 화면의 현재 변수와 실행 중인 값이 다를 수 있다.
+  - **REMOVE** 로 클러스터 리소스와 GitOps 디렉터리가 정리됐다.
+- **확인하지 못한 것**: 실패한 release 를 되돌리는 자동 rollback(revert commit) 경로에서의 변수 복원, REDEPLOY(스냅샷 로직은 RESTART 와 같고 단위 테스트가 덮는다).
 - 암호화 키를 잃으면 저장된 값을 읽을 수 없다(서비스를 다시 입력해야 한다). 키 교체(rotation)는 지원하지 않는다. 필요해지면 `MultiFernet` 으로 확장한다.
