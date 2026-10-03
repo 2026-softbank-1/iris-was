@@ -11,14 +11,15 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import boto3
-from boto3.exceptions import S3UploadFailedError
+from boto3.exceptions import RetriesExceededError, S3TransferFailedError, S3UploadFailedError
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.core.exceptions import ExternalError, InvalidInputError
+from app.core.exceptions import ExternalError, InvalidInputError, NotFoundError
 
 _BOTO_CONFIG = Config(retries={"mode": "standard", "max_attempts": 5}, signature_version="s3v4")
 PRESIGNED_URL_SECONDS = 15 * 60
+_MISSING_OBJECT_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
 
 # 배포된 이미지(r-*)는 최근 5개를 먼저 지킨다. 상위 규칙에 걸린 이미지는 하위 규칙이 지우지 못한다.
 # untagged 는 7일 뒤 지우고, 빌드 이미지(b-*)는 최근 10개만 남긴다.
@@ -292,15 +293,32 @@ class SnapshotUrlClient(Protocol):
         ...
 
 
-class ArtifactStore:
-    """빌드 입력(소스 스냅샷)을 S3 에 둔다.
+class UploadWriter(Protocol):
+    """Control API 가 쓴다. `likelion up` 이 올린 아카이브를 저장소에 둔다."""
 
-    버킷 기본 암호화(SSE-KMS)·1일 lifecycle 은 인프라가 건다.
+    async def put_upload(self, public_id: str, path: Path) -> str:
+        """`path` 의 파일을 올리고 저장 키를 돌려준다. 저장하지 못하면 ExternalError 다."""
+        ...
+
+
+class UploadReader(Protocol):
+    """Build Worker 가 쓴다. 저장된 업로드 아카이브를 내려받는다."""
+
+    async def download_upload(self, storage_key: str, dest: Path) -> None:
+        """없으면 NotFoundError, 그 밖의 실패는 ExternalError 다."""
+        ...
+
+
+class ArtifactStore:
+    """빌드 입력(소스 스냅샷)과 사용자가 올린 소스 아카이브를 S3 에 둔다.
+
+    버킷 기본 암호화(SSE-S3)·1일 lifecycle 은 인프라가 건다. 업로드(`uploads/`)와 스냅샷
+    (`snapshots/`)은 접두어로 나뉘어, 컴포넌트마다 필요한 접두어만 IAM 으로 허용한다.
     """
 
-    def __init__(self, region: str, bucket: str) -> None:
+    def __init__(self, region: str, bucket: str, client: Any | None = None) -> None:
         # presigned URL 이 글로벌 엔드포인트로 만들어지면 리전 서명과 맞지 않아 거절된다.
-        self._client = boto3.client(
+        self._client = client or boto3.client(
             "s3",
             region_name=region,
             endpoint_url=f"https://s3.{region}.amazonaws.com",
@@ -312,10 +330,41 @@ class ArtifactStore:
     def snapshot_key(build_id: int) -> str:
         return f"snapshots/{build_id}.tar.gz"
 
+    @staticmethod
+    def upload_key(public_id: str) -> str:
+        return f"uploads/{public_id}.tar.gz"
+
     async def put_snapshot(self, build_id: int, path: Path) -> str:
         key = self.snapshot_key(build_id)
         await _call(self._client.upload_file, Filename=str(path), Bucket=self._bucket, Key=key)
         return key
+
+    async def put_upload(self, public_id: str, path: Path) -> str:
+        key = self.upload_key(public_id)
+        await _call(
+            self._client.upload_file,
+            Filename=str(path),
+            Bucket=self._bucket,
+            Key=key,
+            ExtraArgs={"ContentType": "application/gzip"},
+        )
+        return key
+
+    async def download_upload(self, storage_key: str, dest: Path) -> None:
+        try:
+            await asyncio.to_thread(
+                self._client.download_file,
+                Bucket=self._bucket,
+                Key=storage_key,
+                Filename=str(dest),
+            )
+        except ClientError as exc:
+            # 키가 없으면 HeadObject 가 404 다. 권한이 없어도 403 이라 구분이 안 되니 재시도한다.
+            if exc.response.get("Error", {}).get("Code") in _MISSING_OBJECT_CODES:
+                raise NotFoundError("upload object not found") from exc
+            raise ExternalError("aws request failed", operation="download_file") from exc
+        except (BotoCoreError, S3TransferFailedError, RetriesExceededError) as exc:
+            raise ExternalError("aws request failed", operation="download_file") from exc
 
     async def presign_snapshot(self, build_id: int) -> str:
         """빌드가 올린 소스 스냅샷을 내려받는 단기 URL. 읽기 권한만 쓴다."""
