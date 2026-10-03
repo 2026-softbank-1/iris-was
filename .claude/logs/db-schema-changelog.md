@@ -8,6 +8,11 @@
 <!-- CHANGELOG-ENTRIES -->
 - 2026-10-03T02:00Z · app/models/deployment_request.py (apply_patch) · scaling_snapshot JSONB 컬럼 추가
 - 2026-10-03T02:00Z · app/models/service.py (apply_patch) · scaling_config JSONB 컬럼 추가
+- 2026-10-03T02:09Z · app/models/__init__.py (Edit) · +2 −0
+- 2026-10-03T02:09Z · app/models/__init__.py (Edit) · +5 −0
+- 2026-10-03T01:22Z · app/models/__init__.py (Edit) · +2 −0
+- 2026-10-03T01:22Z · app/models/__init__.py (Edit) · +1 −0
+- 2026-10-03T01:21Z · app/models/deployment_diagnosis.py (Write) · deployment_diagnoses 테이블 신규(deployment_request_id, requested_by, status, result, error_code, finished_at)
 - 2026-10-03T01:18Z · app/models/__init__.py (Edit) · +2 −0
 - 2026-10-03T01:18Z · app/models/__init__.py (Edit) · +1 −0
 - 2026-10-03T01:18Z · app/models/cli_login_session.py (Write) · cli_login_sessions 테이블 신규(public_id, poll_secret_hash, status, user_id, expires_at, consumed_at, last_polled_at)

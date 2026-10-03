@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     loki_url: HttpUrl | None = None
     prometheus_url: HttpUrl | None = None
 
+    # 에러 진단 에이전트 서버(iris-error-check-agent). 둘 중 하나라도 없으면 진단 API 는 503.
+    diagnosis_agent_url: HttpUrl | None = None
+    diagnosis_agent_api_key: SecretStr | None = None
+    # 에이전트는 모델을 최대 2번 부른다(호출마다 60초). 그보다 길게 기다린다.
+    diagnosis_agent_timeout_seconds: float = 150.0
+    # 진단에 소스를 함께 넘기려면 빌드가 스냅샷을 올린 버킷을 읽는 권한(S3 GetObject)이 필요하다.
+    # 둘 다 있어야 소스를 보내고, 없으면 로그만 진단한다.
+    aws_region: str | None = None
+    artifact_bucket: str | None = None
+
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 

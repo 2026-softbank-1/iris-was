@@ -36,6 +36,8 @@
 | Master Cluster | — | Control Plane·Argo CD 가 도는 EKS |
 | Prod Cluster | — | 사용자 서비스가 도는 EKS. Argo CD 만 접근한다 |
 | GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 manifest. image digest 만 바뀐다 |
+| 에러 진단 에이전트 | `iris-error-check-agent` (별도 레포·서버) | 로그·소스를 받아 원인과 해결책을 제안한다. Control API 가 `POST /diagnose` 로 호출한다 (ADR 0020). 코드 식별자는 `diagnosis_agent` |
+| 코드 분석 에이전트 | `iris-code-analyzer-agent` (별도 레포) | 소스를 분석해 빌더·포트·실행 명령·환경변수를 제안한다. 식별자는 `analyzer_agent` |
 
 ---
 
@@ -53,6 +55,7 @@ erDiagram
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
+  deployment_requests ||--o{ deployment_diagnoses : "AI 진단"
   deployment_requests ||--o| builds : "빌드 결과 (한 번)"
   deployment_requests ||--o{ releases : "타깃별 배포 결과"
   targets ||--o{ releases : "배포 대상"
@@ -246,7 +249,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | `IRIS_PUBLIC_DOMAIN` | 서비스의 공개 도메인 | chart |
 | `IRIS_GIT_COMMIT_SHA` | 배포한 소스 커밋 SHA | chart |
 
-> 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`deployment_status_histories`·`jobs`·`builds`·`releases`)은 지우지 않는다.
+> 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`deployment_status_histories`·`deployment_diagnoses`·`jobs`·`builds`·`releases`)은 지우지 않는다.
 
 ### 4.12 CLI 로그인 세션 (CliLoginSession) — `cli_login_sessions`\*
 
@@ -263,6 +266,19 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `last_polled_at`\* | 마지막 폴링 시각. `interval`(2초)보다 빠른 폴링을 `429` 로 막는 기준이다 |
 
 - 만료된 지 하루가 지난 행은 새 세션을 만들 때 지운다(인증 없이 만들 수 있는 행이라 쌓이지 않게 한다). 소프트 삭제를 쓰지 않는다.
+
+### 4.13 배포 진단 (DeploymentDiagnosis) — `deployment_diagnoses`\*
+
+실패한 배포 요청 1건을 에러 진단 에이전트로 진단한 기록 1회다. 도메인 용어는 `diagnosis` 다. 다시 진단하면 새 행이 쌓이고 조회는 가장 최근 행을 본다. 진단으로 배포 요청의 `status` 를 바꾸지 않는다 (ADR 0020).
+
+| 필드 | 설명 |
+|---|---|
+| `deployment_request_id`\* | 진단한 배포 요청 |
+| `requested_by`\* | 진단을 요청한 사용자 (`users.id`) |
+| `status`\* | `diagnosis_status` Enum (§5). 배포 요청마다 `RUNNING` 은 하나만 둘 수 있다 (부분 unique index) |
+| `result`\* | 에이전트가 돌려준 진단 결과(jsonb, `diagnosis-result.v3`). `SUCCEEDED` 일 때만 있다. 원인은 `analysis.hypotheses`, 해결책은 `analysis.remediation.plans`, 근거 로그는 `evidence` |
+| `error_code`\* | `FAILED` 일 때의 사유. 이 서버의 코드(`DIAGNOSIS_LOGS_UNAVAILABLE`·`DIAGNOSIS_ABANDONED`)이거나 에이전트의 코드(`MODEL_TIMEOUT` 등)다. §5 `failure_code` 와 다르다 |
+| `finished_at`\* | 진단이 끝난 시각 |
 
 ---
 
@@ -339,6 +355,10 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 ### 릴리스 상태 (`release_status`)\* — `releases.status`
 
 `PENDING`(Git 반영, 동기화 대기) · `SUCCEEDED`(원문. Sync·Health·smoke test 모두 통과) · `FAILED` · `ROLLING_BACK`(revert commit 반영, 되돌림 대기) · `ROLLED_BACK`
+
+### 진단 상태 (`diagnosis_status`)\* — `deployment_diagnoses.status`
+
+`RUNNING`(에이전트 호출 중) → `SUCCEEDED`(결과 저장) / `FAILED`(`error_code` 에 사유). 4분 넘게 `RUNNING` 이면 서버가 죽어 남은 행으로 보고 `FAILED`(`DIAGNOSIS_ABANDONED`)로 닫는다.
 
 ### 실패 코드 (`failure_code`) — `deployment_requests.failure_code`·`builds.failure_code`·`releases.failure_code`\*
 

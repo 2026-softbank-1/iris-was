@@ -90,6 +90,12 @@ class FailureCode(StrEnum):
     DEPLOY_INFRA_ERROR = "DEPLOY_INFRA_ERROR"
 
 
+class DiagnosisStatus(StrEnum):
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
 class TargetKind(StrEnum):
     AWS = "AWS"
     LOCAL = "LOCAL"

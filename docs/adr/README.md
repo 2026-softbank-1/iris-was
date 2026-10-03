@@ -53,3 +53,4 @@
 | [0017](0017-service-variables-encrypted-storage-and-deploy-snapshot.md) | 서비스 환경변수는 암호화해 DB 에 저장하고 배포 요청마다 스냅샷을 남긴다 | 제안됨 |
 | [0018](0018-cli-login-session-table-and-polling.md) | CLI 로그인은 DB 세션 테이블과 폴링으로 하고 토큰은 한 번만 내준다 | 수락됨 |
 | [0019](0019-job-wakeup-listen-notify.md) | Worker 는 5초 polling 대신 jobs 트리거의 LISTEN/NOTIFY 로 깨운다 | 제안됨 |
+| [0020](0020-ai-error-diagnosis-via-agent-server.md) | 실패한 배포의 AI 진단은 Control API 가 에이전트 서버를 호출하고 결과를 DB 에 저장한다 | 제안됨 (에이전트 서버 배포 대기) |
