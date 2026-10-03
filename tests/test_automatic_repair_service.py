@@ -408,3 +408,47 @@ async def test_code_merge_requests_redeployment_even_when_webhook_auto_deploy_is
         state["redeploymentId"], setup.service.id
     )
     assert deployment.source_sha == state["mergeCommitSha"]
+
+
+@pytest.mark.parametrize("previous_status", ["FAILED", "SUCCEEDED"])
+async def test_configuration_repair_creates_fresh_snapshot_instead_of_reusing_same_sha(
+    publication_setup, previous_status
+):
+    from app.enums import DeploymentStatus
+
+    setup, _, original, _, _, _, _ = publication_setup
+    session_secret_plan(setup, original)
+    service, variables, cipher = configuration_service(publication_setup)
+    old = "old-session-secret-" + "a" * 48
+    current = "current-session-secret-" + "b" * 48
+    await variables.create_variable(OWNER, setup.service.id, "SESSION_SECRET", current)
+    previous = await setup.requests.find_by_id_and_service_id(
+        original.deployment_request_id, setup.service.id
+    )
+    previous.variables_snapshot = {"SESSION_SECRET": cipher.encrypt(old)}
+    previous.status = DeploymentStatus(previous_status)
+    # Keep the diagnostic source failed while modelling another same-SHA historical deployment.
+    if previous_status == "SUCCEEDED":
+        from copy import copy
+
+        historical = copy(previous)
+        historical.id = previous.id + 100
+        historical.idempotency_key = "historical-success"
+        setup.requests.requests.append(historical)
+        previous.status = DeploymentStatus.FAILED
+    count = len(setup.requests.requests)
+    started = await service.start(
+        OWNER, setup.service.id, previous.id, original.diagnosis_id, "fresh-config"
+    )
+    await service.advance(OWNER, setup.service.id, started.repair.id)
+    state = started.repair.request_metadata["publication"]
+    assert state["status"] == "REDEPLOY_REQUESTED"
+    assert len(setup.requests.requests) == count + 1
+    fresh = await setup.requests.find_by_id_and_service_id(
+        state["redeploymentId"], setup.service.id
+    )
+    assert fresh.id != previous.id
+    assert fresh.status == DeploymentStatus.QUEUED
+    assert cipher.decrypt(fresh.variables_snapshot["SESSION_SECRET"]) == current
+    await service.advance(OWNER, setup.service.id, started.repair.id)
+    assert len(setup.requests.requests) == count + 1
