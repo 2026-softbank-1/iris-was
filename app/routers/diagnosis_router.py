@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Query, Response, status
 
@@ -8,6 +8,35 @@ from app.schemas.response import ApiResponse, error_responses
 from app.services.diagnosis_service import run_diagnosis_in_background
 
 router = APIRouter(prefix="/api/v1/services/{service_id}/deployments", tags=["diagnosis"])
+
+
+@router.get(
+    "/{deployment_id}/repair-context",
+    response_model=ApiResponse[dict[str, Any]],
+    response_model_exclude_none=True,
+    summary="소유한 실패 배포의 원본 진단과 단기 소스 URL 조회",
+    description=(
+        "Trusted repair coordinators receive the original diagnosis-result.v3 and a "
+        "short-lived source snapshot URL. Select diagnosisId to avoid latest-result races. "
+        "Treat the URL as a credential; never persist or log it."
+    ),
+    responses=error_responses(401, 404, 409, 422, 502, 503),
+)
+async def get_repair_context(
+    service_id: int,
+    deployment_id: int,
+    user: CurrentUserDep,
+    service: DiagnosisServiceDep,
+    response: Response,
+    diagnosis_id: Annotated[
+        int | None, Query(alias="diagnosisId", gt=0, description="Exact successful diagnosis ID")
+    ] = None,
+) -> ApiResponse[dict[str, Any]]:
+    context = await service.get_repair_context(
+        user.id, service_id, deployment_id, diagnosis_id=diagnosis_id
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return ApiResponse(data=context)
 
 
 @router.post(

@@ -793,6 +793,63 @@
         "title": "ApiResponse[ProjectResponse]",
         "type": "object"
       },
+      "ApiResponse_RepairResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RepairResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[RepairResponse]",
+        "type": "object"
+      },
       "ApiResponse_RepositoryResponse_": {
         "properties": {
           "code": {
@@ -1247,6 +1304,65 @@
           }
         },
         "title": "ApiResponse[WebhookReceiptResponse]",
+        "type": "object"
+      },
+      "ApiResponse_dict_str__Any__": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[dict[str, Any]]",
         "type": "object"
       },
       "ApiResponse_list_BranchResponse__": {
@@ -1901,6 +2017,33 @@
           "triggerType"
         ],
         "title": "CreateDeploymentRequest",
+        "type": "object"
+      },
+      "CreateRepairRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "diagnosisId": {
+            "description": "Successful diagnosis belonging to this deployment",
+            "exclusiveMinimum": 0.0,
+            "title": "Diagnosisid",
+            "type": "integer"
+          },
+          "planIds": {
+            "description": "Selected original remediation plan IDs",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Planids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "diagnosisId",
+          "planIds"
+        ],
+        "title": "CreateRepairRequest",
         "type": "object"
       },
       "DeploymentBuildConfigurationResponse": {
@@ -3781,6 +3924,94 @@
           "expectedResult"
         ],
         "title": "RemediationVerification",
+        "type": "object"
+      },
+      "RepairResponse": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "deploymentId": {
+            "title": "Deploymentid",
+            "type": "integer"
+          },
+          "diagnosisId": {
+            "title": "Diagnosisid",
+            "type": "integer"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcode"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "planIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Planids",
+            "type": "array"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "sourceSha": {
+            "title": "Sourcesha",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED",
+              "UNKNOWN_OUTCOME"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "deploymentId",
+          "diagnosisId",
+          "status",
+          "sourceSha",
+          "planIds",
+          "createdAt"
+        ],
+        "title": "RepairResponse",
         "type": "object"
       },
       "RepositoryResponse": {
@@ -7413,6 +7644,266 @@
         ]
       }
     },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/repair-context": {
+      "get": {
+        "description": "Trusted repair coordinators receive the original diagnosis-result.v3 and a short-lived source snapshot URL. Select diagnosisId to avoid latest-result races. Treat the URL as a credential; never persist or log it.",
+        "operationId": "get_repair_context_api_v1_services__service_id__deployments__deployment_id__repair_context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Exact successful diagnosis ID",
+            "in": "query",
+            "name": "diagnosisId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact successful diagnosis ID",
+              "title": "Diagnosisid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_dict_str__Any__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "소유한 실패 배포의 원본 진단과 단기 소스 URL 조회",
+        "tags": [
+          "diagnosis"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/repairs": {
+      "post": {
+        "operationId": "create_repair_api_v1_services__service_id__deployments__deployment_id__repairs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRepairRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepairResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepairResponse_"
+                }
+              }
+            },
+            "description": "Candidate attempt accepted; poll the repair ID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "AI 코드 수정 후보 생성 시작",
+        "tags": [
+          "repair"
+        ]
+      }
+    },
     "/api/v1/services/{service_id}/domains": {
       "get": {
         "operationId": "search_domains_api_v1_services__service_id__domains_get",
@@ -7917,6 +8408,186 @@
         "summary": "서비스 CPU·메모리·네트워크 시계열 조회",
         "tags": [
           "observability"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/repairs/{repair_id}": {
+      "get": {
+        "operationId": "get_repair_api_v1_services__service_id__repairs__repair_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepairResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "AI 코드 수정 후보와 상태 조회",
+        "tags": [
+          "repair"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/repairs/{repair_id}/artifacts/{name}": {
+      "get": {
+        "operationId": "get_repair_artifact_api_v1_services__service_id__repairs__repair_id__artifacts__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repair_id",
+            "required": true,
+            "schema": {
+              "title": "Repair Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "무결성 검증한 코드 수정 artifact 다운로드",
+        "tags": [
+          "repair"
         ]
       }
     },
@@ -8873,6 +9544,10 @@
     }
   },
   "tags": [
+    {
+      "description": "실패한 배포의 AI 코드 수정 후보 생성과 조회",
+      "name": "repair"
+    },
     {
       "description": "서비스 런타임 로그·메트릭·SSE",
       "name": "observability"

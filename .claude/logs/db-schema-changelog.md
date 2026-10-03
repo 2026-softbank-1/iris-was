@@ -41,3 +41,5 @@
 - 2026-10-01T02:33Z · app/models/project.py (Write) · 신규/동일
 - 2026-10-01T02:33Z · app/models/user.py (Write) · 신규/동일
 - 2026-10-01T02:33Z · app/models/base.py (Write) · created_at, updated_at, is_deleted, deleted_at 컬럼 추가
+
+- 2026-10-03: `deployment_repairs` 추가. 배포·성공한 진단 FK, 서비스 범위 멱등 키, 배포별 RUNNING 부분 unique index, 고정 원문/소스/정책·digest, generation claim 및 UNKNOWN_OUTCOME 기록. revision `9f81c52a01bd`; DDL 동기화.

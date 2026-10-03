@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import HttpUrl, SecretStr
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     diagnosis_agent_api_key: SecretStr | None = None
     # 에이전트는 모델을 최대 2번 부른다(호출마다 60초). 그보다 길게 기다린다.
     diagnosis_agent_timeout_seconds: float = 150.0
+    # Candidate generation only; repository publication and deployment remain separate.
+    repair_agent_url: HttpUrl | None = None
+    repair_agent_api_key: SecretStr | None = None
+    repair_agent_timeout_seconds: float = Field(default=150, gt=0, allow_inf_nan=False)
+    repair_agent_deadline_seconds: float = Field(default=240, gt=0, le=1800, allow_inf_nan=False)
+    repair_agent_max_cost_usd: float = Field(default=1, gt=0, allow_inf_nan=False)
+    repair_agent_source_hosts: str = ""
+
     # 빌드 입력(소스 스냅샷·업로드)을 두는 S3 버킷. 둘 다 있어야 쓴다.
     # - 진단에 소스를 함께 넘기려면 스냅샷(`snapshots/`)을 읽는 권한(S3 GetObject)이 필요하다.
     #   없으면 로그만 진단한다.

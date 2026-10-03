@@ -25,6 +25,7 @@ from app.routers import (
     github_router,
     observability_router,
     project_router,
+    repair_router,
     scaling_router,
     service_router,
     target_router,
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 OPENAPI_TAGS = [
+    {"name": "repair", "description": "실패한 배포의 AI 코드 수정 후보 생성과 조회"},
     {"name": "observability", "description": "서비스 런타임 로그·메트릭·SSE"},
     {"name": "auth", "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)"},
     {"name": "user", "description": "현재 사용자"},
@@ -107,6 +109,7 @@ app.include_router(service_router.router)
 app.include_router(deployment_router.router)
 app.include_router(upload_router.router)
 app.include_router(diagnosis_router.router)
+app.include_router(repair_router.router)
 app.include_router(target_router.router)
 app.include_router(domain_router.router)
 app.include_router(variable_router.router)

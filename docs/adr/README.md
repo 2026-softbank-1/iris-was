@@ -57,3 +57,4 @@
 | [0021](0021-deployment-detail-logs-api.md) | 배포 상세 화면의 로그 API 는 Control API 가 읽기 전용으로 조회하고 빌드 로그는 CloudWatch 에서 읽는다 | 수락됨 (iris-infra IAM 권한 추가 대기) |
 | [0022](0022-delete-service-also-removes-app.md) | 서비스·프로젝트를 지우면 떠 있는 앱도 함께 내린다 | 수락됨 |
 | [0023](0023-cli-source-upload-storage-and-archive-defense.md) | `likelion up` 업로드는 Control API 가 받아 S3 에 두고, Build Worker 가 검사하며 스냅샷으로 다시 묶는다 | 제안됨 (iris-infra IAM·CLI E2E 대기) |
+| [0024](0024-durable-code-repair-candidate-api.md) | 실패 진단과 고정 소스로 코드 수정 후보를 생성하고 영속 상태·artifact를 제공한다 | 제안됨 |

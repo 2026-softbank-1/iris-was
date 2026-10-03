@@ -16,6 +16,7 @@ from app.clients.aws_clients import ArtifactStore, BuildLogReader, CloudWatchBui
 from app.clients.diagnosis_agent_client import HttpDiagnosisAgentClient
 from app.clients.oauth_client import GithubOAuthClient
 from app.clients.observability_client import LokiPrometheusObservabilityClient
+from app.clients.repair_agent_client import HttpRepairAgentClient, HttpRepairSourceClient
 from app.clients.source_repository_client import GithubSourceRepositoryClient
 from app.core.config import Settings, get_settings
 from app.core.crypto import VariableCipher
@@ -25,6 +26,7 @@ from app.models.user import User
 from app.repositories.build_repository import BuildRepository
 from app.repositories.cli_login_session_repository import CliLoginSessionRepository
 from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
+from app.repositories.deployment_repair_repository import DeploymentRepairRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -49,6 +51,8 @@ from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
+from app.services.repair_handoff_service import RepairHandoffService
+from app.services.repair_service import RepairService, RepairServiceOpener
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
 from app.services.service_teardown_service import ServiceTeardownService
@@ -513,3 +517,67 @@ def get_deployment_log_service(
 
 
 DeploymentLogServiceDep = Annotated[DeploymentLogService, Depends(get_deployment_log_service)]
+
+
+def build_repair_service(
+    session: AsyncSession, settings: Settings, http_client: httpx.AsyncClient
+) -> RepairService:
+    hosts = tuple(
+        host.strip().lower()
+        for host in settings.repair_agent_source_hosts.split(",")
+        if host.strip()
+    )
+    agent = (
+        HttpRepairAgentClient(
+            http_client,
+            str(settings.repair_agent_url),
+            settings.repair_agent_api_key.get_secret_value(),
+            settings.repair_agent_timeout_seconds,
+        )
+        if settings.repair_agent_url is not None and settings.repair_agent_api_key is not None
+        else None
+    )
+    handoff = (
+        RepairHandoffService(agent, HttpRepairSourceClient(http_client, hosts))
+        if agent is not None and hosts
+        else None
+    )
+    snapshots = (
+        _get_artifact_store(settings.aws_region, settings.artifact_bucket)
+        if settings.aws_region and settings.artifact_bucket
+        else None
+    )
+    return RepairService(
+        session,
+        ServiceRepository(session),
+        DeploymentRequestRepository(session),
+        BuildRepository(session),
+        DeploymentDiagnosisRepository(session),
+        DeploymentRepairRepository(session),
+        agent,
+        handoff,
+        snapshots,
+        max_cost_usd=settings.repair_agent_max_cost_usd,
+        deadline_seconds=settings.repair_agent_deadline_seconds,
+    )
+
+
+def get_repair_service(
+    session: SessionDep, settings: SettingsDep, http_client: HttpClientDep
+) -> RepairService:
+    return build_repair_service(session, settings, http_client)
+
+
+def get_repair_service_opener(
+    settings: SettingsDep, http_client: HttpClientDep
+) -> RepairServiceOpener:
+    @asynccontextmanager
+    async def open_service() -> AsyncIterator[RepairService]:
+        async with get_session_factory()() as session:
+            yield build_repair_service(session, settings, http_client)
+
+    return open_service
+
+
+RepairServiceDep = Annotated[RepairService, Depends(get_repair_service)]
+RepairServiceOpenerDep = Annotated[RepairServiceOpener, Depends(get_repair_service_opener)]

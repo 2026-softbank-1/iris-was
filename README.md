@@ -78,6 +78,8 @@ LOG_LEVEL=INFO
 | `LOKI_URL`, `PROMETHEUS_URL` | 로그·메트릭 백엔드 내부 주소. 없으면 관측 API 503. [로그·메트릭 연결 및 API](docs/observability-api.md) |
 | `DIAGNOSIS_AGENT_URL`, `DIAGNOSIS_AGENT_API_KEY` | 에러 진단 에이전트 서버(`iris-error-check-agent`) 주소와 `X-API-Key` 값. dev 클러스터 주소는 `http://iris-platform-error-agent.iris-platform.svc.cluster.local:8001`, 키는 Secret `iris-error-agent` 의 `AGENT_API_KEY` 와 같은 값. 둘 중 하나라도 없으면 진단 시작이 `503 NOT_CONFIGURED`(저장된 진단 조회는 가능). [AI 진단 API](docs/diagnosis-api.md) |
 | `DIAGNOSIS_AGENT_TIMEOUT_SECONDS` | 에이전트 응답을 기다리는 시간(초). 기본 150 (모델 호출 최대 2번 × 60초 + 여유) |
+| `REPAIR_AGENT_URL`, `REPAIR_AGENT_API_KEY`, `REPAIR_AGENT_SOURCE_HOSTS` | 수정 후보 에이전트 주소·인증 키·허용할 source snapshot 호스트. 특정 진단 원문과 고정 소스를 보내고 결과·검토용 파일을 저장한다. [연동 계약](docs/repair-agent-integration.md) |
+| `REPAIR_AGENT_TIMEOUT_SECONDS`, `REPAIR_AGENT_DEADLINE_SECONDS`, `REPAIR_AGENT_MAX_COST_USD` | 호출 대기 150초·작업 기한 240초·후보 생성 비용 상한 USD 1. 응답이 불확실하면 결과만 조회하며 모델을 자동 재호출하지 않는다 |
 | `AWS_REGION`, `ARTIFACT_BUCKET` | (선택) 둘 다 있어야 켜진다(`AWS_REGION` 은 아래 `BUILD_LOG_GROUP` 도 함께 쓴다). ① 소스 업로드 API(`likelion up`): `uploads/*` 의 `s3:PutObject`·`s3:AbortMultipartUpload` 가 필요하고, 없으면 `POST /services/{id}/uploads` 가 `503 NOT_CONFIGURED`. ② 진단에 빌드의 소스 스냅샷을 함께 보낸다: `snapshots/*` 의 `s3:GetObject` 가 필요하고, 없으면 로그만 진단한다. 같은 두 변수가 둘을 함께 켜므로 Role 에 두 권한을 같이 준다([ADR 0023](docs/adr/0023-cli-source-upload-storage-and-archive-defense.md)) |
 | `UPLOAD_MAX_BYTES` | 소스 업로드의 압축한 바이트 한도. 기본 250MB(Build Worker 의 `SNAPSHOT_MAX_BYTES` 와 같게 둔다). 넘으면 본문을 읽기 전에 `413 UPLOAD_TOO_LARGE` |
 | `BUILD_LOG_GROUP` | (선택) `AWS_REGION` 과 함께 있으면 배포 상세의 빌드 로그 전체를 CloudWatch Logs 에서 읽는다(그룹 `/aws/codebuild/iris-dev-build` 의 `logs:GetLogEvents` 만 허용한 Role 필요). 없으면 Build Worker 가 남긴 실패한 빌드의 끝부분만 보여 주고, 그것도 없으면 빌드 로그 API 가 503 이다. [배포 상세 화면 API](docs/deployment-details-api.md) |
@@ -132,6 +134,9 @@ App 설정에서 맞춰야 할 값:
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
 | `POST /services/{id}/deployments/{deploymentId}/diagnose` | 실패한 배포의 AI 진단을 시작해 `202 RUNNING` 으로 답한다(진단은 서버가 이어서 실행, 최대 2분 남짓). 성공한 진단이 있으면 `200` 으로 그 결과를 돌려준다. `refresh=true` 면 다시 진단 |
 | `GET /services/{id}/deployments/{deploymentId}/diagnosis` | 배포의 가장 최근 AI 진단 조회(`RUNNING`·`SUCCEEDED`·`FAILED`). 시작 뒤 폴링에 쓴다 |
+| `POST /services/{id}/deployments/{deploymentId}/repairs` | 특정 `diagnosisId`·`planIds`로 코드 수정 후보 생성 접수. `Idempotency-Key` 필수, 신규 요청은 `202 RUNNING` |
+| `GET /services/{id}/repairs/{repairId}` · `GET /services/{id}/repairs/{repairId}/artifacts/{name}` | 수정 후보 진행 상태와 검토용 diff·변경 파일·manifest 조회. 소유권과 artifact 해시를 검사한다 |
+| `GET /services/{id}/deployments/{deploymentId}/repair-context` | 인증된 조정기에 특정 진단 원문·원본 소스 정보를 제공한다. 단기 소스 URL 응답은 캐시하지 않는다 |
 | `GET /targets` | 배포 타깃(aws·local) 목록 |
 | `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
 | `GET·POST /services/{id}/variables` | 환경변수 목록(`variables` + 자동 주입 `systemVariables`)·추가 |
