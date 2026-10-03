@@ -86,7 +86,10 @@ def _start_auto_diagnosis(
 
 
 OPENAPI_TAGS = [
-    {"name": "repair", "description": "실패한 배포의 AI 코드 수정 후보 생성과 조회"},
+    {
+        "name": "repair",
+        "description": "실패한 배포의 AI 코드 수정 후보·artifact 조회와 서비스용 GitHub 쓰기 인증",
+    },
     {"name": "observability", "description": "서비스 런타임 로그·메트릭·SSE"},
     {"name": "auth", "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)"},
     {"name": "user", "description": "현재 사용자"},
@@ -117,6 +120,10 @@ app = FastAPI(
         "모든 JSON 응답은 `ApiResponse` 봉투(`success`·`code`·`message`·`data`)로 감싼다. "
         "필드는 camelCase 다. 인증은 쿠키(웹) 또는 `Authorization: Bearer`(CLI)."
     ),
+    servers=[
+        {"url": "/", "description": "현재 API 서버 (개발·운영 공통)"},
+        {"url": "https://api.likelion.uk", "description": "운영 Control API"},
+    ],
     openapi_tags=OPENAPI_TAGS,
     lifespan=lifespan,
 )

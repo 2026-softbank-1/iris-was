@@ -58,13 +58,28 @@ class RepairResponse(ApiModel):
 
 class RepairGithubTokenRequest(ApiModel):
     repository: str = Field(
-        min_length=3, max_length=201, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        min_length=3,
+        max_length=201,
+        pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+        description=(
+            "서비스의 현재 source repository와 일치해야 하는 owner/repo. "
+            "설치 ID·권한은 WAS가 결정한다."
+        ),
+        examples=["owner/repository"],
     )
 
 
 class RepairGithubTokenResponse(ApiModel):
-    repository: str
-    token: str = Field(
-        repr=False, description="코디네이터 전용 단기 토큰. 저장·로그·모델 입력 금지"
+    repository: str = Field(
+        description="발급한 토큰이 접근할 수 있는 서비스 소스 저장소 하나",
+        examples=["owner/repository"],
     )
-    expires_at: datetime
+    token: str = Field(
+        repr=False,
+        description="Contents·Pull requests write 설치 토큰. 코디네이터 메모리에서만 사용한다.",
+        examples=["<short-lived-installation-token>"],
+    )
+    expires_at: datetime = Field(
+        description="GitHub가 정한 만료 시각(UTC). 코디네이터는 만료 60초 전에 재발급한다.",
+        examples=["2030-01-01T01:00:00Z"],
+    )

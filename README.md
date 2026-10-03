@@ -113,7 +113,9 @@ App 설정에서 맞춰야 할 값:
 
 서비스 런타임 로그 조회(`GET /services/{id}/logs`), 로그 SSE(`/services/{id}/logs/stream`), CPU·메모리·네트워크 메트릭(`/services/{id}/metrics`)는 [관측 API 문서](docs/observability-api.md)를 따른다.
 
-서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 서버 없이 보려면 저장소의 [docs/openapi.json](docs/openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
+서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 운영 명세는 [Swagger](https://api.likelion.uk/docs), [ReDoc](https://api.likelion.uk/redoc), [OpenAPI JSON](https://api.likelion.uk/openapi.json) 에서 확인한다. 서버 없이 보려면 저장소의 [docs/openapi.json](docs/openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
+
+코드수정·GitHub 쓰기 인증의 운영 요청/응답·오류·권한 설정은 [코드수정 운영 API 명세](docs/repair-api.md)를 따른다.
 
 인증은 쿠키(`anydeploy_session`, 웹) 또는 `Authorization: Bearer <token>`(CLI). 응답은 `ApiResponse` 봉투, JSON 은 camelCase 다.
 
@@ -133,12 +135,10 @@ App 설정에서 맞춰야 할 값:
 | `POST /services/{id}/uploads` | `likelion up` 소스 업로드. 본문이 곧 tar.gz(`Content-Type: application/gzip`, `Content-Length` 필수)이고 `201` 로 `uploadId`·`sizeBytes`·`sha256`·`expiresAt` 를 돌려준다. `uploadId` 는 24시간 안에 `CLI` 배포 요청 하나에만 쓴다. [계약](docs/upload-api.md) |
 | `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·CLI 업로드·재배포·롤백·재시작·삭제)·목록(최신순) |
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
-| `POST /services/{id}/deployments/{deploymentId}/diagnose` | 실패한 배포의 AI 진단을 시작해 `202 RUNNING` 으로 답한다(진단은 서버가 이어서 실행, 최대 2분 남짓). 성공한 진단이 있으면 `200` 으로 그 결과를 돌려준다. `refresh=true` 면 다시 진단 |
-| `GET /services/{id}/deployments/{deploymentId}/diagnosis` | 배포의 가장 최근 AI 진단 조회(`RUNNING`·`SUCCEEDED`·`FAILED`). 시작 뒤 폴링에 쓴다 |
 | `POST /services/{id}/deployments/{deploymentId}/repairs` | 특정 `diagnosisId`·`planIds`로 코드 수정 후보 생성 접수. `Idempotency-Key` 필수, 신규 요청은 `202 RUNNING` |
 | `GET /services/{id}/repairs/{repairId}` · `GET /services/{id}/repairs/{repairId}/artifacts/{name}` | 수정 후보 진행 상태와 검토용 diff·변경 파일·manifest 조회. 소유권과 artifact 해시를 검사한다 |
 | `GET /services/{id}/deployments/{deploymentId}/repair-context` | 인증된 조정기에 특정 진단 원문·원본 소스 정보를 제공한다. 단기 소스 URL 응답은 캐시하지 않는다 |
-| `POST /services/{id}/deployments/{deploymentId}/diagnose` | 실패한 배포의 AI 진단을 시작해 `202 RUNNING` 으로 답한다(진단은 서버가 이어서 실행, 최대 2분 남짓). 실패가 확정되면 서버가 자동으로 시작하므로 다시 시도·다시 진단·오래된 실패에 쓴다. 성공한 진단이 있으면 `200` 으로 그 결과를 돌려준다. `refresh=true` 면 다시 진단 |
+| `POST /services/{id}/repair-github-token` | 기존 WAS 세션과 App 설치로 해당 소스 저장소의 Contents·Pull requests write 단기 토큰 발급. 소유권·저장소 일치를 검사하고 응답은 no-store. [운영 명세](docs/repair-api.md) |
 | `GET /services/{id}/deployments/{deploymentId}/diagnosis` | 배포의 가장 최근 AI 진단 조회(`RUNNING`·`SUCCEEDED`·`FAILED`). 폴링에 쓴다. 방금 실패했으면 자동 시작 전 몇 초는 `404` |
 | `GET /targets` | 배포 타깃(aws·local) 목록 |
 | `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
