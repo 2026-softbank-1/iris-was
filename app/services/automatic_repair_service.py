@@ -186,12 +186,6 @@ class AutomaticRepairService:
             f"auto-repair-config:{repair.id}"
         )
         if deployment is None:
-            recent = await self._candidates._deployments.find_latest_by_source_sha(
-                service_id, repair.source_sha
-            )
-            if recent is not None and set(keys).issubset((recent.variables_snapshot or {}).keys()):
-                deployment = recent
-        if deployment is None:
             deployment = await self._deployer.create_deployment_request(
                 service,
                 source_sha=repair.source_sha,
@@ -299,7 +293,9 @@ class AutomaticRepairService:
             return
         service = await self._candidates._get_owned_service(owner_id, service_id)
         sha = publication["mergeCommitSha"]
-        deployment = await self._candidates._deployments.find_latest_by_source_sha(service_id, sha)
+        deployment = await self._candidates._deployments.find_by_idempotency_key(
+            f"auto-repair-redeploy:{repair.id}"
+        )
         if deployment is None:
             await self._publication.preflight(owner_id, service_id, sha)
             deployment = await self._deployer.create_deployment_request(
