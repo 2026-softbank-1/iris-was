@@ -327,7 +327,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `registration_token_hash`\*, `registration_expires_at`\* | 1회용 등록 토큰(`secrets.token_urlsafe(32)`)의 SHA-256(hex)과 만료(만든 때부터 24시간). 평문은 등록·재발급 응답에서만 보인다 |
 | `tailnet_fqdn`\*, `api_ca_cert`\*, `sealed_secrets_cert`\* | 서버가 connect 로 보낸 tailnet 주소(`iris-{key}.` 로 시작), K3s API CA, 서버 Sealed Secrets controller 인증서(모두 공개값). 이 서버로 가는 서비스 변수는 이 인증서로 봉인한다 |
 | `encrypted_service_account_token`\* | Argo CD 가 쓸 만료 없는 SA 토큰의 Fernet 암호문(`VARIABLES_ENCRYPTION_KEY`) |
-| `server_secret_hash`\* | 서버 비밀의 SHA-256(hex). 서버가 ECR pull 자격증명을 받을 때 Bearer 로 보낸다. 평문은 connect 응답에서만 보인다 |
+| `server_secret_hash`\* | 서버 비밀의 SHA-256(hex). 서버가 ECR pull 자격증명을 받을 때 Bearer 로 보낸다(아직 `CONNECTED` 가 아니면 `ONPREM_SERVER_NOT_CONNECTED`). 평문은 connect 응답에서만 보인다 |
 | `connect_generation`\* | connect 를 받을 때마다 +1. Worker 는 선점할 때의 값과 같을 때만 결과를 쓴다 |
 | `gitops_commit_sha`\*, `gitops_attempts`\* | `platform/onprem-servers/{key}/` 를 바꾸거나(등록) 지운(삭제) GitOps 커밋, 지금 커밋을 위해 실패한 횟수 |
 | `connect_deadline_at`\* | 커밋이 main 에 반영된 뒤 정한다(+15분). 값이 있으면 커밋이 반영된 것이다 |
@@ -337,6 +337,8 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 - 서버를 지우면 서버와 타깃을 소프트 삭제하고 Worker 가 GitOps 의 서버 디렉터리를 지운다. 삭제되지 않은 서비스가 붙어 있거나 붙은 서비스의 배포가 진행 중이면 지울 수 없다(`ONPREM_SERVER_IN_USE`).
 - 서버 타깃으로의 배포 요청은 서버가 `CONNECTED` 일 때만 만든다(`TARGET_NOT_CONNECTED`). 서비스를 내리는 `REMOVE` 요청은 막지 않는다.
+- bootstrap·connect 는 `PENDING`·`REGISTERING`·`FAILED` 에서 받는다(설치 재실행). bootstrap 은 상태를 바꾸지 않고, connect 는 `REGISTERING` 으로 만든다.
+- 서버 타깃 서비스의 values 에는 `imagePullSecrets: [{name: iris-ecr-pull}]`(서버 CronJob 이 `svc-{id}` 에 만드는 ECR pull Secret)를 더한다.
 
 ---
 
