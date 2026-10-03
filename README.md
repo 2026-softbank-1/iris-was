@@ -29,7 +29,7 @@ flowchart LR
 | 컴포넌트 | 진입점 | 하는 일 |
 |---|---|---|
 | Control API | `app/main.py` | 배포 요청 접수·상태 조회, 로그·메트릭 조회, AI 진단·수정 조정 |
-| Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다 |
+| Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다. 서비스 생성 전 레포 구성 분석(`repository_analyses`)도 선점해 분석기(vendored `iris-analyzer` wheel)를 실행한다([ADR 0029](docs/adr/0029-repository-analysis-gate.md)) |
 | Deploy Worker | `app/workers/deploy_worker.py` | `DEPLOY`·`ROLLBACK`·`RECONCILE` job 을 선점해 GitOps 저장소를 바꾸고 Argo CD 상태를 수집한다 |
 
 CodeBuild·GitOps·Argo CD 호출은 Worker 에서만 한다. Control API 는 GitHub 로그인·저장소 조회, 읽기 전용 Loki·Prometheus 조회, 진단·수정 에이전트 호출만 한다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).

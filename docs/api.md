@@ -20,7 +20,9 @@ README 에서 옮긴 전체 엔드포인트 목록과 규칙이다.
 | `GET /github/repos/resolve?url=` | 붙여넣은 GitHub 주소 해석·권한 확인 |
 | `GET /github/repos/{owner}/{repo}/branches` | 브랜치 목록 |
 | `POST·GET /projects` · `GET·PATCH·DELETE /projects/{id}` | 프로젝트 (목록은 서비스 수·online 수 포함) |
-| `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록 |
+| `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록. 생성의 선택 필드 `analysisId` 는 끝난 레포 구성 분석을 붙인다(분석 생략이면 분석기가 고른 빌더·Dockerfile 경로가 기본값). 응답의 `analysisGate` 는 분석으로 만든 서비스에만 있다 |
+| `POST /projects/{id}/repository-analyses` · `GET /projects/{id}/repository-analyses/{analysisId}` | 서비스 생성 전 레포 구성 분석 접수(`202`, 브랜치 최신 커밋 고정)·조회(폴링). Build Worker 가 분석기를 실행해 `decision`(`skip`·`analyze`)과 분석기 응답 원문 `result` 를 남긴다. 실패는 `FAILED` + `errorCode`. [ADR 0029](adr/0029-repository-analysis-gate.md) |
+| `POST /projects/{id}/repository-analyses/{analysisId}/apply` | `analyze` 결과의 고른 unit 마다 서비스 생성(`201`, 멱등: 다시 보내면 같은 서비스). `deploy=true` 면 분석한 커밋으로 서비스마다 `MANUAL` 배포 요청. `SUCCEEDED`·`analyze` 가 아니면 `409 REPOSITORY_ANALYSIS_NOT_READY` |
 | `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림). PATCH 의 `deploymentStrategy`(`ROLLING`·`CANARY`·`BLUE_GREEN`)는 다음 배포부터 적용하고, `CANARY`·`BLUE_GREEN` 은 AWS 타깃·replicas 2 이상·기능 플래그 켬일 때만 저장한다(on-prem 은 롤링만). [ADR 0028](adr/0028-deployment-strategy-selection.md) |
 | `GET·PUT /services/{id}/scaling` | 원하는 Pod 수·Pod별 CPU·메모리 조회·교체. PUT은 현재 이미지를 빌드 없이 재배포한다. [계약](service-scaling-api.md) |
 | `POST /services/{id}/uploads` | `likelion up` 소스 업로드. 본문이 곧 tar.gz(`Content-Type: application/gzip`, `Content-Length` 필수)이고 `201` 로 `uploadId`·`sizeBytes`·`sha256`·`expiresAt` 를 돌려준다. `uploadId` 는 24시간 안에 `CLI` 배포 요청 하나에만 쓴다. [계약](upload-api.md) |

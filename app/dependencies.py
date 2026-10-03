@@ -35,6 +35,7 @@ from app.repositories.github_installation_repository import GithubInstallationRe
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
+from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_upload_repository import ServiceUploadRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
@@ -56,6 +57,7 @@ from app.services.repair_github_auth_service import RepairGithubAuthService
 from app.services.repair_handoff_service import RepairHandoffService
 from app.services.repair_publication_service import RepairPublicationService
 from app.services.repair_service import RepairService, RepairServiceOpener
+from app.services.repository_analysis_service import RepositoryAnalysisService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
 from app.services.service_teardown_service import ServiceTeardownService
@@ -255,6 +257,7 @@ def get_service_registry_service(
         DeploymentRequestRepository(session),
         service_teardown_service,
         deployment_strategy_enabled=settings.deployment_strategy_enabled,
+        repository_analysis_repository=RepositoryAnalysisRepository(session),
     )
 
 
@@ -331,6 +334,29 @@ def get_manual_deployment_service(
 
 ManualDeploymentServiceDep = Annotated[
     ManualDeploymentService, Depends(get_manual_deployment_service)
+]
+
+
+def get_repository_analysis_service(
+    session: SessionDep,
+    source_repository_service: SourceRepositoryServiceDep,
+    service_registry_service: ServiceRegistryServiceDep,
+    manual_deployment_service: ManualDeploymentServiceDep,
+) -> RepositoryAnalysisService:
+    # 저장소 접근·브랜치 최신 커밋을 GitHub 에서 확인하므로 GitHub App 설정이 필요하다.
+    return RepositoryAnalysisService(
+        session,
+        ProjectRepository(session),
+        RepositoryAnalysisRepository(session),
+        GithubInstallationRepository(session),
+        source_repository_service,
+        service_registry_service,
+        manual_deployment_service,
+    )
+
+
+RepositoryAnalysisServiceDep = Annotated[
+    RepositoryAnalysisService, Depends(get_repository_analysis_service)
 ]
 
 

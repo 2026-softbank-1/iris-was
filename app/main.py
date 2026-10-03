@@ -27,6 +27,7 @@ from app.routers import (
     observability_router,
     project_router,
     repair_router,
+    repository_analysis_router,
     scaling_router,
     service_router,
     target_router,
@@ -112,6 +113,13 @@ OPENAPI_TAGS = [
     {"name": "github", "description": "GitHub App 설치와 저장소·브랜치 조회"},
     {"name": "projects", "description": "서비스를 묶는 프로젝트"},
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
+    {
+        "name": "repository-analyses",
+        "description": (
+            "서비스 생성 전 레포 구성 분석(Analysis Gate). 단순 레포는 분석을 생략하고, 복합 레포는"
+            " 배포 단위마다 서비스를 만든다"
+        ),
+    },
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {
         "name": "uploads",
@@ -162,6 +170,7 @@ app.include_router(user_router.router)
 app.include_router(github_router.router)
 app.include_router(project_router.router)
 app.include_router(service_router.router)
+app.include_router(repository_analysis_router.router)
 app.include_router(deployment_router.router)
 app.include_router(upload_router.router)
 app.include_router(diagnosis_router.router)

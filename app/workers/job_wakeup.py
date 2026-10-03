@@ -1,5 +1,5 @@
 """Worker 깨우기. jobs 트리거의 `NOTIFY jobs, <kind>` 를 듣고, 가장 이른 미래 run_after 에도
-깨어난다.
+깨어난다. 레포 구성 분석은 같은 채널에 `REPOSITORY_ANALYSIS` 를 보낸다.
 
 알림은 저장되지 않는다. 리스너 재연결·Pod 재시작 중 놓친 알림과 만료된 lease 는
 FALLBACK_SECONDS 마다 다시 선점을 시도해 회수한다.
@@ -28,7 +28,7 @@ _LISTENER_ERRORS = (OSError, asyncpg.PostgresError, asyncpg.InterfaceError)
 class JobWakeup:
     def __init__(
         self,
-        kinds: frozenset[JobKind],
+        kinds: frozenset[JobKind] | frozenset[str],
         find_seconds_until_next_run: Callable[[], Awaitable[float | None]],
     ) -> None:
         self._kinds = kinds

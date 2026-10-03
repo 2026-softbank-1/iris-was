@@ -46,3 +46,4 @@
 
 - 2026-10-03: `deployment_repairs` 추가. 배포·성공한 진단 FK, 서비스 범위 멱등 키, 배포별 RUNNING 부분 unique index, 고정 원문/소스/정책·digest, generation claim 및 UNKNOWN_OUTCOME 기록. revision `9f81c52a01bd`; DDL 동기화.
 - 2026-10-03: `services.deployment_strategy`(NOT NULL, 기본 ROLLING)·`deployment_requests.requested_deployment_strategy`·`deployment_strategy`(nullable) 추가, 각각 CHECK 제약. revision `f49792bf1fcc`; DDL 동기화.
+- 2026-10-04: `repository_analyses` 추가(레포 구성 분석. 프로젝트·사용자·설치 FK, 고정 source_sha, mode·status·decision·complexity·error_code CHECK, 분석기 응답 result·applied_service_ids JSONB, attempts·locked_by·locked_until lease, QUEUED·RUNNING 부분 index, NOTIFY jobs 트리거). revision `061a382166d5`; DDL 동기화.

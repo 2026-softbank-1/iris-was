@@ -62,3 +62,4 @@
 | [0026](0026-one-click-automatic-repair.md) | AI 수정 클릭은 후보 생성부터 핫픽스 PR과 main 자동 머지까지 승인한다 | 제안됨 |
 | [0027](0027-single-deploy-target-per-service.md) | 서비스는 타깃 하나에만 배포하고 기본은 `aws` 다 | 수락됨 |
 | [0028](0028-deployment-strategy-selection.md) | 서비스마다 배포 방식(롤링·카나리·블루그린)을 고르고, Pod 가 2개 미만이면 롤링으로 대체한다 | 제안됨 (iris-infra chart 0.7.0 반영 대기) |
+| [0029](0029-repository-analysis-gate.md) | 서비스 생성 전 레포 구성 분석(Analysis Gate)은 Build Worker 가 실행하고, 단순 레포는 분석을 생략한다 | 제안됨 (분석기 wheel 고정·웹 연동 대기) |

@@ -1,9 +1,11 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field, StringConstraints
 
 from app.enums import (
+    AnalysisGateComplexity,
+    AnalysisGateDecision,
     Builder,
     DeploymentStatus,
     DeploymentStrategy,
@@ -34,6 +36,14 @@ class ServiceCreateRequest(ApiModel):
         default=None,
         description="배포 타깃 id. 정확히 1개다. 생략하면 `aws` 타깃이다.",
         examples=[[1]],
+    )
+    analysis_id: int | None = Field(
+        default=None,
+        description=(
+            "같은 저장소·rootDirectory 를 분석해 끝난(SUCCEEDED) 레포 구성 분석 id. 결정을"
+            " `analysisGate` 로 남기고, 분석 생략(skip)이면 분석기가 고른 빌더·Dockerfile 경로를"
+            " 기본값으로 쓴다. 다른 저장소·위치의 분석이면 422, 끝나지 않았으면 409."
+        ),
     )
 
 
@@ -97,6 +107,29 @@ class LatestDeploymentResponse(ApiModel):
         )
 
 
+class ServiceAnalysisGateResponse(ApiModel):
+    """서비스를 만들 때 쓴 레포 구성 분석. unitId 가 있으면 분석 결과의 배포 단위로 만들었다."""
+
+    analysis_id: int
+    decision: AnalysisGateDecision | None = None
+    complexity: AnalysisGateComplexity | None = None
+    unit_id: str | None = None
+
+    @classmethod
+    def from_analysis_plan(
+        cls, analysis_plan: dict[str, Any] | None
+    ) -> "ServiceAnalysisGateResponse | None":
+        gate = (analysis_plan or {}).get("gate")
+        if not isinstance(gate, dict) or gate.get("analysisId") is None:
+            return None
+        return cls(
+            analysis_id=gate["analysisId"],
+            decision=gate.get("decision"),
+            complexity=gate.get("complexity"),
+            unit_id=gate.get("unitId"),
+        )
+
+
 class ServiceResponse(ApiModel):
     id: int
     project_id: int
@@ -121,6 +154,10 @@ class ServiceResponse(ApiModel):
     )
     latest_deployment: LatestDeploymentResponse | None = Field(
         default=None, description="가장 최근 배포 요청. 배포한 적이 없으면 없다."
+    )
+    analysis_gate: ServiceAnalysisGateResponse | None = Field(
+        default=None,
+        description="레포 구성 분석으로 만든 서비스면 그 분석. 분석 없이 만들었으면 없다.",
     )
     created_at: datetime
     updated_at: datetime
@@ -149,6 +186,7 @@ class ServiceResponse(ApiModel):
                 if detail.latest_deployment is not None
                 else None
             ),
+            analysis_gate=ServiceAnalysisGateResponse.from_analysis_plan(service.analysis_plan),
             created_at=service.created_at,
             updated_at=service.updated_at,
         )

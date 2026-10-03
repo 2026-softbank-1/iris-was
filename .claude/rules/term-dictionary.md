@@ -309,6 +309,26 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 - 아카이브의 루트가 서비스 소스의 루트다. `services.root_directory` 는 업로드에 적용하지 않는다.
 - 쓰이지 못하고 만료된 지 1일이 지난 행은 새 업로드를 받을 때 지운다(쓰인 행은 배포 요청이 가리켜 남긴다). S3 객체는 버킷 lifecycle(1일)이 지운다.
 
+### 4.15 레포 구성 분석 (RepositoryAnalysis) — `repository_analyses`\*
+
+서비스를 만들기 전에 레포가 단순(이미지 1개)한지 복합(이미지 여러 개)한지 정적 분석기(`iris_analyzer.gate`)로 판정한 1건이다. 화면·설계 용어는 Analysis Gate 다. Build Worker 가 선점해 실행한다 (ADR 0029).
+
+| 필드 | 설명 |
+|---|---|
+| `project_id`\*, `user_id`\* | 분석을 요청한 프로젝트·사용자 |
+| `source_repository_url`\*, `github_installation_id`\*, `source_branch`\* | 분석할 저장소·접근 설치·브랜치 |
+| `source_sha`\* | 접수 때 고정한 브랜치 최신 커밋. apply 의 배포 요청도 이 커밋이다 |
+| `root_directory`\* | 저장소 안의 분석 위치. 비어 있으면 루트 |
+| `mode`\* | `analysis_gate_mode` Enum (§5) |
+| `status`\* | `repository_analysis_status` Enum (§5) |
+| `decision`\*, `complexity`\* | 분석 결과(§5). SUCCEEDED 뒤에만 있다 |
+| `result`\* | 분석기 응답(`iris.analysis-gate.v1`) 원문(jsonb) |
+| `error_code`\*, `error_message`\* | FAILED 사유 (`analysis_error_code`, §5) |
+| `applied_service_ids`\* | apply 로 만든 서비스 id 목록(jsonb). 다시 apply 하면 이 서비스를 돌려준다 |
+| `attempts`, `locked_by`, `locked_until` | 선점 횟수·lease. 만료된 RUNNING 은 다른 Worker 가 다시 가져간다 |
+
+- 분석으로 만든 서비스는 `services.analysis_plan.gate`(`analysisId`·`decision`·`complexity`·`unitId`·`sourceSha`)에 근거를 남기고, unit 으로 만들었으면 `analysis_plan.unit` 에 분석기 unit 원문을 둔다. API 응답의 `analysisGate` 다.
+
 ---
 
 ## 5. Enum 값 정의
@@ -416,6 +436,13 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
 | `DEPLOY_TIMED_OUT`\* | Argo CD 가 `deadline_at` 까지 정상화하지 못했다 |
 | `DEPLOY_INFRA_ERROR`\* | 배포 인프라 오류로 재시도를 소진했다 |
+
+### 레포 구성 분석 (`repository_analysis_status`·`analysis_gate_mode`·`decision`·`complexity`·`analysis_error_code`)\* — `repository_analyses`
+
+- 상태: `QUEUED` → `RUNNING` → `SUCCEEDED` / `FAILED`. `SUCCEEDED`·`analyze` 를 apply 하면 `APPLIED`.
+- 모드(분석기 표기, 소문자): `auto`(단순하면 분석 생략) · `force`(단순해도 배포 단위 분석)
+- 결정: `skip`(기존 단일 서비스 생성) · `analyze`(unit 마다 서비스). 복잡도: `simple` · `complex` · `unsupported`
+- 실패 코드: `SOURCE_NOT_ACCESSIBLE` · `SOURCE_REF_NOT_FOUND` · `SOURCE_TOO_LARGE` · `SOURCE_INVALID` · `ANALYZER_UNAVAILABLE` · `ANALYZER_TIMED_OUT` · `ANALYZER_FAILED` · `ANALYSIS_INTERRUPTED`(처리 중 Worker 가 3번 넘게 죽음)
 
 ### Argo CD 상태 (외부 값, 원본 표기 그대로 저장)
 

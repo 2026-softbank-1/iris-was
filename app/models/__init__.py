@@ -9,6 +9,7 @@ from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
 from app.models.project import Project
 from app.models.release import Release
+from app.models.repository_analysis import RepositoryAnalysis
 from app.models.service import Service
 from app.models.service_upload import ServiceUpload
 from app.models.service_variable import ServiceVariable
@@ -27,6 +28,7 @@ __all__ = [
     "Job",
     "Project",
     "Release",
+    "RepositoryAnalysis",
     "Service",
     "ServiceTarget",
     "ServiceUpload",

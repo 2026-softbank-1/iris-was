@@ -11,18 +11,30 @@ from app.core.exceptions import (
     FieldIssue,
     InvalidInputError,
     ProjectNotFoundError,
+    RepositoryAnalysisNotFoundError,
+    RepositoryAnalysisNotReadyError,
     ServiceNameConflictError,
     ServiceNotFoundError,
 )
-from app.enums import Builder, DeploymentStrategy, TargetKind
+from app.enums import (
+    AnalysisGateDecision,
+    Builder,
+    DeploymentStrategy,
+    RepositoryAnalysisStatus,
+    TargetKind,
+)
 from app.models.deployment_request import DeploymentRequest
+from app.models.project import Project
+from app.models.repository_analysis import RepositoryAnalysis
 from app.models.service import Service
 from app.models.target import AWS_TARGET_NAME
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
+from app.schemas.analysis_gate import AnalysisGateResult
 from app.services.deployment_strategy import (
     MIN_PROGRESSIVE_REPLICAS,
     PROGRESSIVE_STRATEGIES,
@@ -30,7 +42,7 @@ from app.services.deployment_strategy import (
 )
 from app.services.scaling_config import ScalingConfig
 from app.services.service_teardown_service import ServiceTeardownService
-from app.services.source_repository_service import SourceRepositoryService
+from app.services.source_repository_service import RepositoryCandidate, SourceRepositoryService
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +62,20 @@ class ServiceDetail:
     service: Service
     target_ids: list[int]
     latest_deployment: DeploymentRequest | None = None
+
+
+@dataclass(frozen=True)
+class AnalyzedServicePlan:
+    """분석 결과의 배포 단위 하나로 만들 서비스 설정. 경로는 저장소 루트 기준이다."""
+
+    name: str
+    root_directory: str | None
+    builder: Builder | None
+    dockerfile_path: str | None
+    port: int | None
+    start_command: str | None
+    build_command: str | None
+    analysis_plan: dict[str, Any]
 
 
 def slugify_service_name(value: str, max_length: int = 63) -> str:
@@ -84,8 +110,10 @@ class ServiceRegistryService:
         service_teardown_service: ServiceTeardownService,
         *,
         deployment_strategy_enabled: bool = False,
+        repository_analysis_repository: RepositoryAnalysisRepository | None = None,
     ) -> None:
         self._session = session
+        self._repository_analysis_repository = repository_analysis_repository
         self._project_repository = project_repository
         self._service_repository = service_repository
         self._service_teardown_service = service_teardown_service
@@ -105,11 +133,14 @@ class ServiceRegistryService:
         root_directory: str | None,
         is_auto_deploy: bool,
         target_ids: list[int] | None,
+        *,
+        analysis_id: int | None = None,
     ) -> ServiceDetail:
-        project = await self._project_repository.find_by_id_and_owner_id(project_id, owner_id)
-        if project is None:
-            raise ProjectNotFoundError("project not found", project_id=project_id)
+        """`analysis_id` 가 있으면 그 레포 구성 분석의 결정을 `analysis_plan.gate` 에 남긴다.
 
+        분석을 생략(skip)한 결과면 분석기가 고른 빌더·Dockerfile 경로를 서비스 기본값으로 쓴다.
+        """
+        project = await self._get_project(owner_id, project_id)
         repository = await self._source_repository_service.resolve_repository(
             owner_id, repository_url
         )
@@ -120,30 +151,102 @@ class ServiceRegistryService:
         service_name = name or slugify_service_name(repository.full_name.split("/", 1)[1])
         await self._ensure_name_available(project.id, service_name)
         resolved_target_ids = await self._resolve_target_ids(target_ids)
-        installation = await self._installation_repository.find_by_installation_id(
-            repository.installation_id
+        normalized_root = normalize_root_directory(root_directory)
+        service = Service(
+            project_id=project.id,
+            name=service_name,
+            source_repository_url=repository.url,
+            github_installation_id=await self._get_installation_row_id(repository),
+            source_branch=branch,
+            root_directory=normalized_root,
+            is_auto_deploy=is_auto_deploy,
         )
-        if installation is None:
-            raise ServiceNotFoundError("github installation not found")
-
-        service = await self._service_repository.save(
-            Service(
-                project_id=project.id,
-                name=service_name,
-                source_repository_url=repository.url,
-                github_installation_id=installation.id,
-                source_branch=branch,
-                root_directory=normalize_root_directory(root_directory),
-                is_auto_deploy=is_auto_deploy,
+        if analysis_id is not None:
+            analysis = await self._get_gate_analysis(
+                project.id, analysis_id, repository, normalized_root
             )
-        )
+            _apply_gate_defaults(service, analysis)
+
+        service = await self._service_repository.save(service)
         await self._service_repository.replace_targets(service.id, set(resolved_target_ids))
         await self._session.commit()
         logger.info(
             "service created",
-            extra={"action": "create_service", "project_id": project.id, "service_id": service.id},
+            extra={
+                "action": "create_service",
+                "project_id": project.id,
+                "service_id": service.id,
+                "repository_analysis_id": analysis_id,
+            },
         )
         return ServiceDetail(service, resolved_target_ids)
+
+    async def create_analyzed_services(
+        self,
+        owner_id: int,
+        project_id: int,
+        repository_url: str,
+        branch: str,
+        plans: list[AnalyzedServicePlan],
+        target_ids: list[int] | None,
+        *,
+        is_auto_deploy: bool = True,
+    ) -> list[Service]:
+        """레포 구성 분석의 배포 단위마다 서비스를 만든다. 이름·브랜치·타깃 규칙은 create_service 와
+        같다.
+
+        커밋하지 않는다. 호출한 쪽이 분석 상태 변경과 같은 트랜잭션으로 커밋해, 일부만 만들어지는
+        일이 없게 한다.
+        """
+        project = await self._get_project(owner_id, project_id)
+        repository = await self._source_repository_service.resolve_repository(
+            owner_id, repository_url
+        )
+        await self._ensure_branch_exists(owner_id, repository.full_name, branch)
+        names: set[str] = set()
+        for plan in plans:
+            if plan.name in names:
+                raise ServiceNameConflictError(
+                    "service name already exists", service_name=plan.name
+                )
+            names.add(plan.name)
+            await self._ensure_name_available(project.id, plan.name)
+        resolved_target_ids = await self._resolve_target_ids(target_ids)
+        installation_row_id = await self._get_installation_row_id(repository)
+
+        services: list[Service] = []
+        for plan in plans:
+            service = await self._service_repository.save(
+                Service(
+                    project_id=project.id,
+                    name=plan.name,
+                    source_repository_url=repository.url,
+                    github_installation_id=installation_row_id,
+                    source_branch=branch,
+                    root_directory=plan.root_directory,
+                    is_auto_deploy=is_auto_deploy,
+                    builder=plan.builder,
+                    dockerfile_path=plan.dockerfile_path,
+                    port=plan.port,
+                    start_command=plan.start_command,
+                    build_command=plan.build_command,
+                    analysis_plan=plan.analysis_plan,
+                )
+            )
+            await self._service_repository.replace_targets(service.id, set(resolved_target_ids))
+            services.append(service)
+        return services
+
+    async def search_services_by_ids(
+        self, owner_id: int, service_ids: list[int]
+    ) -> list[ServiceDetail]:
+        """소유자가 볼 수 있는 서비스만 id 순서대로 돌려준다. 지운 서비스는 빠진다."""
+        services: list[Service] = []
+        for service_id in service_ids:
+            service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)
+            if service is not None:
+                services.append(service)
+        return await self._detail(services)
 
     async def get_service(self, owner_id: int, service_id: int) -> ServiceDetail:
         service = await self._get_owned(owner_id, service_id)
@@ -208,6 +311,58 @@ class ServiceRegistryService:
         service.mark_as_deleted()
         await self._session.commit()
         logger.info("service deleted", extra={"action": "delete_service", "service_id": service_id})
+
+    async def _get_project(self, owner_id: int, project_id: int) -> Project:
+        project = await self._project_repository.find_by_id_and_owner_id(project_id, owner_id)
+        if project is None:
+            raise ProjectNotFoundError("project not found", project_id=project_id)
+        return project
+
+    async def _get_installation_row_id(self, repository: RepositoryCandidate) -> int:
+        installation = await self._installation_repository.find_by_installation_id(
+            repository.installation_id
+        )
+        if installation is None:
+            raise ServiceNotFoundError("github installation not found")
+        return installation.id
+
+    async def _get_gate_analysis(
+        self,
+        project_id: int,
+        analysis_id: int,
+        repository: RepositoryCandidate,
+        root_directory: str | None,
+    ) -> RepositoryAnalysis:
+        """서비스 생성에 붙일 분석. 같은 프로젝트·저장소·위치를 분석해 끝난 것이어야 한다."""
+        if self._repository_analysis_repository is None:
+            raise RepositoryAnalysisNotFoundError(
+                "repository analysis not found", analysis_id=analysis_id
+            )
+        analysis = await self._repository_analysis_repository.find_by_id_and_project_id(
+            analysis_id, project_id
+        )
+        if analysis is None:
+            raise RepositoryAnalysisNotFoundError(
+                "repository analysis not found", analysis_id=analysis_id
+            )
+        if analysis.status != RepositoryAnalysisStatus.SUCCEEDED:
+            raise RepositoryAnalysisNotReadyError(
+                "repository analysis is not succeeded",
+                analysis_id=analysis_id,
+                status=analysis.status,
+            )
+        is_same_source = (
+            analysis.source_repository_url.lower() == repository.url.lower()
+            and analysis.root_directory == root_directory
+        )
+        if not is_same_source:
+            raise InvalidInputError(
+                "repository analysis is for another repository or root directory",
+                issues=[FieldIssue("analysisId", "analysis_source_mismatch")],
+                field="analysisId",
+                analysis_id=analysis_id,
+            )
+        return analysis
 
     async def _get_owned(
         self, owner_id: int, service_id: int, *, for_update: bool = False
@@ -302,6 +457,19 @@ class ServiceRegistryService:
             [s.id for s in services]
         )
         return [ServiceDetail(s, target_ids.get(s.id, []), latest.get(s.id)) for s in services]
+
+
+def _apply_gate_defaults(service: Service, analysis: RepositoryAnalysis) -> None:
+    """분석 결정을 남기고, 생략(skip) 결정이면 분석기가 고른 빌더를 기본값으로 쓴다."""
+    service.analysis_plan = {"gate": analysis.build_gate_plan(unit_id=None)}
+    if analysis.decision != AnalysisGateDecision.SKIP or analysis.result is None:
+        return
+    simple_build = AnalysisGateResult.model_validate(analysis.result).simple_build
+    if simple_build is None:
+        return
+    service.builder = simple_build.builder
+    if simple_build.builder == Builder.DOCKERFILE:
+        service.dockerfile_path = simple_build.dockerfile_path
 
 
 def _desired_replicas(service: Service) -> int:

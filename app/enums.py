@@ -117,3 +117,45 @@ class CliLoginSessionStatus(StrEnum):
     DENIED = "DENIED"
     # 만료됐거나 토큰을 이미 내줬다. 토큰을 내준 세션은 consumed_at 이 채워진다.
     EXPIRED = "EXPIRED"
+
+
+class RepositoryAnalysisStatus(StrEnum):
+    """레포 구성 분석(Analysis Gate) 상태. APPLIED 는 분석 결과로 서비스를 만든 뒤다."""
+
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    APPLIED = "APPLIED"
+
+
+class AnalysisGateMode(StrEnum):
+    """auto 는 단순 레포면 분석을 생략하고, force 는 단순해도 배포 단위를 분석한다."""
+
+    AUTO = "auto"
+    FORCE = "force"
+
+
+class AnalysisGateDecision(StrEnum):
+    SKIP = "skip"
+    ANALYZE = "analyze"
+
+
+class AnalysisGateComplexity(StrEnum):
+    SIMPLE = "simple"
+    COMPLEX = "complex"
+    UNSUPPORTED = "unsupported"
+
+
+class AnalysisErrorCode(StrEnum):
+    """분석이 실패한 이유. 웹은 이 값과 상관없이 "분석 없이 단일 서비스로 생성" 을 제공한다."""
+
+    SOURCE_NOT_ACCESSIBLE = "SOURCE_NOT_ACCESSIBLE"
+    SOURCE_REF_NOT_FOUND = "SOURCE_REF_NOT_FOUND"
+    SOURCE_TOO_LARGE = "SOURCE_TOO_LARGE"
+    SOURCE_INVALID = "SOURCE_INVALID"
+    ANALYZER_UNAVAILABLE = "ANALYZER_UNAVAILABLE"
+    ANALYZER_TIMED_OUT = "ANALYZER_TIMED_OUT"
+    ANALYZER_FAILED = "ANALYZER_FAILED"
+    # Worker 가 처리 중에 여러 번 죽어 lease 만 남았다.
+    ANALYSIS_INTERRUPTED = "ANALYSIS_INTERRUPTED"

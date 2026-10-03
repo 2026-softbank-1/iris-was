@@ -69,7 +69,9 @@ Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 �
 | `CODEBUILD_PROJECT` · `ARTIFACT_BUCKET` | iris-infra `aws/dev/foundation` 출력값. dev: `iris-dev-build` · `iris-dev-build-artifacts-<ACCOUNT_ID>-ap-northeast-2` |
 | `CONCURRENCY` | Worker 1개가 동시에 처리할 BUILD job 수. 기본 4 |
 | `USER_CONCURRENT_BUILD_LIMIT` · `BUILD_TIMEOUT_MINUTES` · `SNAPSHOT_MAX_BYTES` | 사용자별 동시 빌드 2 · 빌드 15분 · 스냅샷 250MB |
-| `UPLOAD_MAX_UNCOMPRESSED_BYTES` · `UPLOAD_MAX_ENTRIES` | `CLI` 업로드 아카이브를 풀었을 때의 총 크기 2GiB · 항목 수 10만(압축 폭탄 방어). 넘으면 `SOURCE_TOO_LARGE` |
+| `UPLOAD_MAX_UNCOMPRESSED_BYTES` · `UPLOAD_MAX_ENTRIES` | `CLI` 업로드 아카이브를 풀었을 때의 총 크기 2GiB · 항목 수 10만(압축 폭탄 방어). 넘으면 `SOURCE_TOO_LARGE`. 레포 구성 분석이 GitHub tarball 을 풀 때도 같은 한도를 쓴다 |
+| `ANALYSIS_GATE_COMMAND` | 레포 구성 분석기 명령. JSON 배열(argv)로 적는다(셸을 거치지 않는다). 기본 `["<python>", "-m", "iris_analyzer.gate.cli", "--request-stdin"]`(이미지에 설치된 vendored wheel). 분석기에는 `PATH`·`LANG` 외 환경변수를 넘기지 않는다([ADR 0029](adr/0029-repository-analysis-gate.md)) |
+| `ANALYSIS_GATE_TIMEOUT_SECONDS` · `ANALYSIS_GATE_CONCURRENCY` | 분석 1건 제한 시간 120초(0 초과 600 이하, 넘으면 `ANALYZER_TIMED_OUT`) · Worker 1개가 동시에 실행하는 분석 수 2(빌드 슬롯과 따로 센다) |
 
 Build Worker 역할(IAM)에는 `CLI` 업로드를 내려받는 `uploads/*` 의 `s3:GetObject` 가 있어야 한다(없으면 `CLI` 빌드가 `BUILD_INFRA_ERROR` 로 끝난다. 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용되므로 Worker 를 재시작하지 않는다). 또 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`(`/aws/codebuild/<프로젝트>:*`)가 있어야 한다. 없어도 빌드는 동작하고 AI 진단만 빌드 로그 없이 끝난다([ADR 0020](adr/0020-ai-error-diagnosis-via-agent-server.md)).
 

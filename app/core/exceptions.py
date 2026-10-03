@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import ClassVar
 
-from app.enums import FailureCode
+from app.enums import AnalysisErrorCode, FailureCode
 
 
 class AppError(Exception):
@@ -160,6 +160,16 @@ class ArchiveTooLargeError(ArchiveInvalidError):
     code = "ARCHIVE_TOO_LARGE"
 
 
+class RepositoryAnalysisNotFoundError(NotFoundError):
+    code = "REPOSITORY_ANALYSIS_NOT_FOUND"
+
+
+class RepositoryAnalysisNotReadyError(ConflictError):
+    """분석이 그 동작을 할 수 있는 상태가 아니다(진행 중·실패·생략 결정). 상태는 fields 에 둔다."""
+
+    code = "REPOSITORY_ANALYSIS_NOT_READY"
+
+
 class DiagnosisNotFoundError(NotFoundError):
     code = "DIAGNOSIS_NOT_FOUND"
 
@@ -254,3 +264,16 @@ class BuildFailedError(AppError):
     ) -> None:
         super().__init__(message or failure_code, **fields)
         self.failure_code = failure_code
+
+
+class RepositoryAnalysisFailedError(AppError):
+    """레포 구성 분석을 끝낼 수 없는 실패. 재시도하지 않고 error_code 로 분석을 끝낸다."""
+
+    code = "REPOSITORY_ANALYSIS_FAILED"
+    status_code = 422
+
+    def __init__(
+        self, error_code: AnalysisErrorCode, message: str | None = None, **fields: object
+    ) -> None:
+        super().__init__(message or error_code, **fields)
+        self.error_code = error_code

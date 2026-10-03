@@ -25,7 +25,8 @@ requires_database = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATAB
 
 _DATA_TABLES = (
     "jobs, releases, builds, deployment_status_histories, deployment_requests, service_uploads, "
-    "service_targets, services, projects, user_github_installations, github_installations, users"
+    "service_targets, services, repository_analyses, projects, user_github_installations, "
+    "github_installations, users"
 )
 
 

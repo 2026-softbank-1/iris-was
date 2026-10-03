@@ -1,3 +1,4 @@
+import sys
 from functools import lru_cache
 from typing import Literal
 
@@ -116,6 +117,14 @@ class BuildWorkerSettings(BaseSettings):
     upload_max_uncompressed_bytes: int = 2 * 1024 * 1024 * 1024
     upload_max_entries: int = 100_000
     poll_interval_seconds: float = 10.0
+    # 레포 구성 분석(Analysis Gate) 분석기 명령. JSON 배열(argv)로 적는다. 기본은 이미지에 설치된
+    # iris-analyzer wheel 이다. 셸을 거치지 않고, Worker 의 자격증명은 넘기지 않는다.
+    analysis_gate_command: list[str] = Field(
+        default_factory=lambda: [sys.executable, "-m", "iris_analyzer.gate.cli", "--request-stdin"]
+    )
+    analysis_gate_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    # 동시에 실행하는 분석 수. 빌드 슬롯(concurrency)과 따로 센다.
+    analysis_gate_concurrency: int = Field(default=2, ge=1)
 
 
 class DeployWorkerSettings(BaseSettings):

@@ -1,6 +1,104 @@
 {
   "components": {
     "schemas": {
+      "AnalysisErrorCode": {
+        "description": "분석이 실패한 이유. 웹은 이 값과 상관없이 \"분석 없이 단일 서비스로 생성\" 을 제공한다.",
+        "enum": [
+          "SOURCE_NOT_ACCESSIBLE",
+          "SOURCE_REF_NOT_FOUND",
+          "SOURCE_TOO_LARGE",
+          "SOURCE_INVALID",
+          "ANALYZER_UNAVAILABLE",
+          "ANALYZER_TIMED_OUT",
+          "ANALYZER_FAILED",
+          "ANALYSIS_INTERRUPTED"
+        ],
+        "title": "AnalysisErrorCode",
+        "type": "string"
+      },
+      "AnalysisGateComplexity": {
+        "enum": [
+          "simple",
+          "complex",
+          "unsupported"
+        ],
+        "title": "AnalysisGateComplexity",
+        "type": "string"
+      },
+      "AnalysisGateDecision": {
+        "enum": [
+          "skip",
+          "analyze"
+        ],
+        "title": "AnalysisGateDecision",
+        "type": "string"
+      },
+      "AnalysisGateMode": {
+        "description": "auto 는 단순 레포면 분석을 생략하고, force 는 단순해도 배포 단위를 분석한다.",
+        "enum": [
+          "auto",
+          "force"
+        ],
+        "title": "AnalysisGateMode",
+        "type": "string"
+      },
+      "ApiResponse_ApplyRepositoryAnalysisResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApplyRepositoryAnalysisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ApplyRepositoryAnalysisResponse]",
+        "type": "object"
+      },
       "ApiResponse_BuildLogsResponse_": {
         "properties": {
           "code": {
@@ -964,6 +1062,63 @@
         "title": "ApiResponse[RepairResponse]",
         "type": "object"
       },
+      "ApiResponse_RepositoryAnalysisResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RepositoryAnalysisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[RepositoryAnalysisResponse]",
+        "type": "object"
+      },
       "ApiResponse_RepositoryResponse_": {
         "properties": {
           "code": {
@@ -1902,6 +2057,181 @@
         "title": "ApiResponse[list[TargetResponse]]",
         "type": "object"
       },
+      "ApplyRepositoryAnalysisRequest": {
+        "properties": {
+          "deploy": {
+            "default": true,
+            "description": "true 면 만든 서비스마다 분석한 커밋으로 배포 요청(MANUAL)을 만든다.",
+            "title": "Deploy",
+            "type": "boolean"
+          },
+          "isAutoDeploy": {
+            "default": true,
+            "description": "만드는 모든 서비스의 push 자동 배포 여부. 서비스 생성의 기본값과 같다.",
+            "title": "Isautodeploy",
+            "type": "boolean"
+          },
+          "targetIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "배포 타깃 id. 정확히 1개다. 생략하면 `aws` 타깃이다.",
+            "title": "Targetids"
+          },
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyRepositoryAnalysisUnitRequest"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Units",
+            "type": "array"
+          }
+        },
+        "required": [
+          "units"
+        ],
+        "title": "ApplyRepositoryAnalysisRequest",
+        "type": "object"
+      },
+      "ApplyRepositoryAnalysisResponse": {
+        "properties": {
+          "analysisId": {
+            "title": "Analysisid",
+            "type": "integer"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceResponse"
+            },
+            "title": "Services",
+            "type": "array"
+          }
+        },
+        "required": [
+          "analysisId",
+          "services"
+        ],
+        "title": "ApplyRepositoryAnalysisResponse",
+        "type": "object"
+      },
+      "ApplyRepositoryAnalysisUnitRequest": {
+        "description": "만들 배포 단위. 생략한 값은 분석 결과(`result.units[]`)의 값을 쓴다.",
+        "properties": {
+          "buildCommand": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buildcommand"
+          },
+          "builder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Builder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dockerfilePath": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "unit 루트 기준.",
+            "title": "Dockerfilepath"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "서비스 이름. 생략하면 unit 이름을 slug 로 바꿔 쓴다.",
+            "title": "Name"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "maximum": 65535.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "저장소 루트 기준.",
+            "title": "Rootdirectory"
+          },
+          "startCommand": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startcommand"
+          },
+          "unitId": {
+            "description": "`result.units[].id`",
+            "examples": [
+              "api"
+            ],
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Unitid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unitId"
+        ],
+        "title": "ApplyRepositoryAnalysisUnitRequest",
+        "type": "object"
+      },
       "BranchResponse": {
         "properties": {
           "isDefault": {
@@ -2234,6 +2564,75 @@
           "planIds"
         ],
         "title": "CreateRepairRequest",
+        "type": "object"
+      },
+      "CreateRepositoryAnalysisRequest": {
+        "description": "서비스를 만들기 전에 레포 구성을 확인한다. 브랜치 최신 커밋을 접수 시점에 고정한다.",
+        "properties": {
+          "githubInstallationId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "저장소에 접근하는 GitHub App 설치 id(`GET /api/v1/github/repos` 의 installationId). 생략하면 저장소 소유 계정의 설치를 쓴다. 다른 설치면 422.",
+            "title": "Githubinstallationid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AnalysisGateMode",
+            "default": "auto",
+            "description": "auto: 단순 레포면 분석 생략(skip). force: 단순해도 배포 단위를 분석한다."
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "저장소 안의 분석 위치. 생략하면 루트다.",
+            "examples": [
+              "."
+            ],
+            "title": "Rootdirectory"
+          },
+          "sourceBranch": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "생략하면 저장소 기본 브랜치다.",
+            "examples": [
+              "main"
+            ],
+            "title": "Sourcebranch"
+          },
+          "sourceRepositoryUrl": {
+            "examples": [
+              "https://github.com/iris-org/shop"
+            ],
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Sourcerepositoryurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceRepositoryUrl"
+        ],
+        "title": "CreateRepositoryAnalysisRequest",
         "type": "object"
       },
       "DeploymentBuildConfigurationResponse": {
@@ -4382,6 +4781,162 @@
         "title": "RepairResponse",
         "type": "object"
       },
+      "RepositoryAnalysisResponse": {
+        "properties": {
+          "appliedServiceIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "apply 로 만든 서비스 id. APPLIED 일 때만 있다.",
+            "title": "Appliedserviceids"
+          },
+          "complexity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateComplexity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateDecision"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SUCCEEDED 뒤에만 있다. skip 이면 기존 단일 서비스 생성 경로."
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisErrorCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FAILED 일 때 사유."
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errormessage"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AnalysisGateMode"
+          },
+          "projectId": {
+            "title": "Projectid",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "분석기 응답(`iris.analysis-gate.v1`) 원문. reasons·signals·simpleBuild·units·dependencies·questions 를 담는다.",
+            "title": "Result"
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "없으면 저장소 루트다.",
+            "title": "Rootdirectory"
+          },
+          "sourceBranch": {
+            "title": "Sourcebranch",
+            "type": "string"
+          },
+          "sourceRepositoryUrl": {
+            "title": "Sourcerepositoryurl",
+            "type": "string"
+          },
+          "sourceSha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "분석한(배포할) 고정 커밋.",
+            "title": "Sourcesha"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RepositoryAnalysisStatus",
+            "description": "QUEUED → RUNNING → SUCCEEDED | FAILED. apply 뒤에는 APPLIED."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "status",
+          "sourceRepositoryUrl",
+          "sourceBranch",
+          "mode",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "RepositoryAnalysisResponse",
+        "type": "object"
+      },
+      "RepositoryAnalysisStatus": {
+        "description": "레포 구성 분석(Analysis Gate) 상태. APPLIED 는 분석 결과로 서비스를 만든 뒤다.",
+        "enum": [
+          "QUEUED",
+          "RUNNING",
+          "SUCCEEDED",
+          "FAILED",
+          "APPLIED"
+        ],
+        "title": "RepositoryAnalysisStatus",
+        "type": "string"
+      },
       "RepositoryResponse": {
         "properties": {
           "defaultBranch": {
@@ -4455,9 +5010,66 @@
         "title": "ResourceRequirements",
         "type": "object"
       },
+      "ServiceAnalysisGateResponse": {
+        "description": "서비스를 만들 때 쓴 레포 구성 분석. unitId 가 있으면 분석 결과의 배포 단위로 만들었다.",
+        "properties": {
+          "analysisId": {
+            "title": "Analysisid",
+            "type": "integer"
+          },
+          "complexity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateComplexity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unitid"
+          }
+        },
+        "required": [
+          "analysisId"
+        ],
+        "title": "ServiceAnalysisGateResponse",
+        "type": "object"
+      },
       "ServiceCreateRequest": {
         "description": "저장소를 연결해 서비스를 만든다. 이름·브랜치를 생략하면 저장소 이름·기본 브랜치를 쓴다.",
         "properties": {
+          "analysisId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "같은 저장소·rootDirectory 를 분석해 끝난(SUCCEEDED) 레포 구성 분석 id. 결정을 `analysisGate` 로 남기고, 분석 생략(skip)이면 분석기가 고른 빌더·Dockerfile 경로를 기본값으로 쓴다. 다른 저장소·위치의 분석이면 422, 끝나지 않았으면 409.",
+            "title": "Analysisid"
+          },
           "branch": {
             "anyOf": [
               {
@@ -4598,6 +5210,17 @@
       },
       "ServiceResponse": {
         "properties": {
+          "analysisGate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAnalysisGateResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "레포 구성 분석으로 만든 서비스면 그 분석. 분석 없이 만들었으면 없다."
+          },
           "buildCommand": {
             "anyOf": [
               {
@@ -5491,7 +6114,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5574,7 +6197,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5729,7 +6352,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6333,7 +6956,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -6396,7 +7019,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6406,7 +7029,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -6474,7 +7097,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6552,7 +7175,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6562,7 +7185,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -6586,6 +7209,334 @@
         "summary": "프로젝트 수정",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/repository-analyses": {
+      "post": {
+        "operationId": "create_repository_analysis_api_v1_projects__project_id__repository_analyses_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRepositoryAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepositoryAnalysisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "레포 구성 분석 접수 (Build Worker 가 실행, GET 으로 폴링)",
+        "tags": [
+          "repository-analyses"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/repository-analyses/{analysis_id}": {
+      "get": {
+        "operationId": "get_repository_analysis_api_v1_projects__project_id__repository_analyses__analysis_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "analysis_id",
+            "required": true,
+            "schema": {
+              "title": "Analysis Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepositoryAnalysisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "레포 구성 분석 조회",
+        "tags": [
+          "repository-analyses"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/repository-analyses/{analysis_id}/apply": {
+      "post": {
+        "operationId": "apply_repository_analysis_api_v1_projects__project_id__repository_analyses__analysis_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "analysis_id",
+            "required": true,
+            "schema": {
+              "title": "Analysis Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRepositoryAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ApplyRepositoryAnalysisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "레포 구성 분석의 배포 단위마다 서비스 생성 (멱등)",
+        "tags": [
+          "repository-analyses"
         ]
       }
     },
@@ -6632,7 +7583,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6730,7 +7681,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6740,7 +7691,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -6823,7 +7774,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6833,7 +7784,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -6911,7 +7862,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6999,7 +7950,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7009,7 +7960,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7124,7 +8075,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7221,7 +8172,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7231,7 +8182,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7330,7 +8281,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7441,7 +8392,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7451,7 +8402,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7584,7 +8535,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7768,7 +8719,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7890,7 +8841,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7900,7 +8851,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7990,7 +8941,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8165,7 +9116,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8284,7 +9235,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8294,7 +9245,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -8425,7 +9376,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8435,7 +9386,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -8534,7 +9485,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8604,7 +9555,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8727,7 +9678,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8873,7 +9824,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9021,7 +9972,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9111,7 +10062,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9363,7 +10314,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9444,7 +10395,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9553,7 +10504,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9563,7 +10514,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -9672,7 +10623,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9682,7 +10633,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -9791,7 +10742,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9801,7 +10752,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -9891,7 +10842,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10000,7 +10951,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10010,7 +10961,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -10133,7 +11084,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10254,7 +11205,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "413": {
             "content": {
@@ -10364,7 +11315,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10452,7 +11403,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10462,7 +11413,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -10550,7 +11501,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10632,7 +11583,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10729,7 +11680,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10971,6 +11922,10 @@
     {
       "description": "저장소와 연결된 서비스(사용자 앱)",
       "name": "services"
+    },
+    {
+      "description": "서비스 생성 전 레포 구성 분석(Analysis Gate). 단순 레포는 분석을 생략하고, 복합 레포는 배포 단위마다 서비스를 만든다",
+      "name": "repository-analyses"
     },
     {
       "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)",
