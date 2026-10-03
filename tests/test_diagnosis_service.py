@@ -772,3 +772,59 @@ async def test_diagnose_build_failure_uses_last_failure_marker_when_several_exis
         "real error output",
         "Phase complete: BUILD State: FAILED",
     ]
+
+
+async def test_repair_context_returns_exact_owned_original_diagnosis(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request()
+    build = setup.add_build(request)
+    build.source_sha = request.source_sha
+    raw = valid_agent_result()
+    raw["preserved_extra"] = {"receipt": "original"}
+    first = setup.diagnoses.seed(request.id, DiagnosisStatus.SUCCEEDED, result=raw)
+    setup.diagnoses.seed(request.id, DiagnosisStatus.RUNNING)
+    context = await setup.diagnosis_service(snapshots=True).get_repair_context(
+        OWNER, setup.service.id, request.id, diagnosis_id=first.id
+    )
+    assert context["diagnosisId"] == first.id
+    assert context["diagnosisResult"] == raw
+    assert context["source"]["commitSha"] == request.source_sha
+    assert len(setup.snapshots.build_ids) == 1
+    assert "downloadUrl" not in str(first.result)
+    with pytest.raises(ServiceNotFoundError):
+        await setup.diagnosis_service(snapshots=True).get_repair_context(
+            OWNER + 1, setup.service.id, request.id, diagnosis_id=first.id
+        )
+
+
+async def test_repair_context_rejects_diagnosis_from_another_deployment(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request()
+    other = setup.add_request()
+    diagnosis = setup.diagnoses.seed(
+        other.id, DiagnosisStatus.SUCCEEDED, result=valid_agent_result()
+    )
+    with pytest.raises(DiagnosisNotFoundError):
+        await setup.diagnosis_service(snapshots=True).get_repair_context(
+            OWNER, setup.service.id, request.id, diagnosis_id=diagnosis.id
+        )
+
+
+async def test_repair_context_rejects_mismatched_snapshot_before_presigning(
+    setup: DiagnosisSetup,
+) -> None:
+    from app.core.exceptions import ConflictError
+
+    request = setup.add_request()
+    build = setup.add_build(request)
+    build.source_sha = "b" * 40
+    diagnosis = setup.diagnoses.seed(
+        request.id, DiagnosisStatus.SUCCEEDED, result=valid_agent_result()
+    )
+    with pytest.raises(ConflictError):
+        await setup.diagnosis_service(snapshots=True).get_repair_context(
+            OWNER, setup.service.id, request.id, diagnosis_id=diagnosis.id
+        )
+    assert setup.snapshots.build_ids == []

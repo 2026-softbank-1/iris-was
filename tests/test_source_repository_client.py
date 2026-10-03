@@ -180,3 +180,59 @@ async def test_find_branch_head_on_server_error_raises_external_error() -> None:
 
     with pytest.raises(ExternalError):
         await client.find_branch_head(9, "iris-org/web", "main")
+
+
+async def test_create_repair_token_scopes_repository_and_write_permissions() -> None:
+    import json
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/app/installations/9/access_tokens"
+        jwt.decode(
+            request.headers["Authorization"].removeprefix("Bearer "),
+            PUBLIC_KEY,
+            algorithms=["RS256"],
+        )
+        assert json.loads(request.content) == {
+            "repositories": ["web"],
+            "permissions": {"contents": "write", "pull_requests": "write"},
+        }
+        return httpx.Response(
+            201,
+            json={
+                "token": "ghs_repair_secret",
+                "expires_at": "2030-01-01T00:00:00Z",
+                "permissions": {"contents": "write", "pull_requests": "write"},
+            },
+        )
+
+    token = await _client(httpx.MockTransport(handler)).create_repair_token(9, "o/web")
+    assert token.token == "ghs_repair_secret"
+    assert "ghs_repair_secret" not in repr(token)
+
+
+@pytest.mark.parametrize("permissions", [{}, {"contents": "read", "pull_requests": "write"}])
+async def test_create_repair_token_rejects_insufficient_permissions(permissions: dict) -> None:
+    from app.core.exceptions import ForbiddenError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            201,
+            json={
+                "token": "ghs_secret",
+                "expires_at": "2030-01-01T00:00:00Z",
+                "permissions": permissions,
+            },
+        )
+
+    with pytest.raises(ForbiddenError) as exc:
+        await _client(httpx.MockTransport(handler)).create_repair_token(9, "o/web")
+    assert "ghs_secret" not in str(exc.value)
+
+
+@pytest.mark.parametrize("status", [403, 422])
+async def test_create_repair_token_missing_app_write_grant_is_forbidden(status: int) -> None:
+    from app.core.exceptions import ForbiddenError
+
+    client = _client(httpx.MockTransport(lambda _: httpx.Response(status, json={})))
+    with pytest.raises(ForbiddenError):
+        await client.create_repair_token(9, "o/web")

@@ -145,10 +145,15 @@ class FakeSourceRepositoryClient:
         self.branches: dict[str, list[BranchInfo]] = {}
         self.heads: dict[tuple[str, str], CommitInfo] = {}
         self.token_requests: list[int] = []
+        self.repair_token_requests: list[tuple[int, str]] = []
 
     async def create_installation_token(self, installation_id: int) -> InstallationToken:
         self.token_requests.append(installation_id)
         return InstallationToken("ghs_fake", datetime(2030, 1, 1, tzinfo=UTC))
+
+    async def create_repair_token(self, installation_id: int, full_name: str) -> InstallationToken:
+        self.repair_token_requests.append((installation_id, full_name))
+        return InstallationToken("ghs_repair_fake", datetime(2030, 1, 1, tzinfo=UTC))
 
     async def fetch_repositories(self, installation_id: int) -> list[RepositoryInfo]:
         return self.repositories_by_installation.get(installation_id, [])

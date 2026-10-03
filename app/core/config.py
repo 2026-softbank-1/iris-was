@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import HttpUrl, SecretStr
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     diagnosis_agent_api_key: SecretStr | None = None
     # 에이전트는 모델을 최대 2번 부른다(호출마다 60초). 그보다 길게 기다린다.
     diagnosis_agent_timeout_seconds: float = 150.0
+    # Candidate generation only; repository publication and deployment remain separate.
+    repair_agent_url: HttpUrl | None = None
+    repair_agent_api_key: SecretStr | None = None
+    repair_agent_timeout_seconds: float = Field(default=150, gt=0, allow_inf_nan=False)
+    repair_agent_deadline_seconds: float = Field(default=240, gt=0, le=1800, allow_inf_nan=False)
+    repair_agent_max_cost_usd: float = Field(default=1, gt=0, allow_inf_nan=False)
+    repair_agent_source_hosts: str = ""
+
     # 실패가 확정된 배포를 서버가 자동으로 진단한다(에이전트가 설정돼 있어야 한다). 모델 비용이
     # 실패마다 들어 끄고 싶으면 false 로 둔다. 끄면 사용자가 버튼으로 시작하는 진단만 남는다.
     diagnosis_auto_start_enabled: bool = True

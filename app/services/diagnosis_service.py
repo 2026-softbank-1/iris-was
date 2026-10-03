@@ -20,6 +20,7 @@ from app.clients.aws_clients import PRESIGNED_URL_SECONDS, SnapshotUrlClient
 from app.clients.diagnosis_agent_client import DiagnosisAgentClient
 from app.core.exceptions import (
     AppError,
+    ConflictError,
     DeploymentNotFailedError,
     DeploymentRequestNotFoundError,
     DiagnosisAgentError,
@@ -29,7 +30,7 @@ from app.core.exceptions import (
     NotConfiguredError,
     ServiceNotFoundError,
 )
-from app.enums import DeploymentStatus, FailureCode
+from app.enums import DeploymentStatus, DiagnosisStatus, FailureCode
 from app.models.base import now_utc
 from app.models.build import Build
 from app.models.deployment_diagnosis import DeploymentDiagnosis
@@ -331,6 +332,77 @@ class DiagnosisService:
                 "diagnosis not found", deployment_request_id=deployment_request_id
             )
         return diagnosis
+
+    async def get_repair_context(
+        self,
+        owner_id: int,
+        service_id: int,
+        deployment_request_id: int,
+        *,
+        diagnosis_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Return an owned frozen diagnosis and transient source URL to trusted coordinators."""
+        service = await self._get_owned_service(owner_id, service_id)
+        request = await self._get_deployment_request(service_id, deployment_request_id)
+        if request.status not in DIAGNOSABLE_STATUSES:
+            raise DeploymentNotFailedError("only failed deployments can be repaired")
+        diagnosis = (
+            await self._diagnosis_repository.get_by_id(diagnosis_id)
+            if diagnosis_id is not None
+            else await self.get_diagnosis(owner_id, service_id, deployment_request_id)
+        )
+        if diagnosis.deployment_request_id != request.id:
+            raise DiagnosisNotFoundError("diagnosis not found", diagnosis_id=diagnosis.id)
+        raw = diagnosis.result
+        if (
+            diagnosis.status != DiagnosisStatus.SUCCEEDED
+            or not isinstance(raw, dict)
+            or raw.get("schema_version") != "diagnosis-result.v3"
+            or raw.get("job_status") != "succeeded"
+        ):
+            raise ConflictError("successful original diagnosis required")
+        if self._snapshot_client is None:
+            raise NotConfiguredError("repair source snapshots are not configured")
+        build = await self._build_repository.find_by_deployment_request_id(request.id)
+        snapshot_id = await self._find_snapshot_build_id(request, build)
+        if snapshot_id is None or not _COMMIT_SHA_PATTERN.fullmatch(request.source_sha):
+            raise ConflictError("pinned repair source snapshot is unavailable")
+        snapshot_build = (
+            build
+            if build is not None and build.id == snapshot_id
+            else await self._build_repository.find_by_deployment_request_id(
+                request.source_deployment_request_id or request.id
+            )
+        )
+        if snapshot_build is None or snapshot_build.source_sha != request.source_sha:
+            raise ConflictError("repair snapshot does not match deployment source")
+        source_identity = raw.get("source_analysis") or {}
+        if (
+            not isinstance(source_identity, dict)
+            or (
+                source_identity.get("commit_sha") is not None
+                and source_identity["commit_sha"].lower() != request.source_sha.lower()
+            )
+            or (
+                source_identity.get("root_directory") is not None
+                and source_identity["root_directory"] != (service.root_directory or ".")
+            )
+        ):
+            raise ConflictError("diagnosis source does not match deployment source")
+        # Close the read transaction before creating the transient signed URL.
+        await self._session.commit()
+        source = await self._build_source(service, request, snapshot_id)
+        assert source is not None
+        return {
+            "serviceId": service.id,
+            "deploymentId": request.id,
+            "diagnosisId": diagnosis.id,
+            "repositoryUrl": service.source_repository_url,
+            "branch": service.source_branch,
+            "autoDeploy": service.is_auto_deploy,
+            "source": source.model_dump(mode="json", by_alias=True),
+            "diagnosisResult": raw,
+        }
 
     async def _run(
         self,
