@@ -10,11 +10,16 @@ dependencies = [
     "cryptography>=46",
     "fastapi>=0.142.2",
     "httpx>=0.28.1",
+    # 레포 구성 분석기(gate CLI). 고정 커밋으로 빌드한 wheel 이다. vendor/iris-analyzer-manifest.json
+    "iris-analyzer==0.1.0",
     "pydantic-settings>=2.15.0",
     "pyjwt[crypto]>=2.15.1",
     "sqlalchemy[asyncio]>=2.1.1",
     "uvicorn>=0.54.0",
 ]
+
+[tool.uv.sources]
+iris-analyzer = { path = "vendor/iris_analyzer-0.1.0-py3-none-any.whl" }
 
 [tool.ruff]
 line-length = 100

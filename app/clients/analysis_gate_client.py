@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import signal
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -21,6 +22,8 @@ _MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _MAX_STDERR_BYTES = 64 * 1024
 _READ_CHUNK_BYTES = 65536
+# 분석기가 실패할 때 stderr 마지막 줄에 남기는 `{"error": {"code": ...}}` 의 코드 모양.
+_ERROR_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 
 
 class AnalysisGateTimeoutError(ExternalError):
@@ -120,7 +123,7 @@ class SubprocessAnalysisGateClient:
                 process.stdin.write(payload)
                 await process.stdin.drain()
                 process.stdin.close()
-                output, _ = await asyncio.gather(*tasks)
+                output, errors = await asyncio.gather(*tasks)
                 await process.wait()
                 is_finished = True
         except TimeoutError:
@@ -136,8 +139,26 @@ class SubprocessAnalysisGateClient:
             if not is_finished:
                 await _stop(process)
         if process.returncode:
-            raise ExternalError("analysis gate failed", exit_code=process.returncode)
+            code = _find_error_code(errors)
+            raise ExternalError(
+                f"analysis gate failed ({code})" if code else "analysis gate failed",
+                exit_code=process.returncode,
+                analyzer_error_code=code,
+            )
         return output
+
+
+def _find_error_code(stderr: bytes) -> str | None:
+    """stderr 에서 분석기 오류 코드만 꺼낸다. 메시지는 소스 경로를 담을 수 있어 버린다."""
+    lines = stderr.decode("utf-8", errors="replace").strip().splitlines()
+    if not lines:
+        return None
+    try:
+        error = json.loads(lines[-1]).get("error")
+        code = error.get("code") if isinstance(error, dict) else None
+    except (ValueError, AttributeError):
+        return None
+    return code if isinstance(code, str) and _ERROR_CODE_PATTERN.match(code) else None
 
 
 async def _read_bounded(stream: asyncio.StreamReader, limit: int) -> bytes:

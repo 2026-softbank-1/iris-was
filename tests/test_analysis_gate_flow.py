@@ -719,3 +719,33 @@ def _analysis_api(
         registry,
         manual,
     )
+
+
+async def test_run_real_analyzer_missing_root_directory_keeps_error_code(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    analysis = await _seed_analysis(session_factory, root_directory="does-not-exist")
+
+    await _claim_and_run(_service(session_factory, FakeGitHub(SINGLE_DOCKERFILE_FILES)))
+
+    stored = await _load(session_factory, analysis.id)
+    assert (stored.status, stored.error_code) == (
+        RepositoryAnalysisStatus.FAILED,
+        AnalysisErrorCode.ANALYZER_FAILED,
+    )
+    assert stored.error_message == "analysis gate failed (GATE_ROOT_DIRECTORY_NOT_FOUND)"
+
+
+async def test_run_real_analyzer_lone_subdirectory_dockerfile_yields_one_unit(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    analysis = await _seed_analysis(session_factory)
+    files = {f"server/{name}": content for name, content in SINGLE_DOCKERFILE_FILES.items()}
+
+    await _claim_and_run(_service(session_factory, FakeGitHub(files)))
+
+    stored = await _load(session_factory, analysis.id)
+    assert stored.status == RepositoryAnalysisStatus.SUCCEEDED, stored.error_message
+    assert stored.result is not None
+    assert stored.decision == "analyze"
+    assert [unit["rootDirectory"] for unit in stored.result["units"]] == ["server"]

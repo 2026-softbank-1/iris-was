@@ -73,6 +73,8 @@ Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 �
 | `ANALYSIS_GATE_COMMAND` | 레포 구성 분석기 명령. JSON 배열(argv)로 적는다(셸을 거치지 않는다). 기본 `["<python>", "-m", "iris_analyzer.gate.cli", "--request-stdin"]`(이미지에 설치된 vendored wheel). 분석기에는 `PATH`·`LANG` 외 환경변수를 넘기지 않는다([ADR 0029](adr/0029-repository-analysis-gate.md)) |
 | `ANALYSIS_GATE_TIMEOUT_SECONDS` · `ANALYSIS_GATE_CONCURRENCY` | 분석 1건 제한 시간 120초(0 초과 600 이하, 넘으면 `ANALYZER_TIMED_OUT`) · Worker 1개가 동시에 실행하는 분석 수 2(빌드 슬롯과 따로 센다) |
 
+분석기 wheel 갱신: iris-code-analyzer-agent 의 고정 커밋에서 `python -m build --wheel` 로 만든 wheel 을 `vendor/` 에 두고 `vendor/iris-analyzer-manifest.json`(sourceCommit·sha256)과 `pyproject.toml` 의 `[tool.uv.sources]` 경로를 맞춘 뒤 `uv lock` 한다. 버전이 같아도 `uv.lock` 이 wheel sha256 을 고정하므로 내용이 바뀌면 lock 도 바뀐다. 이미지(`Dockerfile`)는 `vendor/` 를 복사해 같이 설치한다.
+
 Build Worker 역할(IAM)에는 `CLI` 업로드를 내려받는 `uploads/*` 의 `s3:GetObject` 가 있어야 한다(없으면 `CLI` 빌드가 `BUILD_INFRA_ERROR` 로 끝난다. 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용되므로 Worker 를 재시작하지 않는다). 또 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`(`/aws/codebuild/<프로젝트>:*`)가 있어야 한다. 없어도 빌드는 동작하고 AI 진단만 빌드 로그 없이 끝난다([ADR 0020](adr/0020-ai-error-diagnosis-via-agent-server.md)).
 
 ## Deploy Worker

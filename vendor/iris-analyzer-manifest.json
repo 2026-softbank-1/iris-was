@@ -1,0 +1,13 @@
+{
+  "package": "iris-analyzer",
+  "version": "0.1.0",
+  "wheel": "iris_analyzer-0.1.0-py3-none-any.whl",
+  "sha256": "07752199ca3420031e977e680e5bd9f66f2a58b49ffa2be9449e45356eb1308e",
+  "sourceRepository": "https://github.com/2026-softbank-1/iris-code-analyzer-agent",
+  "sourceBranch": "feat/analysis-gate",
+  "sourceCommit": "7d072159ac3335d6f5bf8fb7f50e75ead5f06f49",
+  "entrypoint": "python -m iris_analyzer.gate.cli --request-stdin",
+  "contract": "iris.analysis-gate.v1",
+  "buildCommand": "python -m build --wheel (iris-code-analyzer-agent 루트)",
+  "vendoredAt": "2026-10-04"
+}

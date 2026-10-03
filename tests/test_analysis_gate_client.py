@@ -119,9 +119,35 @@ async def test_analyze_nonzero_exit_hides_child_output(tmp_path: Path) -> None:
     with pytest.raises(ExternalError) as error:
         await SubprocessAnalysisGateClient(command).analyze(_request(tmp_path))
 
-    assert error.value.fields == {"exit_code": 3}
+    assert error.value.fields == {"exit_code": 3, "analyzer_error_code": None}
     assert "source-secret" not in str(error.value)
     assert error.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    ("stderr", "code"),
+    [
+        (
+            '{"error": {"code": "GATE_ROOT_DIRECTORY_NOT_FOUND", "message": "/src/x"}}',
+            "GATE_ROOT_DIRECTORY_NOT_FOUND",
+        ),
+        ('{"error": {"code": "not a code /etc/passwd"}}', None),
+        ("Traceback (most recent call last)", None),
+    ],
+    ids=["contract", "unsafe-code", "plain-text"],
+)
+async def test_analyze_failure_keeps_only_sanitized_error_code(
+    tmp_path: Path, stderr: str, code: str | None
+) -> None:
+    command = _program(tmp_path, f"import sys\nsys.stderr.write({stderr!r} + '\\n')\nsys.exit(2)\n")
+
+    with pytest.raises(ExternalError) as error:
+        await SubprocessAnalysisGateClient(command).analyze(_request(tmp_path))
+
+    assert error.value.fields["analyzer_error_code"] == code
+    assert "/src/x" not in str(error.value) and "passwd" not in str(error.value)
+    if code is not None:
+        assert code in error.value.message
 
 
 @pytest.mark.parametrize(
