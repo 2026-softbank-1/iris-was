@@ -256,3 +256,155 @@ async def test_unsubmitted_queued_job_gets_model_timeout_on_claim_not_enqueue(pu
     assert (
         len(setup.repair_agent.requests) == 2
     )  # The existing fixture and one new queued generation.
+
+
+def configuration_service(fixture, diagnostics=None):
+    from cryptography.fernet import Fernet
+
+    from app.core.crypto import VariableCipher
+    from app.services.variable_service import VariableService
+
+    setup, publication, *_ = fixture
+    cipher = VariableCipher(Fernet.generate_key().decode())
+    variables = VariableService(setup.session, setup.services, setup.variables, cipher)
+    service = AutomaticRepairService(
+        setup.session,
+        setup.repairs,
+        setup.repair_service(),
+        publication,
+        diagnostics,
+        setup.deployment_request_service(),
+        variables,
+    )
+    return service, variables, cipher
+
+
+def session_secret_plan(setup, repair, key="SESSION_SECRET"):
+    diagnosis = next(d for d in setup.diagnoses.rows if d.id == repair.diagnosis_id)
+    diagnosis.result["analysis"]["remediation"]["plans"][0]["changes"] = [
+        {"kind": "configuration", "target": key, "instruction": "Restore runtime configuration"}
+    ]
+    return diagnosis
+
+
+async def test_missing_session_secret_is_encrypted_then_redeployed_without_code_model(
+    publication_setup,
+):
+    setup, _, original, _, calls, _, _ = publication_setup
+    session_secret_plan(setup, original)
+    service, _, cipher = configuration_service(publication_setup)
+    started = await service.start(
+        OWNER,
+        setup.service.id,
+        original.deployment_request_id,
+        original.diagnosis_id,
+        "restore-config",
+    )
+    assert started.repair.request_metadata["strategy"] == "variables"
+    await service.advance(OWNER, setup.service.id, started.repair.id)
+    stored = await setup.variables.find_by_service_id_and_key(setup.service.id, "SESSION_SECRET")
+    assert len(cipher.decrypt(stored.encrypted_value)) == 64
+    assert cipher.decrypt(stored.encrypted_value) not in stored.encrypted_value
+    publication = started.repair.request_metadata["publication"]
+    assert publication["status"] == "REDEPLOY_REQUESTED"
+    deployment = await setup.requests.find_by_id_and_service_id(
+        publication["redeploymentId"], setup.service.id
+    )
+    assert "SESSION_SECRET" in deployment.variables_snapshot
+    assert deployment.source_sha == original.source_sha
+    assert len(setup.repair_agent.requests) == 1
+    assert all(method == "GET" for method, _, _ in calls)
+    count = len(setup.requests.requests)
+    await service.advance(OWNER, setup.service.id, started.repair.id)
+    assert len(setup.requests.requests) == count
+
+
+async def test_stored_session_secret_is_preserved(publication_setup):
+    setup, _, original, _, _, _, _ = publication_setup
+    session_secret_plan(setup, original)
+    service, variables, cipher = configuration_service(publication_setup)
+    existing = "existing-private-app-session-secret-" + "x" * 32
+    await variables.create_variable(OWNER, setup.service.id, "SESSION_SECRET", existing)
+    started = await service.start(
+        OWNER,
+        setup.service.id,
+        original.deployment_request_id,
+        original.diagnosis_id,
+        "existing-config",
+    )
+    await service.advance(OWNER, setup.service.id, started.repair.id)
+    stored = await setup.variables.find_by_service_id_and_key(setup.service.id, "SESSION_SECRET")
+    assert cipher.decrypt(stored.encrypted_value) == existing
+    assert existing not in str(started.repair.result) + str(started.repair.request_metadata)
+
+
+async def test_missing_external_credentials_are_never_invented(publication_setup):
+    setup, _, original, _, _, _, _ = publication_setup
+    session_secret_plan(setup, original, "EXTERNAL_API_KEY")
+    service, _, _ = configuration_service(publication_setup)
+    with pytest.raises(RepairError) as error:
+        await service.start(
+            OWNER,
+            setup.service.id,
+            original.deployment_request_id,
+            original.diagnosis_id,
+            "external-config",
+        )
+    assert error.value.code == "CONFIGURATION_VALUES_REQUIRED"
+    assert setup.variables.variables == []
+    assert len(setup.repairs.rows) == 1
+
+
+async def test_failed_deployment_without_diagnosis_queues_diagnosis_then_configuration_fix(
+    publication_setup,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.enums import DiagnosisStatus
+
+    setup, _, original, _, _, _, _ = publication_setup
+    finished = session_secret_plan(setup, original).result
+    diagnosis = setup.diagnoses.seed(original.deployment_request_id, DiagnosisStatus.RUNNING)
+    diagnostics = AsyncMock()
+    diagnostics.start_diagnosis.return_value = SimpleNamespace(diagnosis=diagnosis, is_started=True)
+
+    async def finish(*args):
+        diagnosis.status = DiagnosisStatus.SUCCEEDED
+        diagnosis.result = finished
+        return diagnosis
+
+    diagnostics.run_diagnosis.side_effect = finish
+    service, _, _ = configuration_service(publication_setup, diagnostics)
+    started = await service.start(
+        OWNER, setup.service.id, original.deployment_request_id, None, "diagnose-and-fix"
+    )
+    assert started.repair.request_metadata["ownsDiagnosis"] is True
+    assert started.repair.request_metadata["awaitingDiagnosis"] is True
+    assert started.repair.request_metadata["publication"]["status"] == "DIAGNOSING"
+    await service.advance(OWNER, setup.service.id, started.repair.id)
+    assert started.repair.request_metadata["publication"]["status"] == "REDEPLOY_REQUESTED"
+    assert diagnostics.run_diagnosis.await_count == 1
+    assert len(setup.repair_agent.requests) == 1
+
+
+async def test_code_merge_requests_redeployment_even_when_webhook_auto_deploy_is_off(
+    publication_setup,
+):
+    setup, publication, repair, _, _, _, _ = publication_setup
+    setup.service.is_auto_deploy = False
+    service = AutomaticRepairService(
+        setup.session,
+        setup.repairs,
+        setup.repair_service(),
+        publication,
+        deployer=setup.deployment_request_service(),
+    )
+    await service.resume(OWNER, setup.service.id, repair.id)
+    await service.advance(OWNER, setup.service.id, repair.id)
+    state = repair.request_metadata["publication"]
+    assert state["status"] == "MERGED" and state["redeploymentId"]
+    deployment = await setup.requests.find_by_id_and_service_id(
+        state["redeploymentId"], setup.service.id
+    )
+    assert deployment.source_sha == state["mergeCommitSha"]

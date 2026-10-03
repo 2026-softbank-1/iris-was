@@ -103,6 +103,9 @@ class RepairService:
         idempotency_key: str,
         *,
         auto_merge: bool = False,
+        await_diagnosis: bool = False,
+        owns_diagnosis: bool = False,
+        configuration_keys: list[str] | None = None,
     ) -> StartedRepair:
         service = await self._get_owned_service(owner_id, service_id)
         request = await self._deployments.find_by_id_and_service_id(deployment_id, service_id)
@@ -111,7 +114,15 @@ class RepairService:
                 "deployment request not found", deployment_request_id=deployment_id
             )
         diagnosis = await self._diagnoses.get_by_id(diagnosis_id)
-        self._validate_selection(request, diagnosis, plan_ids)
+        if await_diagnosis:
+            if (
+                not auto_merge
+                or diagnosis.deployment_request_id != request.id
+                or request.status not in DIAGNOSABLE_STATUSES
+            ):
+                raise ConflictError("invalid pending diagnosis for repair")
+        else:
+            self._validate_selection(request, diagnosis, plan_ids)
         # Existing client keys retain their frozen source/policy even if server settings changed.
         existing = await self._repairs.find_by_service_id_and_key(service_id, idempotency_key)
         if existing is not None:
@@ -176,15 +187,23 @@ class RepairService:
             "source_repository_url": service.source_repository_url,
             "root_directory": root,
             "plan_ids": plan_ids,
-            "diagnosis_result": copy.deepcopy(diagnosis.result),
+            "diagnosis_result": copy.deepcopy(diagnosis.result or {}),
             "request_metadata": {
                 "snapshotBuildId": build.id,
                 "policy": policy,
                 **(
                     {
                         "autoMerge": True,
+                        "autoRedeploy": True,
+                        "awaitingDiagnosis": await_diagnosis,
+                        "ownsDiagnosis": owns_diagnosis,
+                        **(
+                            {"strategy": "variables", "configurationKeys": configuration_keys}
+                            if configuration_keys
+                            else {}
+                        ),
                         "autoDeadlineAt": (now_utc() + timedelta(minutes=30)).isoformat(),
-                        "publication": {"status": "QUEUED"},
+                        "publication": {"status": "DIAGNOSING" if await_diagnosis else "QUEUED"},
                     }
                     if auto_merge
                     else {}
