@@ -118,6 +118,18 @@ class DiagnosisInProgressError(ConflictError):
     code = "DIAGNOSIS_IN_PROGRESS"
 
 
+class DiagnosisNotSucceededError(ConflictError):
+    """성공한 진단만 수정의 근거로 쓴다. 현재 진단 상태를 fields 에 담는다."""
+
+    code = "DIAGNOSIS_NOT_SUCCEEDED"
+
+
+class SourceSnapshotUnavailableError(ConflictError):
+    """수정할 소스 스냅샷이 없다. 하루가 지나 지워졌거나 커밋을 특정할 수 없다. 다시 배포한다."""
+
+    code = "SOURCE_SNAPSHOT_UNAVAILABLE"
+
+
 class DiagnosisLogsUnavailableError(ConflictError):
     """진단할 로그가 없다. 로그 없이 원인을 추측하지 않는다."""
 

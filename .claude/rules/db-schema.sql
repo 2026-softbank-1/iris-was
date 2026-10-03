@@ -144,6 +144,8 @@ CREATE TABLE builds (
     status VARCHAR(32) NOT NULL,
     builder VARCHAR(32),
     source_sha VARCHAR(64),
+    source_archive_sha256 VARCHAR(64),
+    source_manifest_sha256 VARCHAR(64),
     codebuild_build_id VARCHAR(255),
     attempt INTEGER DEFAULT 1 NOT NULL,
     image_repository VARCHAR(500),

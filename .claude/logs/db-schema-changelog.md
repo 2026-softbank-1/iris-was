@@ -6,6 +6,7 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
+- 2026-10-03T05:00Z · app/models/build.py (Edit) · source_archive_sha256, source_manifest_sha256 컬럼 추가
 - 2026-10-03T02:21Z · app/models/build.py (Edit) · log_tail 컬럼 추가
 - 2026-10-03T02:21Z · app/models/build.py (Edit) · log_tail 컬럼 추가
 - 2026-10-03T02:00Z · app/models/deployment_request.py (apply_patch) · scaling_snapshot JSONB 컬럼 추가

@@ -48,6 +48,7 @@ from app.schemas.diagnosis import (
     FailedStage,
 )
 from app.services.observability_service import ObservabilityService
+from app.services.source_snapshot import find_snapshot_build
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,6 @@ _MAX_LINE_CHARS = 2_000
 # 실패 시각 뒤 조금까지 본다. 재시도·롤백 로그가 이어서 남기 때문이다.
 _LOG_WINDOW_MARGIN = timedelta(minutes=5)
 _MAX_LOG_AGE = timedelta(days=7)
-# 빌드가 올린 스냅샷은 하루 뒤 지워진다. 그 전까지만 소스를 함께 보낸다.
-_SNAPSHOT_RETENTION = timedelta(hours=23)
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -366,22 +365,10 @@ class DiagnosisService:
     async def _find_snapshot_build_id(
         self, request: DeploymentRequest, build: Build | None
     ) -> int | None:
-        """소스 스냅샷을 올린 빌드. 롤백·재시작은 빌드하지 않으므로 원본 요청의 빌드를 따라간다."""
         if self._snapshot_client is None:
             return None
-        candidate = build
-        if (
-            candidate is None or candidate.codebuild_build_id is None
-        ) and request.source_deployment_request_id is not None:
-            candidate = await self._build_repository.find_by_deployment_request_id(
-                request.source_deployment_request_id
-            )
-        # CodeBuild 를 시작했다면 스냅샷은 이미 올라가 있다.
-        if candidate is None or candidate.codebuild_build_id is None:
-            return None
-        if now_utc() - candidate.created_at > _SNAPSHOT_RETENTION:
-            return None
-        return candidate.id
+        snapshot_build = await find_snapshot_build(self._build_repository, request, build)
+        return snapshot_build.id if snapshot_build is not None else None
 
     async def _build_source(
         self, service: Service, request: DeploymentRequest, snapshot_build_id: int | None

@@ -622,6 +622,63 @@
         "title": "ApiResponse[ProjectResponse]",
         "type": "object"
       },
+      "ApiResponse_RepairContextResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RepairContextResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[RepairContextResponse]",
+        "type": "object"
+      },
       "ApiResponse_RepositoryResponse_": {
         "properties": {
           "code": {
@@ -2902,6 +2959,107 @@
           "expectedResult"
         ],
         "title": "RemediationVerification",
+        "type": "object"
+      },
+      "RepairContextResponse": {
+        "properties": {
+          "autoDeploy": {
+            "title": "Autodeploy",
+            "type": "boolean"
+          },
+          "branch": {
+            "description": "서비스가 배포하는 브랜치. 수정 PR의 대상이다.",
+            "title": "Branch",
+            "type": "string"
+          },
+          "deploymentId": {
+            "title": "Deploymentid",
+            "type": "integer"
+          },
+          "diagnosisId": {
+            "title": "Diagnosisid",
+            "type": "integer"
+          },
+          "diagnosisResult": {
+            "additionalProperties": true,
+            "description": "에이전트가 돌려준 원본 diagnosis-result.v3. 키 이름과 값을 바꾸지 않는다.",
+            "title": "Diagnosisresult",
+            "type": "object"
+          },
+          "repositoryUrl": {
+            "title": "Repositoryurl",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RepairSource"
+          }
+        },
+        "required": [
+          "repositoryUrl",
+          "branch",
+          "autoDeploy",
+          "deploymentId",
+          "diagnosisId",
+          "source",
+          "diagnosisResult"
+        ],
+        "title": "RepairContextResponse",
+        "type": "object"
+      },
+      "RepairSource": {
+        "properties": {
+          "archiveSha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "스냅샷을 올릴 때 고정한 tar.gz 해시. 없으면 소스를 고정으로 보지 않는다.",
+            "title": "Archivesha256"
+          },
+          "commitSha": {
+            "description": "실패한 배포가 빌드한 40자리 커밋 SHA",
+            "title": "Commitsha",
+            "type": "string"
+          },
+          "downloadUrl": {
+            "description": "소스 스냅샷 S3 presigned URL. 로그·저장소에 남기지 않는다.",
+            "title": "Downloadurl",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "manifestSha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "스냅샷을 올릴 때 고정한 파일 목록 해시. 지원하지 않는 아카이브면 없다.",
+            "title": "Manifestsha256"
+          },
+          "rootDirectory": {
+            "description": "저장소 루트 기준 서비스 위치. 루트면 `.`",
+            "title": "Rootdirectory",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commitSha",
+          "rootDirectory",
+          "downloadUrl",
+          "expiresAt"
+        ],
+        "title": "RepairSource",
         "type": "object"
       },
       "RepositoryResponse": {
@@ -5959,6 +6117,108 @@
         ]
       }
     },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/repair-context": {
+      "get": {
+        "description": "성공한 AI 진단 1건의 원본 `diagnosis-result.v3` 와, 그 진단이 본 시점의 소스 스냅샷(단기 다운로드 URL, 올릴 때 고정한 `archiveSha256`·`manifestSha256`), 저장소·브랜치를 돌려준다. 수정 에이전트가 이 값으로 소스를 검증하고 수정 전용 브랜치와 PR 을 만든다. 읽기 전용이며 서버는 소스를 수정하지 않는다. 스냅샷은 하루 뒤 지워져 그 뒤에는 `409` 다.",
+        "operationId": "get_repair_context_api_v1_services__service_id__deployments__deployment_id__repair_context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "수정 근거로 쓸 성공한 진단의 ID",
+            "in": "query",
+            "name": "diagnosisId",
+            "required": true,
+            "schema": {
+              "description": "수정 근거로 쓸 성공한 진단의 ID",
+              "exclusiveMinimum": 0,
+              "title": "Diagnosisid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepairContextResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "코드 수정에 쓸 진단 원문과 고정된 소스 입력 조회",
+        "tags": [
+          "repair"
+        ]
+      }
+    },
     "/api/v1/services/{service_id}/domains": {
       "get": {
         "operationId": "search_domains_api_v1_services__service_id__domains_get",
@@ -7309,6 +7569,10 @@
     {
       "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",
       "name": "diagnosis"
+    },
+    {
+      "description": "AI 진단을 근거로 한 코드 수정에 쓸 고정된 입력(진단 원문·소스 스냅샷)",
+      "name": "repair"
     },
     {
       "description": "배포 타깃(aws · local)",

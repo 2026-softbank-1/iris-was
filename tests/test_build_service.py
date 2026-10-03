@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import hashlib
 import io
 import tarfile
 from collections.abc import AsyncIterator
@@ -134,7 +135,12 @@ class FakeEcr:
 
 
 class FakeArtifacts:
+    # 올라간 파일의 해시를 빌드 ID 별로 남겨, 기록한 해시가 그 파일의 것인지 대조한다.
+    uploaded_sha256: dict[int, str] = {}
+
     async def put_snapshot(self, build_id: int, path: Path) -> str:
+        content = await asyncio.to_thread(path.read_bytes)
+        self.uploaded_sha256[build_id] = hashlib.sha256(content).hexdigest()
         return f"snapshots/{build_id}.tar.gz"
 
     async def presign(self, key: str) -> str:
@@ -367,6 +373,19 @@ async def test_run_job_from_deployment_request_service_builds_and_records_histor
         (DeploymentStatus.QUEUED, DeploymentStatus.BUILDING),
         (DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING),
     ]
+
+
+async def test_run_success_records_digests_of_the_uploaded_snapshot(session_factory: Any) -> None:
+    await _seed(session_factory)
+    service = _service(session_factory, FakeCodeBuild(IN_PROGRESS, SUCCEEDED))
+    job = await _claim(service)
+
+    await service.run(job, asyncio.Event())
+
+    build, _, _ = await _load(session_factory, job)
+    assert build.source_archive_sha256 == FakeArtifacts.uploaded_sha256[build.id]
+    assert build.source_manifest_sha256 is not None
+    assert len(build.source_manifest_sha256) == 64
 
 
 async def test_run_build_phase_failure_marks_build_failed(session_factory: Any) -> None:

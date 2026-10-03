@@ -28,6 +28,10 @@ class Build(TimestampMixin, Base):
     # 빌더는 Worker 가 소스를 보고 확정한 뒤에 채운다.
     builder: Mapped[Builder | None] = mapped_column(enum_column(Builder, "builder"))
     source_sha: Mapped[str | None] = mapped_column(String(64))
+    # 소스 스냅샷을 올린 직후 계산해 고정한 해시. 수정 에이전트가 내려받은 소스가 이 스냅샷과 같은지
+    # 대조하는 기준이다. manifest 는 에이전트가 받아들이지 않는 아카이브이면 비어 있다.
+    source_archive_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_manifest_sha256: Mapped[str | None] = mapped_column(String(64))
     codebuild_build_id: Mapped[str | None] = mapped_column(String(255), unique=True)
     # CodeBuild 를 새로 시작할 때마다 +1. StartBuild idempotencyToken 에 넣는다.
     attempt: Mapped[int] = mapped_column(Integer, server_default=text("1"), default=1)
@@ -77,6 +81,10 @@ class Build(TimestampMixin, Base):
         if self.started_at is None:
             self.started_at = now_utc()
         self.status = BuildStatus.SNAPSHOTTING
+
+    def record_source_digests(self, archive_sha256: str, manifest_sha256: str | None) -> None:
+        self.source_archive_sha256 = archive_sha256
+        self.source_manifest_sha256 = manifest_sha256
 
     def start_codebuild(
         self,

@@ -35,6 +35,7 @@ from app.services.build_log import to_log_tail
 from app.services.builder_detection import CONFIG_FILE_NAME, detect_builder, parse_iris_config
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.repository_url import parse_repository_url
+from app.services.source_manifest import compute_snapshot_digests
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,14 @@ class BuildService:
             )
             config = parse_iris_config(config_content) if config_content is not None else None
             plan = detect_builder(file_names, config, service)
+            # 임시 파일이 있을 때 계산하고, 올린 뒤에 기록한다. 업로드가 실패하면 값을 바꾸지 않아
+            # 기록한 해시가 올라가지 않은 파일을 가리키는 일이 없다.
+            digests = await asyncio.to_thread(compute_snapshot_digests, snapshot_path)
             snapshot_key = await self._artifacts.put_snapshot(build.id, snapshot_path)
+            async with self._session_factory.begin() as session:
+                (
+                    await BuildRepository(session).get_by_id(build.id, for_update=True)
+                ).record_source_digests(digests.archive_sha256, digests.manifest_sha256)
 
         image_repository = await self._ecr.ensure_repository(service.id)
         image_tag = f"b-{build.id}"

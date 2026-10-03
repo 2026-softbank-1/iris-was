@@ -25,6 +25,7 @@ from app.routers import (
     github_router,
     observability_router,
     project_router,
+    repair_router,
     scaling_router,
     service_router,
     target_router,
@@ -61,6 +62,10 @@ OPENAPI_TAGS = [
     {
         "name": "diagnosis",
         "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",
+    },
+    {
+        "name": "repair",
+        "description": "AI 진단을 근거로 한 코드 수정에 쓸 고정된 입력(진단 원문·소스 스냅샷)",
     },
     {"name": "targets", "description": "배포 타깃(aws · local)"},
     {"name": "domains", "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회"},
@@ -101,6 +106,7 @@ app.include_router(project_router.router)
 app.include_router(service_router.router)
 app.include_router(deployment_router.router)
 app.include_router(diagnosis_router.router)
+app.include_router(repair_router.router)
 app.include_router(target_router.router)
 app.include_router(domain_router.router)
 app.include_router(variable_router.router)

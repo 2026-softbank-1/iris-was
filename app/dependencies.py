@@ -47,6 +47,7 @@ from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
+from app.services.repair_context_service import RepairContextService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
 from app.services.session_service import SessionService
@@ -438,5 +439,21 @@ def get_diagnosis_service_opener(
     return open_service
 
 
+def get_repair_context_service(session: SessionDep, settings: SettingsDep) -> RepairContextService:
+    snapshot_client = (
+        _get_artifact_store(settings.aws_region, settings.artifact_bucket)
+        if settings.aws_region and settings.artifact_bucket
+        else None
+    )
+    return RepairContextService(
+        ServiceRepository(session),
+        DeploymentRequestRepository(session),
+        BuildRepository(session),
+        DeploymentDiagnosisRepository(session),
+        snapshot_client,
+    )
+
+
 DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
+RepairContextServiceDep = Annotated[RepairContextService, Depends(get_repair_context_service)]
 DiagnosisServiceOpenerDep = Annotated[DiagnosisServiceOpener, Depends(get_diagnosis_service_opener)]
