@@ -1,15 +1,17 @@
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Header, Response
+from fastapi import APIRouter, BackgroundTasks, Header, Query, Response
 
 from app.dependencies import (
     CurrentUserDep,
     RepairGithubAuthServiceDep,
+    RepairPublicationServiceDep,
     RepairServiceDep,
     RepairServiceOpenerDep,
 )
 from app.schemas.repair import (
     CreateRepairRequest,
+    RepairAccessResponse,
     RepairGithubTokenRequest,
     RepairGithubTokenResponse,
     RepairResponse,
@@ -111,3 +113,71 @@ async def issue_repair_github_token(
     response.headers["Pragma"] = "no-cache"
     token = await service.issue_token(user.id, service_id, body.repository)
     return ApiResponse(data=token)
+
+
+@router.get(
+    "/repair-access",
+    response_model=ApiResponse[RepairAccessResponse],
+    summary="GitHub 코드수정 쓰기 권한 확인 (토큰 반환 없음)",
+    responses=error_responses(401, 404, 422, 502, 503),
+)
+async def check_repair_access(
+    service_id: int, user: CurrentUserDep, service: RepairGithubAuthServiceDep, response: Response
+) -> ApiResponse[RepairAccessResponse]:
+    response.headers["Cache-Control"] = "no-store"
+    return ApiResponse(data=await service.check_access(user.id, service_id))
+
+
+@router.get(
+    "/deployments/{deployment_id}/repairs/latest",
+    response_model=ApiResponse[RepairResponse],
+    response_model_exclude_none=True,
+    summary="선택한 진단의 최근 코드수정 작업 조회",
+    responses=error_responses(401, 404, 422),
+)
+async def latest_repair(
+    service_id: int,
+    deployment_id: int,
+    user: CurrentUserDep,
+    service: RepairServiceDep,
+    diagnosis_id: Annotated[int, Query(alias="diagnosisId", gt=0)],
+) -> ApiResponse[RepairResponse]:
+    return ApiResponse(
+        data=RepairResponse.from_model(
+            await service.latest_repair(user.id, service_id, deployment_id, diagnosis_id)
+        )
+    )
+
+
+@router.post(
+    "/repairs/{repair_id}/publish",
+    response_model=ApiResponse[RepairResponse],
+    response_model_exclude_none=True,
+    summary="코드수정 후보로 핫픽스 브랜치와 PR 생성",
+    responses=error_responses(401, 403, 404, 409, 422, 502, 503),
+)
+async def publish_repair(
+    service_id: int, repair_id: int, user: CurrentUserDep, service: RepairPublicationServiceDep
+) -> ApiResponse[RepairResponse]:
+    return ApiResponse(
+        data=RepairResponse.from_model(
+            await service.execute(user.id, service_id, repair_id, "publish")
+        )
+    )
+
+
+@router.post(
+    "/repairs/{repair_id}/merge",
+    response_model=ApiResponse[RepairResponse],
+    response_model_exclude_none=True,
+    summary="검토한 핫픽스 PR을 main에 머지 (GitHub 보호 규칙 적용)",
+    responses=error_responses(401, 403, 404, 409, 422, 502, 503),
+)
+async def merge_repair(
+    service_id: int, repair_id: int, user: CurrentUserDep, service: RepairPublicationServiceDep
+) -> ApiResponse[RepairResponse]:
+    return ApiResponse(
+        data=RepairResponse.from_model(
+            await service.execute(user.id, service_id, repair_id, "merge")
+        )
+    )

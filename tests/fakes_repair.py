@@ -49,6 +49,23 @@ class FakeRepairRepository:
             None,
         )
 
+    async def latest(
+        self, service_id: int, deployment_id: int, diagnosis_id: int
+    ) -> DeploymentRepair:
+        matches = [
+            r
+            for r in self.rows
+            if r.service_id == service_id
+            and r.deployment_request_id == deployment_id
+            and r.diagnosis_id == diagnosis_id
+        ]
+        if not matches:
+            raise NotFoundError("repair not found")
+        return matches[-1]
+
+    async def lock_publication(self, repair_id: int) -> DeploymentRepair:
+        return await self.get_by_id(repair_id)
+
     async def add_running_if_absent(self, values: dict[str, Any]) -> DeploymentRepair | None:
         if (
             await self.find_running_by_deployment_request_id(values["deployment_request_id"])

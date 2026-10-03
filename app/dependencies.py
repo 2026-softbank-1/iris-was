@@ -53,6 +53,7 @@ from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
 from app.services.repair_github_auth_service import RepairGithubAuthService
 from app.services.repair_handoff_service import RepairHandoffService
+from app.services.repair_publication_service import RepairPublicationService
 from app.services.repair_service import RepairService, RepairServiceOpener
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
@@ -599,4 +600,25 @@ def get_repair_github_auth_service(
 
 RepairGithubAuthServiceDep = Annotated[
     RepairGithubAuthService, Depends(get_repair_github_auth_service)
+]
+
+
+def get_repair_publication_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    candidates: RepairServiceDep,
+    auth: RepairGithubAuthServiceDep,
+) -> RepairPublicationService:
+    return RepairPublicationService(
+        session,
+        DeploymentRepairRepository(session),
+        ServiceRepository(session),
+        candidates,
+        auth,
+        settings.github_api_base_url,
+    )
+
+
+RepairPublicationServiceDep = Annotated[
+    RepairPublicationService, Depends(get_repair_publication_service)
 ]
