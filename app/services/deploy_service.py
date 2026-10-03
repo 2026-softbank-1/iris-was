@@ -157,6 +157,10 @@ class DeployService:
             # user_build_limit 은 BUILD 에만 쓰인다.
             return await JobRepository(session).claim_next_job(self._worker_id, JOB_KINDS, 0)
 
+    async def find_seconds_until_next_run(self) -> float | None:
+        async with self._session_factory() as session:
+            return await JobRepository(session).find_seconds_until_next_run(JOB_KINDS)
+
     async def run(self, job: Job) -> None:
         """job 을 한 번 처리한다. 재시도할 만한 실패는 예외로 던진다."""
         if job.attempts > job.max_attempts:

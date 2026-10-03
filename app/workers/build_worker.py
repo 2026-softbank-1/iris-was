@@ -1,7 +1,6 @@
 """Build Worker — BUILD job 을 선점해 CodeBuild 빌드를 시작하고 결과(image digest)를 기록한다."""
 
 import asyncio
-import contextlib
 import logging
 import os
 import signal
@@ -19,25 +18,26 @@ from app.core.database import get_session_factory
 from app.core.exceptions import BuildFailedError
 from app.core.logging import configure_logging, log_context
 from app.models import Job
-from app.services.build_service import BuildService
+from app.services.build_service import JOB_KINDS, BuildService
+from app.workers.job_wakeup import JobWakeup
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL_SECONDS = 5.0
 
-
-async def run(stop: asyncio.Event, service: BuildService, concurrency: int) -> None:
+async def run(
+    stop: asyncio.Event, service: BuildService, concurrency: int, wakeup: JobWakeup
+) -> None:
     """빈 슬롯마다 job 을 선점해 처리한다. stop 이 켜지면 진행 중 job 을 반납하고 끝낸다."""
     logger.info("worker started", extra={"action": "run"})
     slots = asyncio.Semaphore(concurrency)
     tasks: set[asyncio.Task[None]] = set()
     while not stop.is_set():
         await slots.acquire()
-        job = await _claim(service) if not stop.is_set() else None
+        wakeup.clear()
+        job = await _claim(service, wakeup) if not stop.is_set() else None
         if job is None:
             slots.release()
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop.wait(), timeout=POLL_INTERVAL_SECONDS)
+            await wakeup.wait(stop)
             continue
         task = asyncio.create_task(_process(service, job, stop))
         tasks.add(task)
@@ -47,11 +47,12 @@ async def run(stop: asyncio.Event, service: BuildService, concurrency: int) -> N
     logger.info("worker stopped", extra={"action": "run"})
 
 
-async def _claim(service: BuildService) -> Job | None:
+async def _claim(service: BuildService, wakeup: JobWakeup) -> Job | None:
     try:
         return await service.claim_next_job()
     except (SQLAlchemyError, OSError):
         logger.exception("job claim failed", extra={"action": "claim_next_job"})
+        wakeup.retry_soon()
         return None
 
 
@@ -100,7 +101,11 @@ async def main() -> None:
             # Pod 이름(hostname)으로 lease 소유자를 구분한다.
             worker_id=f"{socket.gethostname()}:{os.getpid()}",
         )
-        await run(stop, service, settings.concurrency)
+        wakeup = JobWakeup(JOB_KINDS, service.find_seconds_until_next_run)
+        try:
+            await run(stop, service, settings.concurrency, wakeup)
+        finally:
+            await wakeup.close()
 
 
 if __name__ == "__main__":

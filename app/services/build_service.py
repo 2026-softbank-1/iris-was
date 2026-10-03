@@ -68,6 +68,10 @@ class BuildService:
                 self._worker_id, JOB_KINDS, self._settings.user_concurrent_build_limit
             )
 
+    async def find_seconds_until_next_run(self) -> float | None:
+        async with self._session_factory() as session:
+            return await JobRepository(session).find_seconds_until_next_run(JOB_KINDS)
+
     async def run(self, job: Job, stop: asyncio.Event) -> None:
         """job 을 끝까지 처리한다. stop 이 켜지면 빌드 대기 중에 job 을 반납하고 돌아온다.
 
@@ -246,7 +250,7 @@ class BuildService:
                     await statuses.transition_status(
                         build.deployment_request_id, DeploymentStatus.DEPLOYING
                     )
-                    jobs.add(
+                    await jobs.save(
                         Job(
                             deployment_request_id=build.deployment_request_id,
                             kind=JobKind.DEPLOY,

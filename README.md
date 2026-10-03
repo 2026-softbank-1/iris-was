@@ -112,7 +112,7 @@ App 설정에서 맞춰야 할 값:
 | 메서드·경로 | 설명 |
 |---|---|
 | `GET /auth/github` · `GET /auth/github/callback` · `POST /auth/logout` | GitHub 로그인 시작·콜백·로그아웃 |
-| `POST /auth/cli/sessions` · `GET /auth/cli/sessions/{sessionId}/authorize` · `POST /auth/cli/sessions/{sessionId}/token` | CLI 로그인: 세션 생성(인증 없음) · 브라우저 승인(GitHub 로그인으로 이동) · 폴링으로 토큰 수령(승인 뒤 처음 한 번만, `interval` 보다 빠르면 `429`). 계약은 iris-cli 의 `docs/login-contract.md`, 설계는 [ADR 0018](docs/adr/0018-cli-login-session-table-and-polling.md) |
+| `POST /auth/cli/sessions` · `GET /auth/cli/sessions/{sessionId}/authorize` · `POST /auth/cli/sessions/{sessionId}/token` | CLI 로그인: 세션 생성(인증 없음) · 브라우저 승인(GitHub 로그인으로 이동) · 폴링으로 토큰 수령(승인 뒤 처음 한 번만, `interval` 보다 빠르면 `429`). 계약은 iris-cli 의 `docs/login-contract.md`, 설계는 [ADR 0019](docs/adr/0018-cli-login-session-table-and-polling.md) |
 | `GET /me` | 현재 사용자 (`likelion whoami`) |
 | `GET /github/install` · `GET /github/installations` | GitHub App 설치 시작 · 내 설치 목록 |
 | `GET /github/repos?q&installationId&page&size` | 접근 가능한 저장소 검색 |
@@ -164,7 +164,7 @@ uv run python -m app.workers.build_worker     # Build Worker
 uv run python -m app.workers.deploy_worker    # Deploy Worker
 ```
 
-Worker 는 SIGTERM·SIGINT 를 받으면 폴링 루프를 끝내고 종료한다. Build Worker 는 CodeBuild 를 기다리던 job 을 반납하고, 다른 Worker 가 기록된 `codebuild_build_id` 로 이어서 처리한다. 스냅샷(최대 250MB 다운로드·업로드) 중에는 반납하지 않으므로 Pod `terminationGracePeriodSeconds` 를 120 이상으로 둔다.
+Worker 는 일이 없으면 `jobs` 트리거의 `NOTIFY jobs, <kind>`·가장 이른 미래 `run_after`·60초 중 먼저 오는 때까지 기다렸다가 선점을 다시 시도한다(ADR 0019). SIGTERM·SIGINT 를 받으면 루프를 끝내고 종료한다. Build Worker 는 CodeBuild 를 기다리던 job 을 반납하고, 다른 Worker 가 기록된 `codebuild_build_id` 로 이어서 처리한다. 스냅샷(최대 250MB 다운로드·업로드) 중에는 반납하지 않으므로 Pod `terminationGracePeriodSeconds` 를 120 이상으로 둔다.
 
 Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
 
