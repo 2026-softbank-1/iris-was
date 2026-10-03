@@ -35,6 +35,7 @@ from app.repositories.deployment_status_history_repository import (
 )
 from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.deploy_service import DeployService
 from app.services.deployment_request_service import DeploymentRequestService
@@ -519,6 +520,7 @@ async def _request_reusing_image(
             DeploymentStatusHistoryRepository(session),
             BuildRepository(session),
             ServiceVariableRepository(session),
+            ServiceRepository(session),
         ).create_deployment_request_reusing_image(
             service,
             source_deployment_request=source,
@@ -613,6 +615,7 @@ async def _request_removal(h: Harness, live_request_id: int) -> int:
             DeploymentStatusHistoryRepository(session),
             BuildRepository(session),
             ServiceVariableRepository(session),
+            ServiceRepository(session),
         ).create_removal_request(
             service,
             source_deployment_request=live,

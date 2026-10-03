@@ -24,6 +24,7 @@ from app.routers import (
     github_router,
     observability_router,
     project_router,
+    scaling_router,
     service_router,
     target_router,
     user_router,
@@ -88,6 +89,7 @@ register_exception_handlers(app)
 app.include_router(auth_router.router)
 app.include_router(cli_login_router.router)
 app.include_router(observability_router.router)
+app.include_router(scaling_router.router)
 app.include_router(user_router.router)
 app.include_router(github_router.router)
 app.include_router(project_router.router)

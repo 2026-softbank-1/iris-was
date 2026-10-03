@@ -6,6 +6,8 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
+- 2026-10-03T02:00Z · app/models/deployment_request.py (apply_patch) · scaling_snapshot JSONB 컬럼 추가
+- 2026-10-03T02:00Z · app/models/service.py (apply_patch) · scaling_config JSONB 컬럼 추가
 - 2026-10-03T01:18Z · app/models/__init__.py (Edit) · +2 −0
 - 2026-10-03T01:18Z · app/models/__init__.py (Edit) · +1 −0
 - 2026-10-03T01:18Z · app/models/cli_login_session.py (Write) · cli_login_sessions 테이블 신규(public_id, poll_secret_hash, status, user_id, expires_at, consumed_at, last_polled_at)

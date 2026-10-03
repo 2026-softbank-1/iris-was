@@ -44,3 +44,5 @@ class Service(TimestampMixin, SoftDeleteMixin, Base):
     port: Mapped[int | None] = mapped_column(Integer)
     build_command: Mapped[str | None] = mapped_column(Text)
     start_command: Mapped[str | None] = mapped_column(Text)
+    # 서비스의 원하는 Pod 수와 Pod당 리소스. 배포 요청마다 스냅샷으로 고정한다.
+    scaling_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

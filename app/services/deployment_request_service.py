@@ -12,9 +12,11 @@ from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
 )
 from app.repositories.job_repository import JobRepository
+from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.schemas.job import BuildJobPayload
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.scaling_config import ScalingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,8 @@ class DeploymentRequestService:
     환경변수는 요청 시점의 서비스 변수를 `variables_snapshot`(키 → 암호문)으로 저장한다.
     롤백만 원본 요청의 스냅샷을 쓴다. 재배포·재시작은 지금 변수를 써서, 변수를 고친 뒤
     다시 띄우면 고친 값이 반영된다.
+
+    Pod 수와 리소스는 롤백을 포함해 모든 요청에서 지금 서비스의 원하는 설정을 고정한다.
     """
 
     def __init__(
@@ -37,12 +41,14 @@ class DeploymentRequestService:
         deployment_status_history_repository: DeploymentStatusHistoryRepository,
         build_repository: BuildRepository,
         service_variable_repository: ServiceVariableRepository,
+        service_repository: ServiceRepository,
     ) -> None:
         self._deployment_request_repository = deployment_request_repository
         self._job_repository = job_repository
         self._deployment_status_history_repository = deployment_status_history_repository
         self._build_repository = build_repository
         self._service_variable_repository = service_variable_repository
+        self._service_repository = service_repository
 
     async def create_deployment_request(
         self,
@@ -177,6 +183,10 @@ class DeploymentRequestService:
         if variables_snapshot is None:
             variables = await self._service_variable_repository.search_by_service_id(service.id)
             variables_snapshot = {v.key: v.encrypted_value for v in variables}
+        scaling_config = await self._service_repository.get_scaling_config_for_update(service.id)
+        scaling_snapshot = ScalingConfig.model_validate(
+            scaling_config or ScalingConfig.defaults().model_dump(mode="json")
+        ).model_dump(mode="json")
         request = await self._deployment_request_repository.add_if_absent(
             DeploymentRequest(
                 service_id=service.id,
@@ -187,6 +197,7 @@ class DeploymentRequestService:
                 idempotency_key=idempotency_key,
                 requested_by=requested_by,
                 variables_snapshot=variables_snapshot,
+                scaling_snapshot=scaling_snapshot,
                 source_deployment_request_id=(
                     source_deployment_request.id if source_deployment_request is not None else None
                 ),
