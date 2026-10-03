@@ -59,6 +59,7 @@ class DeploymentSetup:
         # 외부 백엔드(Loki·CloudWatch)는 호출 인자만 확인하는 가짜다.
         self.observability = AsyncMock()
         self.build_log_reader = AsyncMock()
+        self.deployment_strategy_enabled = False
         self.service: Service
 
     async def build(self) -> "DeploymentSetup":
@@ -86,6 +87,7 @@ class DeploymentSetup:
             self.builds,  # type: ignore[arg-type]
             self.variables,  # type: ignore[arg-type]
             self.services,  # type: ignore[arg-type]
+            deployment_strategy_enabled=self.deployment_strategy_enabled,
         )
 
     def manual_service(self) -> ManualDeploymentService:

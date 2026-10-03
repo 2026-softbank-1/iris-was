@@ -4,6 +4,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import DeploymentStrategy
 from app.models.base import now_utc
 from app.models.project import Project
 from app.models.service import Service
@@ -45,16 +46,19 @@ class ServiceRepository:
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
-    async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
-        """원하는 설정의 최신 값을 읽고 배포 요청이 커밋될 때까지 서비스 행을 잠근다."""
+    async def get_deployment_settings_for_update(
+        self, service_id: int
+    ) -> tuple[dict[str, Any] | None, DeploymentStrategy]:
+        """원하는 Pod 설정과 배포 방식의 최신 값을 읽고 배포 요청이 커밋될 때까지 행을 잠근다."""
         # PUT이 같은 트랜잭션에서 바꾼 값도 DB에서 읽을 수 있도록 먼저 반영한다.
         await self._session.flush()
         stmt = (
-            select(Service.scaling_config)
+            select(Service.scaling_config, Service.deployment_strategy)
             .where(Service.id == service_id)
             .with_for_update(of=Service)
         )
-        return (await self._session.scalars(stmt)).one()
+        scaling_config, deployment_strategy = (await self._session.execute(stmt)).one()
+        return scaling_config, deployment_strategy
 
     async def find_by_project_id_and_name(self, project_id: int, name: str) -> Service | None:
         stmt = select(Service).where(

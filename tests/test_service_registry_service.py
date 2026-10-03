@@ -12,9 +12,10 @@ from app.core.exceptions import (
     ServiceNameConflictError,
     ServiceNotFoundError,
 )
-from app.enums import Builder, DeploymentTrigger, Environment
+from app.enums import Builder, DeploymentStrategy, DeploymentTrigger, Environment
 from app.models.deployment_request import DeploymentRequest
 from app.models.project import Project
+from app.services.scaling_config import ScalingConfig
 from app.services.service_registry_service import (
     ServiceRegistryService,
     normalize_root_directory,
@@ -55,7 +56,7 @@ class Setup:
         ]
         self.project_id = 0
 
-    async def build(self) -> ServiceRegistryService:
+    async def build(self, *, deployment_strategy_enabled: bool = True) -> ServiceRegistryService:
         installation = await self.installations.save(make_installation(5, 22, "iris-org"))
         await self.installations.replace_user_links(OWNER, {installation.id})
         project = await self.projects.save(Project(name="p", owner_id=OWNER))
@@ -69,6 +70,7 @@ class Setup:
             SourceRepositoryService(self.installations, self.github),  # type: ignore[arg-type]
             self.deployments,  # type: ignore[arg-type]
             self.teardown,  # type: ignore[arg-type]
+            deployment_strategy_enabled=deployment_strategy_enabled,
         )
 
 
@@ -269,7 +271,9 @@ async def test_update_service_keeps_same_target_after_deployment(setup) -> None:
     assert updated.target_ids == [1]
 
 
-@pytest.mark.parametrize("field", ["name", "source_branch", "is_auto_deploy", "target_ids"])
+@pytest.mark.parametrize(
+    "field", ["name", "source_branch", "is_auto_deploy", "target_ids", "deployment_strategy"]
+)
 async def test_update_service_rejects_null_for_required_fields(setup, field: str) -> None:
     s, service = setup
     detail = await _create(service, s)
@@ -367,3 +371,101 @@ async def test_search_services_returns_latest_deployment_request(setup) -> None:
 
     assert found[0].latest_deployment is not None
     assert found[0].latest_deployment.source_sha == "b" * 40
+
+
+def _scaling(replicas: int) -> dict[str, object]:
+    config = ScalingConfig.defaults().model_dump(mode="json")
+    config["replicas"] = replicas
+    return config
+
+
+async def test_create_service_defaults_deployment_strategy_to_rolling(setup) -> None:
+    s, service = setup
+
+    detail = await _create(service, s)
+
+    assert detail.service.deployment_strategy == DeploymentStrategy.ROLLING
+
+
+@pytest.mark.parametrize("scaling_config", [None, _scaling(1), _scaling(0)])
+async def test_update_service_canary_below_two_replicas_raises_invalid_input_and_keeps_value(
+    setup, scaling_config: dict[str, object] | None
+) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+    detail.service.scaling_config = scaling_config
+    commits_before = s.session.commit_count
+
+    with pytest.raises(InvalidInputError) as error:
+        await service.update_service(
+            OWNER, detail.service.id, {"deployment_strategy": DeploymentStrategy.CANARY}
+        )
+
+    assert [(i.field, i.reason) for i in error.value.issues] == [
+        ("deploymentStrategy", "at_least_two_replicas_required")
+    ]
+    assert detail.service.deployment_strategy == DeploymentStrategy.ROLLING
+    assert s.session.commit_count == commits_before
+
+
+@pytest.mark.parametrize("strategy", [DeploymentStrategy.CANARY, DeploymentStrategy.BLUE_GREEN])
+async def test_update_service_progressive_strategy_with_two_replicas_saves_without_deployment(
+    setup, strategy: DeploymentStrategy
+) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+    detail.service.scaling_config = _scaling(2)
+
+    updated = await service.update_service(
+        OWNER, detail.service.id, {"deployment_strategy": strategy}
+    )
+
+    assert updated.service.deployment_strategy == strategy
+    assert s.deployments.requests == []
+
+
+async def test_update_service_canary_with_flag_off_raises_invalid_input() -> None:
+    s = Setup()
+    service = await s.build(deployment_strategy_enabled=False)
+    detail = await _create(service, s)
+    detail.service.scaling_config = _scaling(3)
+
+    with pytest.raises(InvalidInputError) as error:
+        await service.update_service(
+            OWNER, detail.service.id, {"deployment_strategy": DeploymentStrategy.CANARY}
+        )
+
+    assert [(i.field, i.reason) for i in error.value.issues] == [
+        ("deploymentStrategy", "deployment_strategy_disabled")
+    ]
+    assert detail.service.deployment_strategy == DeploymentStrategy.ROLLING
+
+
+async def test_update_service_rolling_with_flag_off_saves() -> None:
+    s = Setup()
+    service = await s.build(deployment_strategy_enabled=False)
+    detail = await _create(service, s)
+    detail.service.deployment_strategy = DeploymentStrategy.CANARY
+
+    updated = await service.update_service(
+        OWNER, detail.service.id, {"deployment_strategy": DeploymentStrategy.ROLLING}
+    )
+
+    assert updated.service.deployment_strategy == DeploymentStrategy.ROLLING
+
+
+async def test_update_service_keeps_saved_canary_after_scale_down(setup) -> None:
+    # 저장된 뒤 Pod 를 줄인 것은 막지 않는다. 같은 값을 다시 보내도 거절하지 않는다.
+    s, service = setup
+    detail = await _create(service, s)
+    detail.service.deployment_strategy = DeploymentStrategy.CANARY
+    detail.service.scaling_config = _scaling(1)
+
+    updated = await service.update_service(
+        OWNER,
+        detail.service.id,
+        {"deployment_strategy": DeploymentStrategy.CANARY, "port": 3000},
+    )
+
+    assert updated.service.deployment_strategy == DeploymentStrategy.CANARY
+    assert updated.service.port == 3000

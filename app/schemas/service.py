@@ -3,7 +3,13 @@ from typing import Annotated
 
 from pydantic import Field, StringConstraints
 
-from app.enums import Builder, DeploymentStatus, DeploymentTrigger, FailureCode
+from app.enums import (
+    Builder,
+    DeploymentStatus,
+    DeploymentStrategy,
+    DeploymentTrigger,
+    FailureCode,
+)
 from app.models.deployment_request import DeploymentRequest
 from app.models.target import Target
 from app.schemas.response import ApiModel
@@ -51,6 +57,16 @@ class ServiceUpdateRequest(ApiModel):
         ),
         examples=[[1]],
     )
+    deployment_strategy: DeploymentStrategy | None = Field(
+        default=None,
+        description=(
+            "배포 방식. 저장만 하고 배포를 만들지 않으며 다음 배포부터 적용된다."
+            " CANARY·BLUE_GREEN 은 저장된 Pod 수(`/scaling` 의 replicas, 없으면 1)가 2 이상이어야"
+            " 하고 기능이 켜져 있어야 한다. 아니면 `422 INVALID_INPUT`"
+            "(`details[].field = deploymentStrategy`)."
+        ),
+        examples=["CANARY"],
+    )
 
 
 class LatestDeploymentResponse(ApiModel):
@@ -94,6 +110,12 @@ class ServiceResponse(ApiModel):
     build_command: str | None = None
     start_command: str | None = None
     target_ids: list[int]
+    deployment_strategy: DeploymentStrategy = Field(
+        description=(
+            "다음 배포부터 쓸 배포 방식. Pod 가 2개 미만이면 배포할 때 ROLLING 으로 대체된다."
+        ),
+        examples=["ROLLING"],
+    )
     latest_deployment: LatestDeploymentResponse | None = Field(
         default=None, description="가장 최근 배포 요청. 배포한 적이 없으면 없다."
     )
@@ -118,6 +140,7 @@ class ServiceResponse(ApiModel):
             build_command=service.build_command,
             start_command=service.start_command,
             target_ids=detail.target_ids,
+            deployment_strategy=service.deployment_strategy,
             latest_deployment=(
                 LatestDeploymentResponse.from_model(detail.latest_deployment)
                 if detail.latest_deployment is not None

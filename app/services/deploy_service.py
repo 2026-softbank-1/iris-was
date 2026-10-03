@@ -33,6 +33,7 @@ from app.enums import (
     APP_PORT,
     Builder,
     DeploymentStatus,
+    DeploymentStrategy,
     Environment,
     FailureCode,
     JobKind,
@@ -46,6 +47,7 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.deployment_strategy import strategy_extra_wait
 from app.services.domain_service import service_host_label
 from app.services.scaling_config import ScalingConfig
 
@@ -89,7 +91,8 @@ def evaluate_release(
 
     operation 은 목표를 포함할 때만 본다. 직전 release 의 Failed operation 으로 오판하지 않으려고.
     성공은 operation 을 보지 않는다. 목표를 포함한 revision 에서 Synced 면 live 가 목표와 같고,
-    Argo 의 Deployment Healthy 는 rollout 완료를 뜻한다. 대기는 모두 deadline 에 걸린다.
+    Argo 의 Deployment·Rollout Healthy 는 rollout 완료를 뜻한다. 대기는 모두 deadline 에 걸린다.
+    카나리·블루그린 Rollout 이 단계 사이에 멈춘 동안의 `Suspended`·`Progressing` 도 대기다.
     """
     if status is not None:
         if operation_contained and status.operation_phase in _FAILED_PHASES:
@@ -118,6 +121,7 @@ def render_service_values(
     iris: Mapping[str, Any] | None = None,
     variables: Mapping[str, Any] | None = None,
     scaling: ScalingConfig | None = None,
+    deployment_strategy: DeploymentStrategy | None = None,
 ) -> str:
     """services/{service_id}/{타깃 디렉터리}/values.yaml 내용. iris-service chart 의 values 다.
 
@@ -126,6 +130,7 @@ def render_service_values(
 
     `iris`(서비스·타깃 이름, 배포 요청 id)와 `variables`(봉인한 사용자 변수 `name`·`encryptedData`,
     평문은 받지 않는다)는 chart 0.6.0 부터 받는다. 없으면 쓰지 않아 이전 chart 도 렌더링된다.
+    `deployment_strategy` 는 chart 0.7.0 부터 받는다. 없으면 chart 가 ROLLING 으로 렌더링한다.
     """
     health: dict[str, Any] = {"timeoutSeconds": deploy.healthcheck_timeout}
     if deploy.healthcheck_path:
@@ -151,6 +156,8 @@ def render_service_values(
         values["variables"] = dict(variables)
     if scaling is not None:
         values.update(scaling.model_dump(mode="json"))
+    if deployment_strategy is not None:
+        values["deploymentStrategy"] = deployment_strategy.value
     # Railpack 은 빌드 때 start command 를 이미지에 넣는다. Dockerfile 은 ENTRYPOINT·CMD 를
     # exec form 으로 덮어쓴다(셸을 거치지 않아 $VAR 가 풀리지 않는다. 필요하면 sh -c 로 감싼다).
     if builder == Builder.DOCKERFILE and deploy.start_command_args:
@@ -243,7 +250,9 @@ class DeployService:
         async with self._session_factory.begin() as session:
             release = await ReleaseRepository(session).get_by_id(release.id, for_update=True)
             if release.deadline_at is None:
-                release.confirm_commit(_deadline(deploy))
+                release.confirm_commit(
+                    _deadline(deploy, release.deployment_request.deployment_strategy)
+                )
                 _add_job(session, release, JobKind.RECONCILE)
             await JobRepository(session).mark_succeeded(job.id)
         logger.info(
@@ -321,6 +330,7 @@ class DeployService:
                     if release.deployment_request.scaling_snapshot is not None
                     else None
                 ),
+                deployment_strategy=self._deployment_strategy(release),
             )
         }
 
@@ -354,6 +364,16 @@ class DeployService:
             "targetName": release.target.name,
             "deploymentId": release.deployment_request_id,
         }
+
+    def _deployment_strategy(self, release: Release) -> DeploymentStrategy | None:
+        """요청에 적용한 배포 방식. 기능을 켠 Worker 만 values 에 쓴다.
+
+        이전 chart(0.7.0 미만)의 schema 는 모르는 키를 거절하므로 켜지 않은 Worker 는 키를 쓰지
+        않는다. 기능 도입 전 요청은 방식이 없어 ROLLING 이다.
+        """
+        if not self._settings.deployment_strategy_enabled:
+            return None
+        return release.deployment_request.deployment_strategy or DeploymentStrategy.ROLLING
 
     async def _seal_variables(self, release: Release) -> dict[str, Any] | None:
         """요청 스냅샷의 변수를 풀어 이 release 전용으로 다시 봉인한다. 변수가 없으면 None.
@@ -540,7 +560,10 @@ class DeployService:
         async with self._session_factory.begin() as session:
             release = await ReleaseRepository(session).get_by_id(release.id, for_update=True)
             if release.status == ReleaseStatus.PENDING:
-                release.start_rollback(_deadline(deploy))
+                # revert 는 이전 정상 release 의 values 로 돌아가므로 그 방식으로 교체된다.
+                release.start_rollback(
+                    _deadline(deploy, previous.deployment_request.deployment_strategy)
+                )
                 _add_job(session, release, JobKind.RECONCILE)
             await JobRepository(session).mark_succeeded(job.id)
         logger.info(
@@ -838,8 +861,14 @@ def _add_job(session: AsyncSession, release: Release, kind: JobKind) -> None:
     )
 
 
-def _deadline(deploy: DeployConfig) -> datetime:
-    return datetime.now(UTC) + timedelta(seconds=deploy.healthcheck_timeout) + DEADLINE_MARGIN
+def _deadline(deploy: DeployConfig, strategy: DeploymentStrategy | None) -> datetime:
+    """Argo CD 반영·정상화 기한. 카나리·블루그린은 chart 의 고정 대기 시간만큼 더 기다린다."""
+    return (
+        datetime.now(UTC)
+        + timedelta(seconds=deploy.healthcheck_timeout)
+        + DEADLINE_MARGIN
+        + strategy_extra_wait(strategy)
+    )
 
 
 def _argo_application_name(service_id: int) -> str:

@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from app.clients.argocd_client import ArgoAppStatus
-from app.enums import Builder
+from app.enums import Builder, DeploymentStrategy
 from app.services.builder_detection import DeployConfig
 from app.services.deploy_service import (
     Verdict,
@@ -47,6 +47,15 @@ def _status(
             Verdict.WAIT,
         ),
         (_status(health_status="Progressing"), True, False, NOW, Verdict.WAIT),
+        # 카나리·블루그린 Rollout 이 단계 사이에서 멈춘 동안이다.
+        (_status(health_status="Suspended"), True, False, NOW, Verdict.WAIT),
+        (
+            _status(health_status="Suspended"),
+            True,
+            False,
+            DEADLINE + timedelta(seconds=1),
+            Verdict.TIMED_OUT,
+        ),
         (
             _status(health_status="Progressing"),
             True,
@@ -80,6 +89,7 @@ def _render(
     scaling: ScalingConfig | None = None,
     iris: dict[str, Any] | None = None,
     variables: dict[str, Any] | None = None,
+    deployment_strategy: DeploymentStrategy | None = None,
 ) -> dict[str, Any]:
     content = render_service_values(
         host_label="my-app",
@@ -93,6 +103,7 @@ def _render(
         iris=iris,
         variables=variables,
         scaling=scaling,
+        deployment_strategy=deployment_strategy,
     )
     values: dict[str, Any] = json.loads(content)
     return values
@@ -164,6 +175,19 @@ def test_render_service_values_variables_are_written_as_given() -> None:
 
 def test_render_service_values_without_variables_omits_the_key() -> None:
     assert "variables" not in _render(DeployConfig())
+
+
+@pytest.mark.parametrize("strategy", list(DeploymentStrategy))
+def test_render_service_values_with_strategy_writes_deployment_strategy(
+    strategy: DeploymentStrategy,
+) -> None:
+    assert _render(DeployConfig(), deployment_strategy=strategy)["deploymentStrategy"] == (
+        strategy.value
+    )
+
+
+def test_render_service_values_without_strategy_omits_the_key() -> None:
+    assert "deploymentStrategy" not in _render(DeployConfig())
 
 
 def test_render_service_values_healthcheck_path_sets_health_path() -> None:

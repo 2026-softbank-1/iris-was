@@ -4,7 +4,13 @@ from itertools import count
 from typing import Any
 
 from app.core.exceptions import DeploymentRequestNotFoundError
-from app.enums import ACTIVE_DEPLOYMENT_STATUSES, BuildStatus, DeploymentStatus, Environment
+from app.enums import (
+    ACTIVE_DEPLOYMENT_STATUSES,
+    BuildStatus,
+    DeploymentStatus,
+    DeploymentStrategy,
+    Environment,
+)
 from app.models.base import now_utc
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
@@ -18,9 +24,11 @@ class FakeWebhookServiceRepository:
     def __init__(self, services: list[Service]) -> None:
         self.services = services
 
-    async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
+    async def get_deployment_settings_for_update(
+        self, service_id: int
+    ) -> tuple[dict[str, Any] | None, DeploymentStrategy]:
         service = next(service for service in self.services if service.id == service_id)
-        return service.scaling_config
+        return service.scaling_config, service.deployment_strategy or DeploymentStrategy.ROLLING
 
     async def search_auto_deploy_by_repository_url_and_branch(
         self, repository_url: str, branch: str

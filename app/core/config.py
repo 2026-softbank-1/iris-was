@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     build_log_group: str | None = None
     # 소스 업로드의 압축한 바이트 한도. Build Worker 의 snapshot_max_bytes 와 같게 둔다.
     upload_max_bytes: int = DEFAULT_SNAPSHOT_MAX_BYTES
+    # 카나리·블루그린 배포 방식. Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 두 방식을 저장할
+    # 수 없고 새 배포 요청은 ROLLING 으로 적용한다. iris-service chart 0.7.0 이 배포된 뒤에 켠다.
+    deployment_strategy_enabled: bool = False
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -132,6 +135,9 @@ class DeployWorkerSettings(BaseSettings):
     variables_encryption_key: SecretStr | None = None
     # workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다). 변수를 봉인할 때 쓴다.
     sealed_secrets_cert: str | None = None
+    # values 에 deploymentStrategy 를 쓴다. 이 키를 모르는 이전 chart(0.7.0 미만)의 schema 가
+    # 거절하므로 chart 0.7.0 이 배포된 뒤에 켠다. Control API 와 같은 값으로 둔다.
+    deployment_strategy_enabled: bool = False
 
 
 @lru_cache

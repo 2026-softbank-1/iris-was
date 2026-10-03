@@ -3,7 +3,7 @@
 from itertools import count
 from typing import Any
 
-from app.enums import TargetKind
+from app.enums import DeploymentStrategy, TargetKind
 from app.models.base import now_utc
 from app.models.project import Project
 from app.models.service import Service
@@ -58,8 +58,11 @@ class FakeServiceRepository:
         self.targets: dict[int, set[int]] = {}
         self._ids = count(1)
 
-    async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
-        return self.services[service_id].scaling_config
+    async def get_deployment_settings_for_update(
+        self, service_id: int
+    ) -> tuple[dict[str, Any] | None, DeploymentStrategy]:
+        service = self.services[service_id]
+        return service.scaling_config, service.deployment_strategy or DeploymentStrategy.ROLLING
 
     async def find_by_id_and_owner_id(
         self, service_id: int, owner_id: int, *, for_update: bool = False
@@ -103,6 +106,7 @@ class FakeServiceRepository:
             service.created_at = service.updated_at = now_utc()
             service.is_deleted = False
             service.platform = service.platform or "linux/amd64"
+            service.deployment_strategy = service.deployment_strategy or DeploymentStrategy.ROLLING
             if service.is_auto_deploy is None:
                 service.is_auto_deploy = True
         self.services[service.id] = service

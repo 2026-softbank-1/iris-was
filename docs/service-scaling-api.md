@@ -39,6 +39,7 @@ Idempotency-Key: scale-12-20261003
 ## 입력 규칙
 
 - `replicas`는 JSON 정수 0~10이다. 0이면 Pod가 0개가 되어 요청을 처리하지 못하며 Application·Service·Ingress는 유지된다. 완전한 배포 제거는 기존 `REMOVE` 요청을 쓴다.
+- 서비스 배포 방식이 `CANARY`·`BLUE_GREEN` 이어도 replicas 를 2 미만으로 바꾸는 것은 막지 않는다. 그 RESTART(와 이후 배포)는 적용 방식이 `ROLLING` 으로 대체되고 배포 응답의 `deploymentStrategy` 로 확인한다. 웹이 미리 경고한다([ADR 0028](adr/0028-deployment-strategy-selection.md)).
 - `resources.requests`와 `resources.limits`의 CPU·memory를 모두 보낸다. 알 수 없는 필드는 거부한다.
 - CPU는 양수 문자열이며 코어(`"1"`, `"0.5"`, 소수점 최대 3자리) 또는 정수 millicore(`"250m"`)로 표현한다.
 - 메모리는 양수 문자열이며 bytes(`"536870912"`), binary 단위(`Ki`, `Mi`, `Gi`, `Ti`, `Pi`, `Ei`) 또는 decimal 단위(`k`, `M`, `G`, `T`, `P`, `E`)를 쓴다. 소수점 최대 3자리까지 받는다.

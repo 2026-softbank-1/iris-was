@@ -60,6 +60,14 @@ class DeploymentTrigger(StrEnum):
     REMOVE = "REMOVE"
 
 
+class DeploymentStrategy(StrEnum):
+    """새 Pod 로 바꾸는 방식. 단계·대기 시간은 iris-service chart 가 정한다."""
+
+    ROLLING = "ROLLING"
+    CANARY = "CANARY"
+    BLUE_GREEN = "BLUE_GREEN"
+
+
 class BuildStatus(StrEnum):
     PENDING = "PENDING"
     SNAPSHOTTING = "SNAPSHOTTING"
