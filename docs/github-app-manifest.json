@@ -1,0 +1,21 @@
+{
+  "name": "anydeploy-iris-dev",
+  "url": "https://likelion.uk",
+  "public": true,
+  "hook_attributes": {
+    "url": "https://api.likelion.uk/api/v1/webhooks/github",
+    "active": true
+  },
+  "callback_urls": [
+    "https://api.likelion.uk/api/v1/auth/github/callback"
+  ],
+  "request_oauth_on_install": true,
+  "default_permissions": {
+    "contents": "write",
+    "pull_requests": "write",
+    "metadata": "read"
+  },
+  "default_events": [
+    "push"
+  ]
+}

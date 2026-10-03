@@ -183,3 +183,15 @@ async def test_access_check_hides_other_users_service(
         await client.get(f"/api/v1/services/{setup.service.id}/repair-access")
     ).status_code == 404
     assert github.repair_token_requests == []
+
+
+def test_new_app_manifest_requests_both_write_permissions_on_first_install() -> None:
+    import json
+    from pathlib import Path
+
+    manifest = json.loads(
+        (Path(__file__).resolve().parents[1] / "docs/github-app-manifest.json").read_text()
+    )
+    assert manifest["default_permissions"]["contents"] == "write"
+    assert manifest["default_permissions"]["pull_requests"] == "write"
+    assert manifest["request_oauth_on_install"] is True

@@ -59,3 +59,4 @@
 | [0023](0023-cli-source-upload-storage-and-archive-defense.md) | `likelion up` 업로드는 Control API 가 받아 S3 에 두고, Build Worker 가 검사하며 스냅샷으로 다시 묶는다 | 제안됨 (iris-infra IAM·CLI E2E 대기) |
 | [0024](0024-durable-code-repair-candidate-api.md) | 실패 진단과 고정 소스로 코드 수정 후보를 생성하고 영속 상태·artifact를 제공한다 | 제안됨 |
 | [0025](0025-web-code-repair-publication.md) | 웹 AI 수정은 후보 검토 후 WAS에서 핫픽스 PR 게시와 main 머지를 별도 실행한다 | 제안됨 |
+| [0026](0026-one-click-automatic-repair.md) | AI 수정 클릭은 후보 생성부터 핫픽스 PR과 main 자동 머지까지 승인한다 | 제안됨 |

@@ -84,3 +84,68 @@ async def test_publication_lock_serializes_replicas_and_persists_resume_state(se
         assert resumed.request_metadata["publication"]["status"] == "PR_OPENED"
         assert resumed.request_metadata["publication"]["pullUrl"] == "https://github.com/o/r/pull/1"
         await second.rollback()
+
+
+async def test_automatic_queue_requires_explicit_authorization_and_current_owner(sessions):
+    async with sessions() as session:
+        service = await seed_service(session)
+        owner = await session.scalar(
+            select(Project.owner_id).where(Project.id == service.project_id)
+        )
+        deployment = await add(
+            session,
+            DeploymentRequest(
+                service_id=service.id,
+                environment=Environment.PROD,
+                source_sha="a" * 40,
+                trigger_type=DeploymentTrigger.MANUAL,
+                idempotency_key="queue-test",
+                requested_by=owner,
+                status=DeploymentStatus.FAILED,
+            ),
+        )
+        diagnosis = await add(
+            session,
+            DeploymentDiagnosis(
+                deployment_request_id=deployment.id, status=DiagnosisStatus.SUCCEEDED, result={}
+            ),
+        )
+        repair = await add(
+            session,
+            DeploymentRepair(
+                service_id=service.id,
+                deployment_request_id=deployment.id,
+                diagnosis_id=diagnosis.id,
+                requested_by=owner,
+                idempotency_key="queue-test",
+                input_digest="d" * 64,
+                source_sha="a" * 40,
+                source_repository_url=service.source_repository_url,
+                root_directory=".",
+                plan_ids=["R1"],
+                diagnosis_result={},
+                request_metadata={"publication": {"status": "QUEUED"}},
+                status="SUCCEEDED",
+                deadline_at=now_utc() + timedelta(minutes=5),
+            ),
+        )
+        repo = DeploymentRepairRepository(session)
+        assert await repo.pending_automatic() == []
+        repair.request_metadata = {"autoMerge": True, "publication": {"status": "QUEUED"}}
+        await session.flush()
+        assert [r.id for r in await repo.pending_automatic()] == [repair.id]
+        repair.request_metadata = {"autoMerge": True, "publication": {"status": "MERGED"}}
+        await session.flush()
+        assert await repo.pending_automatic() == []
+        repair.request_metadata = {"autoMerge": True, "publication": {"status": "WAITING_CHECKS"}}
+        service.is_deleted = True
+        await session.flush()
+        assert await repo.pending_automatic() == []
+        repair.status = "RUNNING"
+        await session.flush()
+        deadline = now_utc() + timedelta(minutes=4)
+        assert await repo.claim_generation(repair.id, deadline_at=deadline)
+        assert not await repo.claim_generation(
+            repair.id, deadline_at=deadline + timedelta(minutes=5)
+        )
+        assert (await repo.get_by_id(repair.id)).deadline_at == deadline

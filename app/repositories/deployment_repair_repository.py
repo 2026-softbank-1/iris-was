@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select, update
@@ -8,11 +9,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models.base import now_utc
 from app.models.deployment_repair import DeploymentRepair
+from app.models.project import Project
+from app.models.service import Service
 
 
 class DeploymentRepairRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def pending_automatic(self) -> list[DeploymentRepair]:
+        return list(
+            await self._session.scalars(
+                select(DeploymentRepair)
+                .join(Service, Service.id == DeploymentRepair.service_id)
+                .join(Project, Project.id == Service.project_id)
+                .where(
+                    Project.owner_id == DeploymentRepair.requested_by,
+                    Service.is_deleted.is_(False),
+                    Project.is_deleted.is_(False),
+                    DeploymentRepair.request_metadata["autoMerge"].as_boolean().is_(True),
+                    DeploymentRepair.status.in_(["RUNNING", "UNKNOWN_OUTCOME", "SUCCEEDED"]),
+                    DeploymentRepair.request_metadata["publication"]["status"]
+                    .as_string()
+                    .not_in(["MERGED", "ERROR", "SKIPPED"]),
+                )
+                .order_by(DeploymentRepair.id)
+                .limit(8)
+            )
+        )
 
     async def latest(
         self, service_id: int, deployment_id: int, diagnosis_id: int
@@ -46,7 +70,9 @@ class DeploymentRepairRepository:
         except DBAPIError as exc:
             await self._session.rollback()
             if getattr(exc.orig, "sqlstate", None) == "55P03":
-                raise ConflictError("repair publication is already running") from None
+                raise ConflictError(
+                    "repair publication is already running", publication_busy=True
+                ) from None
             raise
 
     async def find_by_service_id_and_key(
@@ -94,7 +120,9 @@ class DeploymentRepairRepository:
         )
         return (await self._session.scalars(statement)).one_or_none()
 
-    async def claim_generation(self, repair_id: int) -> bool:
+    async def claim_generation(
+        self, repair_id: int, *, deadline_at: datetime | None = None
+    ) -> bool:
         statement = (
             update(DeploymentRepair)
             .where(
@@ -102,7 +130,10 @@ class DeploymentRepairRepository:
                 DeploymentRepair.status == "RUNNING",
                 DeploymentRepair.generation_started_at.is_(None),
             )
-            .values(generation_started_at=now_utc())
+            .values(
+                generation_started_at=now_utc(),
+                **({"deadline_at": deadline_at} if deadline_at is not None else {}),
+            )
             .returning(DeploymentRepair.id)
         )
         return (await self._session.scalars(statement)).one_or_none() is not None

@@ -28,6 +28,11 @@ class CreateRepairRequest(ApiModel):
         return values
 
 
+class CreateAutomaticRepairRequest(ApiModel):
+    model_config = CreateRepairRequest.model_config
+    diagnosis_id: int = Field(gt=0)
+
+
 class RepairResponse(ApiModel):
     id: int
     deployment_id: int
@@ -40,6 +45,7 @@ class RepairResponse(ApiModel):
     created_at: datetime
     finished_at: datetime | None = None
     publication: dict[str, Any] | None = None
+    auto_merge: bool = False
 
     @classmethod
     def from_model(cls, repair: DeploymentRepair) -> Self:
@@ -55,6 +61,7 @@ class RepairResponse(ApiModel):
             created_at=repair.created_at,
             finished_at=repair.finished_at,
             publication=repair.request_metadata.get("publication"),
+            auto_merge=bool(repair.request_metadata.get("autoMerge")),
         )
 
 

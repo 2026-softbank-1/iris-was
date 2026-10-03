@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Header, Query, Response
 
 from app.dependencies import (
+    AutomaticRepairServiceDep,
     CurrentUserDep,
     RepairGithubAuthServiceDep,
     RepairPublicationServiceDep,
@@ -10,6 +11,7 @@ from app.dependencies import (
     RepairServiceOpenerDep,
 )
 from app.schemas.repair import (
+    CreateAutomaticRepairRequest,
     CreateRepairRequest,
     RepairAccessResponse,
     RepairGithubTokenRequest,
@@ -233,4 +235,44 @@ async def merge_repair(
         data=RepairResponse.from_model(
             await service.execute(user.id, service_id, repair_id, "merge")
         )
+    )
+
+
+@router.post(
+    "/deployments/{deployment_id}/auto-repair",
+    response_model=ApiResponse[RepairResponse],
+    status_code=202,
+    response_model_exclude_none=True,
+    summary="AI 수정 한 번으로 후보 생성·핫픽스 PR·main 자동 머지",
+    responses=error_responses(401, 403, 404, 409, 422, 502, 503),
+)
+async def start_automatic_repair(
+    service_id: int,
+    deployment_id: int,
+    body: CreateAutomaticRepairRequest,
+    user: CurrentUserDep,
+    service: AutomaticRepairServiceDep,
+    idempotency_key: Annotated[
+        str, Header(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    ],
+) -> ApiResponse[RepairResponse]:
+    started = await service.start(
+        user.id, service_id, deployment_id, body.diagnosis_id, idempotency_key
+    )
+    return ApiResponse(data=RepairResponse.from_model(started.repair))
+
+
+@router.post(
+    "/repairs/{repair_id}/auto",
+    response_model=ApiResponse[RepairResponse],
+    status_code=202,
+    response_model_exclude_none=True,
+    summary="기존 후보로 자동 핫픽스 게시·머지 시작 또는 재개",
+    responses=error_responses(401, 403, 404, 409, 422, 502, 503),
+)
+async def resume_automatic_repair(
+    service_id: int, repair_id: int, user: CurrentUserDep, service: AutomaticRepairServiceDep
+) -> ApiResponse[RepairResponse]:
+    return ApiResponse(
+        data=RepairResponse.from_model(await service.resume(user.id, service_id, repair_id))
     )

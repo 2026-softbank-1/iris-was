@@ -16,7 +16,7 @@ from app.core.database import get_engine
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
-from app.dependencies import build_diagnosis_service_opener
+from app.dependencies import build_automatic_repair_opener, build_diagnosis_service_opener
 from app.routers import (
     auth_router,
     cli_login_router,
@@ -36,6 +36,7 @@ from app.routers import (
     webhook_router,
 )
 from app.services.auto_diagnosis import AutoDiagnosisRunner
+from app.services.automatic_repair_service import AutomaticRepairRunner
 
 configure_logging("control-api", get_settings().log_level)
 logger = logging.getLogger(__name__)
@@ -52,9 +53,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with httpx.AsyncClient(timeout=HTTP_CLIENT_TIMEOUT_SECONDS) as http_client:
         app.state.http_client = http_client
         auto_diagnosis = _start_auto_diagnosis(settings, http_client)
+        automatic_repair = None
+        if all(
+            (
+                settings.repair_agent_url,
+                settings.repair_agent_api_key,
+                settings.github_app_id,
+                settings.github_app_private_key,
+            )
+        ):
+            automatic_repair = AutomaticRepairRunner(
+                build_automatic_repair_opener(settings, http_client)
+            )
+            automatic_repair.start()
         try:
             yield
         finally:
+            if automatic_repair is not None:
+                await automatic_repair.stop()
             if auto_diagnosis is not None:
                 await auto_diagnosis.stop()
     await get_engine().dispose()
