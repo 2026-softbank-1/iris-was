@@ -56,3 +56,4 @@
 | [0020](0020-ai-error-diagnosis-via-agent-server.md) | 실패한 배포의 AI 진단은 Control API 가 에이전트 서버를 호출하고 결과를 DB 에 저장한다 | 제안됨 (에이전트 서버 배포 대기) |
 | [0021](0021-deployment-detail-logs-api.md) | 배포 상세 화면의 로그 API 는 Control API 가 읽기 전용으로 조회하고 빌드 로그는 CloudWatch 에서 읽는다 | 수락됨 (iris-infra IAM 권한 추가 대기) |
 | [0022](0022-delete-service-also-removes-app.md) | 서비스·프로젝트를 지우면 떠 있는 앱도 함께 내린다 | 수락됨 |
+| [0023](0023-cli-source-upload-storage-and-archive-defense.md) | `likelion up` 업로드는 Control API 가 받아 S3 에 두고, Build Worker 가 검사하며 스냅샷으로 다시 묶는다 | 제안됨 (iris-infra IAM·CLI E2E 대기) |
