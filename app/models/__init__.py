@@ -2,6 +2,7 @@
 from app.models.base import Base
 from app.models.build import Build
 from app.models.cli_login_session import CliLoginSession
+from app.models.deployment_diagnosis import DeploymentDiagnosis
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
@@ -16,6 +17,7 @@ __all__ = [
     "Base",
     "Build",
     "CliLoginSession",
+    "DeploymentDiagnosis",
     "DeploymentRequest",
     "DeploymentStatusHistory",
     "GithubInstallation",

@@ -102,6 +102,47 @@ class VariableNotFoundError(NotFoundError):
     code = "VARIABLE_NOT_FOUND"
 
 
+class DiagnosisNotFoundError(NotFoundError):
+    code = "DIAGNOSIS_NOT_FOUND"
+
+
+class DeploymentNotFailedError(ConflictError):
+    """실패하지 않은 배포는 진단하지 않는다. 현재 상태를 fields 에 담는다."""
+
+    code = "DEPLOYMENT_NOT_FAILED"
+
+
+class DiagnosisInProgressError(ConflictError):
+    """같은 배포 요청을 진단하는 중이다. 끝난 뒤 결과를 조회한다."""
+
+    code = "DIAGNOSIS_IN_PROGRESS"
+
+
+class DiagnosisLogsUnavailableError(ConflictError):
+    """진단할 로그가 없다. 로그 없이 원인을 추측하지 않는다."""
+
+    code = "DIAGNOSIS_LOGS_UNAVAILABLE"
+
+
+class DiagnosisAgentError(ExternalError):
+    """에러 진단 에이전트 호출 실패. 에이전트가 준 오류 코드를 agent_code 에 담는다.
+
+    에이전트의 메시지는 입력 일부를 담을 수 있어 옮기지 않는다.
+    """
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        agent_code: str | None = None,
+        agent_status: int | None = None,
+        **fields: object,
+    ) -> None:
+        super().__init__(message, agent_code=agent_code, agent_status=agent_status, **fields)
+        self.agent_code = agent_code
+        self.agent_status = agent_status
+
+
 class ProjectNameConflictError(ConflictError):
     code = "PROJECT_NAME_CONFLICT"
 

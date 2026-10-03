@@ -16,7 +16,13 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.clients.aws_clients import ArtifactStore, CodeBuildClient, EcrClient
+from app.clients.aws_clients import (
+    ArtifactStore,
+    BuildLogClient,
+    CodeBuildClient,
+    CodeBuildResult,
+    EcrClient,
+)
 from app.clients.github_client import GitHubClient, SourceTooLargeError
 from app.core.config import BuildWorkerSettings
 from app.core.exceptions import BuildFailedError, ExternalError, ForbiddenError, NotFoundError
@@ -25,6 +31,7 @@ from app.models import Build, Job
 from app.repositories.build_repository import BuildRepository
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
+from app.services.build_log import to_log_tail
 from app.services.builder_detection import CONFIG_FILE_NAME, detect_builder, parse_iris_config
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.repository_url import parse_repository_url
@@ -34,6 +41,8 @@ logger = logging.getLogger(__name__)
 JOB_KINDS = frozenset({JobKind.BUILD})
 RETRY_BASE_DELAY = timedelta(seconds=30)
 _MAX_CONFIG_BYTES = 64 * 1024
+# 실패한 빌드에서 CloudWatch 로 읽어 올 마지막 줄 수. 저장 한도는 build_log.to_log_tail 이 정한다.
+LOG_TAIL_FETCH_LINES = 300
 _MAX_ERROR_LENGTH = 1000
 # 사용자 소스·설정이 실행되는 buildspec 단계. 그 밖의 단계 실패는 인프라 오류로 재시도한다.
 _FAILURE_CODE_BY_PHASE = {
@@ -51,6 +60,7 @@ class BuildService:
         codebuild: CodeBuildClient,
         ecr: EcrClient,
         artifacts: ArtifactStore,
+        build_logs: BuildLogClient,
         settings: BuildWorkerSettings,
         worker_id: str,
     ) -> None:
@@ -59,6 +69,7 @@ class BuildService:
         self._codebuild = codebuild
         self._ecr = ecr
         self._artifacts = artifacts
+        self._build_logs = build_logs
         self._settings = settings
         self._worker_id = worker_id
 
@@ -214,11 +225,13 @@ class BuildService:
             )
             await self._close(job, build.id, image_digest=image_digest)
         elif result.status == "FAILED" and result.failed_phase in _FAILURE_CODE_BY_PHASE:
+            await self._record_log_tail(build.id, result)
             raise BuildFailedError(
                 _FAILURE_CODE_BY_PHASE[result.failed_phase],
                 f"codebuild failed in {result.failed_phase}",
             )
         elif result.status == "TIMED_OUT":
+            await self._record_log_tail(build.id, result)
             raise BuildFailedError(FailureCode.BUILD_TIMED_OUT)
         else:
             # FAULT·외부 STOPPED·인프라 단계 실패: 다음 시도에서 CodeBuild 를 새로 시작한다.
@@ -227,6 +240,26 @@ class BuildService:
                     await BuildRepository(session).get_by_id(build.id, for_update=True)
                 ).reset_codebuild()
             raise ExternalError("codebuild fault", codebuild_status=result.status)
+
+    async def _record_log_tail(self, build_id: int, result: CodeBuildResult) -> None:
+        """실패한 빌드의 로그 끝부분을 남겨 AI 진단이 쓰게 한다. 못 읽어도 실패 처리는 그대로다."""
+        if result.log_group is None or result.log_stream is None:
+            return
+        try:
+            tail = await self._build_logs.fetch_tail(
+                result.log_group, result.log_stream, LOG_TAIL_FETCH_LINES
+            )
+        except ExternalError:
+            # 권한이 없거나 로그가 아직 없는 경우다. 진단만 로그 없이 진행되고 빌드 결과는 같다.
+            logger.warning(
+                "build log tail not recorded",
+                extra={"action": "record_log_tail", "build_id": build_id},
+                exc_info=True,
+            )
+            return
+        async with self._session_factory.begin() as session:
+            build = await BuildRepository(session).get_by_id(build_id, for_update=True)
+            build.record_log_tail(to_log_tail(tail))
 
     async def _close(
         self, job: Job, build_id: int, *, cancel: bool = False, image_digest: str | None = None
