@@ -164,6 +164,8 @@ Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub Ap
 | `GITOPS_REPOSITORY` | `{owner}/gitops-environments`. `main` 에 fast-forward 커밋만 한다 |
 | `GITOPS_APP_ID` · `GITOPS_APP_PRIVATE_KEY` · `GITOPS_INSTALLATION_ID` | `iris-gitops` GitHub App(contents:write, GitOps 저장소에만 설치) |
 | `ARGOCD_SERVER_URL` · `ARGOCD_TOKEN` | Argo CD API 주소, project role `deploy-reader` 토큰(applications get) |
+| `VARIABLES_ENCRYPTION_KEY` | Control API 와 같은 값. 배포 요청의 변수 스냅샷(암호문)을 풀 때 쓴다. 변수가 있는 배포에만 필요하고, 변수가 있는데 없으면 그 배포는 `DEPLOY_INFRA_ERROR` 로 실패한다 |
+| `SEALED_SECRETS_CERT` | workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다. `\n` 두 글자로 적어도 된다). [runbook](https://github.com/2026-softbank-1/iris-infra/blob/main/docs/runbooks/sealed-secrets.md) 에서 꺼낸다. **설정하면 사용자 변수 기능이 켜져** values 에 `iris`·`variables` 를 쓴다. `iris-service` chart 0.6.0 이상이 배포된 뒤에만 설정한다(이전 chart 는 모르는 키를 거절해 모든 배포가 실패한다). 비어 있으면 이전과 같은 values 를 쓴다 |
 
 ## 실행
 
@@ -177,7 +179,7 @@ Worker 는 일이 없으면 `jobs` 트리거의 `NOTIFY jobs, <kind>`·가장 �
 
 Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
 
-Deploy Worker 흐름: DEPLOY 선점 → release(PENDING) 생성(서비스·타깃마다 1개, 진행 중이면 snooze) → `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart values) 렌더링 → 커밋 SHA 기록 → `main` fast-forward → RECONCILE 이 10초마다 Argo CD 상태 확인(대기 중에는 job 을 잡지 않고 snooze) → 성공이면 ECR `r-{release_id}` 태그·`SUCCEEDED`, 실패면 이전 정상 release 의 디렉터리로 되돌리는 revert commit(ROLLBACK). 상세는 [.claude/docs/deploy-worker-plan.md](.claude/docs/deploy-worker-plan.md), 로컬 테스트는 [docs/deploy-worker-test-guide.md](docs/deploy-worker-test-guide.md).
+Deploy Worker 흐름: DEPLOY 선점 → release(PENDING) 생성(서비스·타깃마다 1개, 진행 중이면 snooze) → `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart values) 렌더링(`SEALED_SECRETS_CERT` 가 있으면: 요청의 변수 스냅샷은 풀어 `svc-{service_id}` + `vars-r{release_id}` 용으로 다시 봉인해 `variables` 에 넣고, 서비스·타깃 이름과 배포 요청 id 는 `iris` 에 넣는다. [ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md)) → 커밋 SHA 기록 → `main` fast-forward → RECONCILE 이 10초마다 Argo CD 상태 확인(대기 중에는 job 을 잡지 않고 snooze) → 성공이면 ECR `r-{release_id}` 태그·`SUCCEEDED`, 실패면 이전 정상 release 의 디렉터리로 되돌리는 revert commit(ROLLBACK). 상세는 [.claude/docs/deploy-worker-plan.md](.claude/docs/deploy-worker-plan.md), 로컬 테스트는 [docs/deploy-worker-test-guide.md](docs/deploy-worker-test-guide.md).
 
 로그는 stdout 에 JSON 한 줄씩 나간다. 로컬에서는 `... | jq` 로 보면 편하다. 로깅·응답·예외 구조는 [docs/api-response-logging-template.md](docs/api-response-logging-template.md) 참조.
 

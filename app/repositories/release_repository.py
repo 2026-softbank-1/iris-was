@@ -1,7 +1,7 @@
 from sqlalchemy import ColumnElement, Select, exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.enums import DeploymentStatus, DeploymentTrigger, ReleaseStatus, TargetKind
@@ -81,6 +81,8 @@ class ReleaseRepository:
 def _select_with_relations() -> Select[Release]:
     return select(Release).options(
         joinedload(Release.build, innerjoin=True),
+        # 모든 서비스가 공유하는 타깃 행을 for_update 로 잠그지 않도록 따로 읽는다.
+        selectinload(Release.target),
         joinedload(Release.deployment_request, innerjoin=True).joinedload(
             DeploymentRequest.service, innerjoin=True
         ),

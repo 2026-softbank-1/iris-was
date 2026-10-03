@@ -239,14 +239,15 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 - 한 서비스에 최대 100개, 값은 최대 32KiB 다. 삭제는 소프트 삭제가 아니라 물리 삭제다(값을 남기지 않는다).
 - **배포 스냅샷**: 배포 요청을 만들 때 `deployment_requests.variables_snapshot` 에 `{key: encrypted_value}` 를 복사한다. `ROLLBACK` 요청은 원본 요청의 스냅샷을, 그 밖의 요청(`MANUAL`·`PUSH`·`REDEPLOY`·`RESTART`)은 그 시점의 서비스 변수를 담는다. 그래서 변수를 고친 뒤 재배포하면 고친 값이 반영된다.
+- **앱 전달**: Deploy Worker 가 스냅샷을 풀어 Sealed Secrets controller 공개 인증서로 다시 봉인한다(namespace `svc-{service_id}`, Secret 이름 `vars-r{release_id}`). (`SEALED_SECRETS_CERT` 를 설정해 이 기능을 켠 Worker 만. chart 0.6.0 이상이 필요하다.) 결과를 `values.yaml` 의 `variables.name`·`variables.encryptedData` 로 커밋하고, iris-service chart 가 SealedSecret 과 `envFrom` 을 만든다. 평문은 메모리에만 있고 Git 에 남지 않는다 (ADR 0017).
 - **자동 주입 변수**(system variables): 플랫폼이 배포할 때 앱에 넣는다. 사용자 변수보다 우선해 덮어쓸 수 없다. 저장하지 않고 `build_system_variables`(`app/services/variable_service.py`)가 이름·설명을 만든다.
 
 | 이름 | 값 | 주입 |
 |---|---|---|
 | `PORT` | `APP_PORT`(8080) | chart |
-| `IRIS_SERVICE_NAME` | 서비스 이름 | chart 에 추가 필요 |
-| `IRIS_TARGET_NAME` | 배포되는 타깃 이름 | chart 에 추가 필요 |
-| `IRIS_DEPLOYMENT_ID` | 앱을 띄운 배포 요청 id | chart 에 추가 필요 |
+| `IRIS_SERVICE_NAME` | 서비스 이름 | chart 0.6.0 (values `iris.serviceName`) |
+| `IRIS_TARGET_NAME` | 배포되는 타깃 이름 | chart 0.6.0 (values `iris.targetName`) |
+| `IRIS_DEPLOYMENT_ID` | 앱을 띄운 배포 요청 id | chart 0.6.0 (values `iris.deploymentId`) |
 | `IRIS_PUBLIC_DOMAIN` | 서비스의 공개 도메인 | chart |
 | `IRIS_GIT_COMMIT_SHA` | 배포한 소스 커밋 SHA | chart |
 
