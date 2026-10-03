@@ -89,6 +89,8 @@ erDiagram
 | `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
 | `platform` | 빌드 플랫폼 (`linux/amd64`) |
 | `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
+| `scaling_config`\* | 원하는 Pod 수(replicas 0~10)와 Pod 당 리소스(jsonb). 비어 있으면 replicas 1 이다 |
+| `deployment_strategy`\* | `deployment_strategy` Enum (§5). 기본 `ROLLING`. 저장만 하고 다음 배포부터 적용한다. `CANARY`·`BLUE_GREEN` 은 저장된 replicas 가 2 이상이고 기능 플래그(`DEPLOYMENT_STRATEGY_ENABLED`)가 켜져 있을 때만 저장할 수 있다 (ADR 0028) |
 
 ### 4.2 배포 요청 (DeploymentRequest) — `deployment_requests`
 
@@ -108,6 +110,9 @@ erDiagram
 | `variables_snapshot`\* | 요청 시점의 환경변수(jsonb, `{key: 암호문}`). 평문은 담지 않는다. 롤백은 원본 요청의 값을 그대로 가져오고, 그 밖의 요청(재배포·재시작 포함)은 그 시점의 서비스 변수를 담는다 (§4.11) |
 | `source_deployment_request_id`\* | 재배포·롤백·재시작이 따라가는 원본 배포 요청 (`deployment_requests.id`). 직접 만든 요청은 비어 있다 |
 | `service_upload_id`\* | `CLI` 요청이 GitHub 대신 소스로 쓰는 업로드 (`service_uploads.id`). 업로드 하나는 요청 하나에만 묶인다(UNIQUE). 다른 트리거의 요청은 비어 있다 |
+| `scaling_snapshot`\* | 요청 시점의 `services.scaling_config`(없으면 기본값). 롤백을 포함해 모든 요청이 그 시점의 서비스 설정을 담는다 |
+| `requested_deployment_strategy`\* | 요청 시점에 서비스가 고른 배포 방식 (`deployment_strategy` Enum, §5) |
+| `deployment_strategy`\* | 실제로 적용한 배포 방식. 적용 replicas(`scaling_snapshot`)가 2 미만이거나 기능 플래그가 꺼져 있으면 `ROLLING` 이다(롤링 대체). `REMOVE` 요청과 기능 도입 전 요청은 둘 다 비어 있다 (ADR 0028) |
 
 서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
 
@@ -365,6 +370,18 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 `QUEUED → DEPLOYING` 은 빌드를 건너뛰는 `ROLLBACK`·`RESTART`·`REMOVE` 요청이 만들어지는 순간에만 쓴다. 이 요청은 `BUILDING` 을 거치지 않는다. `REMOVE` 요청은 Application 이 사라지면 `SUCCEEDED`, 기한 안에 사라지지 않거나 GitOps 를 바꾼 뒤 실패하면 `MANUAL_INTERVENTION`, GitOps 를 바꾸기 전에 재시도를 소진하면 `FAILED` 다.
 
+### 배포 방식 (`deployment_strategy`)\* — `services.deployment_strategy`, `deployment_requests.requested_deployment_strategy`·`deployment_strategy`
+
+단계와 대기 시간은 iris-service chart 0.7.0(Argo Rollouts `Rollout`)이 정한다. Deploy Worker 는 values 의 `deploymentStrategy` 로 넘긴다.
+
+| 코드 | 의미 |
+|---|---|
+| `ROLLING` | 기본. 새 Pod 를 하나씩 올리고 이전 Pod 를 내린다 (maxSurge 1, maxUnavailable 0) |
+| `CANARY` | 새 Pod 1개 → 60초 관찰 → 나머지를 롤링으로 교체. replicas 2 이상 |
+| `BLUE_GREEN` | 새 묶음 전체 Ready → 30초 뒤 전환 → 이전 묶음 30초 뒤 내림. 배포 중 Pod 가 최대 2배. replicas 2 이상 |
+
+`CANARY`·`BLUE_GREEN` 은 release `deadline_at` 에 고정 대기 시간 60초를 더한다. 진행 중 Rollout 이 멈춘 동안의 Argo health(`Suspended`·`Progressing`)는 대기로 본다.
+
 ### 빌드 상태 (`build_status`)\* — `builds.status`
 
 `PENDING`(Worker 대기) → `SNAPSHOTTING`(소스 스냅샷 중) → `BUILDING`(CodeBuild 실행 중) → `SUCCEEDED` / `FAILED` / `CANCELLED`. 요청의 `status` 는 빌드가 직접 바꾸지 않고 Worker 가 `DeploymentStatusService` 로 옮긴다.
@@ -421,6 +438,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | Sync | `argo_sync_status` | Argo CD 가 desired state 를 클러스터에 적용하는 것. Control Plane 은 직접 호출하지 않고 Git 변경으로 유도한다 |
 | lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념). 그 뒤에 성공한 `REMOVE` 요청이 있으면 서비스가 내려간 것이라 없다 |
 | revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
+| 롤링 대체 | `resolve_deployment_strategy`\* | 서비스가 `CANARY`·`BLUE_GREEN` 이어도 적용 replicas 가 2 미만이거나 기능 플래그가 꺼져 있으면 그 배포 요청은 `ROLLING` 으로 배포한다. 요청 방식은 그대로 남긴다 |
 | 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
 | 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
 | 소스 재패킹 | `repack_source_archive`\* | 업로드 아카이브를 항목마다 검사하며 GitHub tarball 처럼 최상위 디렉터리 아래로 다시 묶는 일. buildspec 이 `--strip-components=1` 로 풀기 때문이고, 경로 이탈·링크·압축 폭탄 방어선이다 (ADR 0023) |
@@ -442,4 +460,5 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `variable`(엔티티 `ServiceVariable`, §4.11), 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
 | Session | 로그인 상태를 나르는 세션 토큰(JWT). 변수·함수는 `session_token`, `SessionService` | CLI 로그인 세션(`CliLoginSession`), DB 세션(`AsyncSession`) | CLI 로그인 세션은 토큰을 CLI 로 넘기려고 기다리는 행이라 항상 `cli_login_session`. DB 세션 변수는 `session`(Repository·Service 관례) |
+| Rollout | Argo Rollouts 의 `Rollout` 리소스 (chart 0.7.0 이 `Deployment` 대신 만든다) | 배포 요청·release 의 "배포", K8s `Deployment` 의 rollout | 리소스는 `argo_rollout`. 롤링·카나리·블루그린 선택은 `deployment_strategy` |
 | Rollback | job `ROLLBACK` = revert commit(자동). 트리거 `ROLLBACK` = 사용자가 이전 이미지로 시작한 새 배포 요청 | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분. 요청은 `deployment_request`, revert 는 `revert_commit` |

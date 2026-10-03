@@ -83,6 +83,7 @@ LOG_LEVEL=INFO
 | `REPAIR_AGENT_TIMEOUT_SECONDS`, `REPAIR_AGENT_DEADLINE_SECONDS`, `REPAIR_AGENT_MAX_COST_USD` | 호출 대기 150초·작업 기한 240초·후보 생성 비용 상한 USD 1. 응답이 불확실하면 결과만 조회하며 모델을 자동 재호출하지 않는다 |
 | `DIAGNOSIS_AUTO_START_ENABLED`, `DIAGNOSIS_AUTO_START_INTERVAL_SECONDS` | 실패가 확정된 배포를 서버가 자동으로 진단한다(기본 켬, 에이전트 설정이 없으면 켜지 않는다). 모델 비용이 실패마다 들어 `false` 로 끌 수 있다(끄면 버튼으로 시작하는 진단만 남는다). 진단할 배포를 찾는 주기는 기본 5초다 |
 | `AWS_REGION`, `ARTIFACT_BUCKET` | (선택) 둘 다 있어야 켜진다(`AWS_REGION` 은 아래 `BUILD_LOG_GROUP` 도 함께 쓴다). ① 소스 업로드 API(`likelion up`): `uploads/*` 의 `s3:PutObject`·`s3:AbortMultipartUpload` 가 필요하고, 없으면 `POST /services/{id}/uploads` 가 `503 NOT_CONFIGURED`. ② 진단에 빌드의 소스 스냅샷을 함께 보낸다: `snapshots/*` 의 `s3:GetObject` 가 필요하고, 없으면 로그만 진단한다. 같은 두 변수가 둘을 함께 켜므로 Role 에 두 권한을 같이 주고, **권한을 먼저 적용한 뒤** 변수를 켠다. 운영은 chart 값이 아니라 Secret `iris-platform-was-env` 에 `ARTIFACT_BUCKET` 을 넣고 API 를 롤링 재시작한다([ADR 0023](docs/adr/0023-cli-source-upload-storage-and-archive-defense.md)) |
+| `DEPLOYMENT_STRATEGY_ENABLED` | 카나리·블루그린 배포 방식(기본 `false`). 꺼져 있으면 두 방식 저장이 `422` 이고 새 배포 요청은 `ROLLING` 으로 적용한다. Deploy Worker 와 같은 값으로, `iris-service` chart 0.7.0 이 배포된 뒤에 켠다. [ADR 0028](docs/adr/0028-deployment-strategy-selection.md) |
 | `UPLOAD_MAX_BYTES` | 소스 업로드의 압축한 바이트 한도. 기본 250MB(Build Worker 의 `SNAPSHOT_MAX_BYTES` 와 같게 둔다). 넘으면 본문을 읽기 전에 `413 UPLOAD_TOO_LARGE` |
 | `BUILD_LOG_GROUP` | (선택) `AWS_REGION` 과 함께 있으면 배포 상세의 빌드 로그 전체를 CloudWatch Logs 에서 읽는다(그룹 `/aws/codebuild/iris-dev-build` 의 `logs:GetLogEvents` 만 허용한 Role 필요). 없으면 Build Worker 가 남긴 실패한 빌드의 끝부분만 보여 주고, 그것도 없으면 빌드 로그 API 가 503 이다. [배포 상세 화면 API](docs/deployment-details-api.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
@@ -131,7 +132,7 @@ App 설정에서 맞춰야 할 값:
 | `GET /github/repos/{owner}/{repo}/branches` | 브랜치 목록 |
 | `POST·GET /projects` · `GET·PATCH·DELETE /projects/{id}` | 프로젝트 (목록은 서비스 수·online 수 포함) |
 | `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록 |
-| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림) |
+| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림). PATCH 의 `deploymentStrategy`(`ROLLING`·`CANARY`·`BLUE_GREEN`)는 다음 배포부터 적용하고, `CANARY`·`BLUE_GREEN` 은 replicas 2 이상·기능 플래그 켬일 때만 저장한다. [ADR 0028](docs/adr/0028-deployment-strategy-selection.md) |
 | `GET·PUT /services/{id}/scaling` | 원하는 Pod 수·Pod별 CPU·메모리 조회·교체. PUT은 현재 이미지를 빌드 없이 재배포한다. [계약](docs/service-scaling-api.md) |
 | `POST /services/{id}/uploads` | `likelion up` 소스 업로드. 본문이 곧 tar.gz(`Content-Type: application/gzip`, `Content-Length` 필수)이고 `201` 로 `uploadId`·`sizeBytes`·`sha256`·`expiresAt` 를 돌려준다. `uploadId` 는 24시간 안에 `CLI` 배포 요청 하나에만 쓴다. [계약](docs/upload-api.md) |
 | `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·CLI 업로드·재배포·롤백·재시작·삭제)·목록(최신순) |
@@ -178,6 +179,7 @@ Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub Ap
 | `ARGOCD_SERVER_URL` · `ARGOCD_TOKEN` | Argo CD API 주소, project role `deploy-reader` 토큰(applications get) |
 | `VARIABLES_ENCRYPTION_KEY` | Control API 와 같은 값. 배포 요청의 변수 스냅샷(암호문)을 풀 때 쓴다. 변수가 있는 배포에만 필요하고, 변수가 있는데 없으면 그 배포는 `DEPLOY_INFRA_ERROR` 로 실패한다 |
 | `SEALED_SECRETS_CERT` | workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다. `\n` 두 글자로 적어도 된다). [runbook](https://github.com/2026-softbank-1/iris-infra/blob/main/docs/runbooks/sealed-secrets.md) 에서 꺼낸다. **설정하면 사용자 변수 기능이 켜져** values 에 `iris`·`variables` 를 쓴다. `iris-service` chart 0.6.0 이상이 배포된 뒤에만 설정한다(이전 chart 는 모르는 키를 거절해 모든 배포가 실패한다). 비어 있으면 이전과 같은 values 를 쓴다. 운영은 Secret `iris-platform-was-env` 에 있다(2026-10-03 설정) |
+| `DEPLOYMENT_STRATEGY_ENABLED` | 켜면 values 에 배포 요청의 적용 방식 `deploymentStrategy` 를 쓴다(기본 `false`). `iris-service` chart 0.7.0(Argo Rollouts) 이상이 배포된 뒤에만 켠다(이전 chart 는 모르는 키를 거절해 모든 배포가 실패한다). Control API 와 같은 값으로 둔다 |
 
 ## 실행
 
