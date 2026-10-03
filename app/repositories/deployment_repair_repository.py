@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +31,17 @@ class DeploymentRepairRepository:
                     DeploymentRepair.status.in_(["RUNNING", "UNKNOWN_OUTCOME", "SUCCEEDED"]),
                     DeploymentRepair.request_metadata["publication"]["status"]
                     .as_string()
-                    .not_in(["MERGED", "ERROR", "SKIPPED"]),
+                    .not_in(["ERROR", "SKIPPED", "REDEPLOY_REQUESTED"]),
+                    or_(
+                        DeploymentRepair.request_metadata["publication"]["status"].as_string()
+                        != "MERGED",
+                        (
+                            DeploymentRepair.request_metadata["autoRedeploy"].as_boolean().is_(True)
+                            & DeploymentRepair.request_metadata["publication"]["redeploymentId"]
+                            .as_integer()
+                            .is_(None)
+                        ),
+                    ),
                 )
                 .order_by(DeploymentRepair.id)
                 .limit(8)

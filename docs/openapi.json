@@ -2118,14 +2118,18 @@
         "additionalProperties": false,
         "properties": {
           "diagnosisId": {
-            "exclusiveMinimum": 0.0,
-            "title": "Diagnosisid",
-            "type": "integer"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnosisid"
           }
         },
-        "required": [
-          "diagnosisId"
-        ],
         "title": "CreateAutomaticRepairRequest",
         "type": "object"
       },
@@ -4207,6 +4211,11 @@
           "autoMerge": {
             "default": false,
             "title": "Automerge",
+            "type": "boolean"
+          },
+          "autoRedeploy": {
+            "default": false,
+            "title": "Autoredeploy",
             "type": "boolean"
           },
           "createdAt": {

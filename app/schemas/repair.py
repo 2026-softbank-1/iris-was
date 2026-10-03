@@ -30,7 +30,7 @@ class CreateRepairRequest(ApiModel):
 
 class CreateAutomaticRepairRequest(ApiModel):
     model_config = CreateRepairRequest.model_config
-    diagnosis_id: int = Field(gt=0)
+    diagnosis_id: int | None = Field(default=None, gt=0)
 
 
 class RepairResponse(ApiModel):
@@ -46,6 +46,7 @@ class RepairResponse(ApiModel):
     finished_at: datetime | None = None
     publication: dict[str, Any] | None = None
     auto_merge: bool = False
+    auto_redeploy: bool = False
 
     @classmethod
     def from_model(cls, repair: DeploymentRepair) -> Self:
@@ -62,6 +63,7 @@ class RepairResponse(ApiModel):
             finished_at=repair.finished_at,
             publication=repair.request_metadata.get("publication"),
             auto_merge=bool(repair.request_metadata.get("autoMerge")),
+            auto_redeploy=bool(repair.request_metadata.get("autoRedeploy")),
         )
 
 

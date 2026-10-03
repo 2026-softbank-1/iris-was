@@ -11,6 +11,21 @@ class DeploymentRequestRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def find_latest_by_source_sha(
+        self, service_id: int, source_sha: str
+    ) -> DeploymentRequest | None:
+        return (
+            await self._session.scalars(
+                select(DeploymentRequest)
+                .where(
+                    DeploymentRequest.service_id == service_id,
+                    DeploymentRequest.source_sha == source_sha,
+                )
+                .order_by(DeploymentRequest.id.desc())
+                .limit(1)
+            )
+        ).one_or_none()
+
     async def find_by_idempotency_key(self, idempotency_key: str) -> DeploymentRequest | None:
         stmt = select(DeploymentRequest).where(DeploymentRequest.idempotency_key == idempotency_key)
         return (await self._session.scalars(stmt)).one_or_none()

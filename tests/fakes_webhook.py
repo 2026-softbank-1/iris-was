@@ -40,6 +40,14 @@ class FakeDeploymentRequestRepository:
         self.requests: list[DeploymentRequest] = []
         self._ids = count(1)
 
+    async def find_latest_by_source_sha(
+        self, service_id: int, source_sha: str
+    ) -> DeploymentRequest | None:
+        rows = [
+            r for r in self.requests if r.service_id == service_id and r.source_sha == source_sha
+        ]
+        return max(rows, key=lambda r: r.id) if rows else None
+
     async def find_by_idempotency_key(self, idempotency_key: str) -> DeploymentRequest | None:
         return next((r for r in self.requests if r.idempotency_key == idempotency_key), None)
 
@@ -119,6 +127,8 @@ class FakeDeploymentRequestRepository:
             ):
                 return None
         request.id = next(self._ids)
+        while any(r.id == request.id for r in self.requests):
+            request.id = next(self._ids)
         request.status = DeploymentStatus.QUEUED
         request.created_at = request.updated_at = now_utc()
         self.requests.append(request)
