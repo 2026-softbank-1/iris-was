@@ -72,7 +72,7 @@ Content-Length: 123456
 
 - `triggerType=CLI` 이면 `uploadId` 가 필수이고, 다른 트리거에서는 보낼 수 없다(`422 VALIDATION_ERROR`). `sourceSha`·`sourceDeploymentId` 도 함께 보낼 수 없다.
 - 응답은 기존 `DeploymentResponse` 와 같다. `sourceCommitMessage` 는 없다.
-- **`sourceSha` 는 `upload-` + 아카이브 sha256 의 앞 12자**다(예: `upload-3fa9c2d1b7e4`). Git 커밋 SHA 가 아니므로 GitHub 커밋 링크를 만들면 안 된다. 같은 내용을 올리면 같은 값이다. 앱의 `IRIS_GIT_COMMIT_SHA` 환경변수에도 이 값이 들어간다.
+- **`sourceSha` 는 `upload-` + 아카이브 sha256 의 앞 12자**다(예: `upload-3fa9c2d1b7e4`). Git 커밋 SHA 가 아니므로 GitHub 커밋 링크를 만들면 안 된다. 같은 내용을 올리면 같은 값이다. iris-service chart 가 `release.sourceSha` 를 소문자 40자리 Git SHA 로만 받아서 Deploy Worker 는 이런 값을 chart values 에 넣지 않는다. 그래서 `CLI` 로 배포한 앱에는 `IRIS_GIT_COMMIT_SHA` 환경변수가 없다.
 
 | 상태 | `code` | 언제 |
 |---|---|---|

@@ -78,7 +78,7 @@ CLI 는 폴더 밖을 가리키는 링크를 빼고 안쪽을 가리키는 `..` 
 **업로드는 서비스 소스의 루트로 본다.** `root_directory`(저장소 안의 위치)는 업로드에 적용하지 않는다. `likelion up` 은 연결한 폴더, 곧 서비스 폴더를 올리기 때문이다. 빌드 환경변수 `ROOT_DIRECTORY` 는 `.`, `iris.json`·`Dockerfile` 위치는 아카이브 루트 기준이다(`dockerfile_path` 는 서비스 설정 그대로 루트 기준 상대 경로). 진단 에이전트에도 `rootDirectory: "."` 를 넘긴다.
 
 ### `source_sha`
-`upload-` + 아카이브 sha256 의 앞 12자(예: `upload-3fa9c2d1b7e4`, 19자). Git SHA 는 16진수뿐이라 이 값과 겹칠 수 없어, 값만 보고 GitHub 소스인지 가릴 수 있다(재배포 거절, 진단의 커밋 SHA 생략). 같은 내용을 올리면 같은 값이다. `IRIS_GIT_COMMIT_SHA` 환경변수에도 이 값이 들어간다.
+`upload-` + 아카이브 sha256 의 앞 12자(예: `upload-3fa9c2d1b7e4`, 19자). Git SHA 는 16진수뿐이라 이 값과 겹칠 수 없어, 값만 보고 GitHub 소스인지 가릴 수 있다(재배포 거절, 진단의 커밋 SHA 생략). 같은 내용을 올리면 같은 값이다. iris-service chart 의 values 스키마가 `release.sourceSha` 를 `^[0-9a-f]{40}$` 로만 받기 때문에 Deploy Worker 는 이 값을 chart values 에 넣지 않는다(넣으면 Argo CD 가 렌더링하지 못해 release 가 `PENDING` 에서 멈춘다. 2026-10-03 운영 E2E 에서 겪었다). 그래서 `CLI` 로 배포한 앱에는 `IRIS_GIT_COMMIT_SHA` 가 없다.
 
 ### 실패 코드
 `SOURCE_INVALID`(손상·허용하지 않는 항목·체크섬 불일치)를 더한다. 기존 `SOURCE_TOO_LARGE`·`SOURCE_REF_NOT_FOUND` 를 재사용한다. 사용자에게는 코드만 보이고 어떤 항목 때문인지는 로그(`fields.path`)에만 남는다 — 업로드 시점 검사(A)를 도입하면 메시지를 줄 수 있다.
