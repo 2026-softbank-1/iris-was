@@ -684,3 +684,76 @@ async def test_diagnose_deploy_stage_failure_ignores_stored_build_logs(
     data = setup.agent.requests[0]
     assert {log["stage"] for log in data["logs"]} == {"runtime"}
     assert [log["text"] for log in data["logs"]] == ["line 1", "line 2", "line 3"]
+
+
+async def test_diagnose_build_failure_drops_noise_after_failure_marker_and_keeps_error_output(
+    setup: DiagnosisSetup,
+) -> None:
+    """운영 E2E 에서 찾은 문제: 실패 뒤 후처리 줄이 예산을 채워 오류 출력이 밀려났다."""
+    request = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    echoed_script = [
+        f'cache="type=registry,ref=$IMAGE_REPO:cache" step {i} ' + "z" * 90 for i in range(17)
+    ]
+    setup.add_build(
+        request,
+        log_tail=make_log_tail(
+            [f"#12 [build 3/4] RUN npm install {i}" for i in range(10)]
+            + ['ERROR: failed to build: process "sh -c npm run missing" exit code: 1']
+            + echoed_script
+            + ["[Container] 2026/10/03 03:03:13.026439 Phase complete: BUILD State: FAILED"]
+            + [
+                f"[Container] 2026/10/03 03:03:13.0{i} Phase complete: POST_BUILD State: SUCCEEDED "
+                + "n" * 80
+                for i in range(30)
+            ]
+        ),
+    )
+
+    await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    texts = [log["text"] for log in setup.agent.requests[0]["logs"]]
+    assert texts[-1].endswith("Phase complete: BUILD State: FAILED")
+    assert any(t.startswith("ERROR: failed to build") for t in texts)
+    assert not any("POST_BUILD" in t for t in texts)
+
+
+async def test_diagnose_build_failure_without_failure_marker_keeps_all_lines(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_TIMED_OUT)
+    setup.add_build(request, log_tail=make_log_tail(["step 1", "step 2", "still running"]))
+
+    await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    assert [log["text"] for log in setup.agent.requests[0]["logs"]] == [
+        "step 1",
+        "step 2",
+        "still running",
+    ]
+
+
+async def test_diagnose_build_failure_uses_last_failure_marker_when_several_exist(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    setup.add_build(
+        request,
+        log_tail=make_log_tail(
+            [
+                "Phase complete: INSTALL State: FAILED",
+                "retrying build",
+                "real error output",
+                "Phase complete: BUILD State: FAILED",
+                "Phase complete: POST_BUILD State: SUCCEEDED",
+            ]
+        ),
+    )
+
+    await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    assert [log["text"] for log in setup.agent.requests[0]["logs"]] == [
+        "Phase complete: INSTALL State: FAILED",
+        "retrying build",
+        "real error output",
+        "Phase complete: BUILD State: FAILED",
+    ]
