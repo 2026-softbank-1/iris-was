@@ -14,7 +14,9 @@ from app.clients.observability_client import (
     NetworkLogEntry,
     ObservabilityClient,
     StatusClass,
+    TrafficMetrics,
 )
+from app.core.config import DEFAULT_TRAFFIC_CLUSTER
 from app.core.exceptions import (
     ExternalError,
     InvalidInputError,
@@ -33,10 +35,12 @@ class ObservabilityService:
         client: ObservabilityClient,
         loki_url: HttpUrl | None,
         prometheus_url: HttpUrl | None,
+        traffic_cluster: str = DEFAULT_TRAFFIC_CLUSTER,
     ) -> None:
         self._service_repository = service_repository
         self._client = client
         self._urls = {"loki_url": loki_url, "prometheus_url": prometheus_url}
+        self._traffic_cluster = traffic_cluster
 
     async def get_scope(self, owner_id: int, service_id: int, target_id: int) -> str:
         service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)
@@ -130,6 +134,20 @@ class ObservabilityService:
                     max_pods=MAX_POD_SERIES,
                 )
         return series
+
+    async def search_traffic_metrics(
+        self, target_id: int, namespace: str, start: datetime, end: datetime, step: int
+    ) -> TrafficMetrics:
+        if (end - start).total_seconds() / step > 1440:
+            raise InvalidInputError("range and step may produce at most 1440 points per metric")
+        return await self._client.search_traffic_metrics(
+            self._get_url(target_id, "prometheus_url"),
+            namespace,
+            self._traffic_cluster,
+            start.timestamp(),
+            end.timestamp(),
+            step,
+        )
 
     async def prepare_stream(
         self, target_id: int, namespace: str, start_ns: int, end_ns: int, search: str

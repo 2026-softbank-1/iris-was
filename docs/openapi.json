@@ -1021,6 +1021,63 @@
         "title": "ApiResponse[ServiceVariablesResponse]",
         "type": "object"
       },
+      "ApiResponse_TrafficMetricsResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrafficMetricsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[TrafficMetricsResponse]",
+        "type": "object"
+      },
       "ApiResponse_UserResponse_": {
         "properties": {
           "code": {
@@ -4458,6 +4515,31 @@
           "kind"
         ],
         "title": "TargetResponse",
+        "type": "object"
+      },
+      "TrafficMetricsResponse": {
+        "properties": {
+          "availableUntil": {
+            "description": "Unix 초. 이 시각까지의 이벤트만 집계가 끝났다. 이후 구간은 집계 대기(약 15분 지연)라 빈 것이 아니라 아직 모르는 값이다.",
+            "examples": [
+              1790952000.0
+            ],
+            "title": "Availableuntil",
+            "type": "number"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/MetricSeriesResponse"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "availableUntil",
+          "series"
+        ],
+        "title": "TrafficMetricsResponse",
         "type": "object"
       },
       "UpdateServiceScalingRequest": {
@@ -7997,6 +8079,139 @@
         "summary": "배포된 서비스의 Pod 수·CPU·메모리 사양 교체",
         "tags": [
           "services"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/traffic-metrics": {
+      "get": {
+        "description": "ALB 접근 로그로 만든 지표다. start~end 는 이벤트 시각이고 step 초 버킷으로 돌려준다. timestamp 는 버킷이 끝나는 이벤트 시각이다. 집계에 약 15분이 걸려 availableUntil 이후는 아직 모르는 구간이다. 점이 없는 버킷은 결측이며 0 이 아니다.",
+        "operationId": "search_traffic_metrics_api_v1_services__service_id__traffic_metrics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Targetid",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 86400,
+              "minimum": 60,
+              "title": "Step",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TrafficMetricsResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스 외부 트래픽 지표 조회 (요청 수·오류율·응답 시간·공용 네트워크)",
+        "tags": [
+          "observability"
         ]
       }
     },

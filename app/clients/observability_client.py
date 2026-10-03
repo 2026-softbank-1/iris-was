@@ -1,7 +1,9 @@
 """Loki/Prometheus 응답을 서비스 관측 도메인 타입으로 변환한다."""
 
+import asyncio
 import json
 import math
+import time
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -10,6 +12,17 @@ import httpx
 from app.core.exceptions import ExternalError
 
 MetricKind = Literal["cpu", "memory", "network_receive", "network_transmit"]
+# ALB 접근 로그에서 만든 서비스 외부 트래픽 지표(iris-infra contracts/service-traffic.md).
+TrafficMetricKind = Literal[
+    "requests",
+    "error_rate_4xx",
+    "error_rate_5xx",
+    "public_network_receive",
+    "public_network_transmit",
+    "response_time_avg",
+    "response_time_p50",
+    "response_time_p95",
+]
 # total: 서비스 전체 합계 1개, pod: Pod(replica)별 시리즈
 MetricGrouping = Literal["total", "pod"]
 StatusClass = Literal["2xx", "3xx", "4xx", "5xx"]
@@ -20,6 +33,9 @@ POD_LABEL = "k8s_pod_name"
 CONTAINER_LABEL = "k8s_container_name"
 # Deploy Worker 가 Pod annotation 으로 넣은 release.id 를 수집기가 라벨로 올린다.
 RELEASE_LABEL = "iris_release_id"
+CLUSTER_LABEL = "cluster"
+# 트래픽 지표의 Prometheus 샘플 시각은 Loki ruler 의 평가 시각이다. 이벤트 시각은 15분 앞선다.
+TRAFFIC_DELAY_SECONDS = 15 * 60
 # iris-infra 의 ALB 접근 로그 수집기가 정규화해 보내는 스트림이다(job·k8s_namespace_name 라벨).
 ALB_ACCESS_JOB = "iris-alb-access"
 _STATUS_CLASS_RANGES: dict[StatusClass, tuple[int, int]] = {
@@ -58,10 +74,18 @@ class MetricPoint:
 
 @dataclass(frozen=True)
 class MetricSeries:
-    metric: MetricKind
+    metric: MetricKind | TrafficMetricKind
     unit: str
     points: list[MetricPoint]
     pod: str | None = None
+
+
+@dataclass(frozen=True)
+class TrafficMetrics:
+    """시리즈의 timestamp 는 이벤트 시각이다. 이 시각 이후는 아직 집계되지 않았다."""
+
+    available_until: float
+    series: list[MetricSeries]
 
 
 class ObservabilityClient(Protocol):
@@ -97,6 +121,16 @@ class ObservabilityClient(Protocol):
         step: int,
         group_by: MetricGrouping = "total",
     ) -> list[MetricSeries]: ...
+
+    async def search_traffic_metrics(
+        self,
+        base_url: str,
+        namespace: str,
+        cluster: str,
+        start: float,
+        end: float,
+        step: int,
+    ) -> TrafficMetrics: ...
 
 
 def _is_int(value: object) -> bool:
@@ -311,6 +345,104 @@ class LokiPrometheusObservabilityClient:
             except (KeyError, TypeError, ValueError) as exc:
                 raise ExternalError("invalid metric query response") from exc
         return series
+
+    async def search_traffic_metrics(
+        self,
+        base_url: str,
+        namespace: str,
+        cluster: str,
+        start: float,
+        end: float,
+        step: int,
+    ) -> TrafficMetrics:
+        """ALB 로그로 만든 서비스 지표를 step 초 버킷으로 조회한다. start·end 는 이벤트 시각이다.
+
+        지표는 1분 구간을 요약한 gauge 라 rate()·increase() 를 쓰지 않는다(iris-infra
+        contracts/service-traffic.md). 버킷 하나는 `*_over_time` 의 window 를 step 과 같게 두어
+        서로 겹치지 않게 만든다. 샘플 시각은 이벤트 시각보다 15분 늦어서 조회 범위를 뒤로 밀고
+        결과 시각을 다시 당긴다. 샘플이 없는 버킷은 결측이라 점을 만들지 않는다(0 으로 채우지
+        않는다).
+        """
+        selector = (
+            f"{CLUSTER_LABEL}={json.dumps(cluster)},{NAMESPACE_LABEL}={json.dumps(namespace)}"
+        )
+        window = f"{step}s"
+        requests = f"sum_over_time(iris_service_requests_1m{{{selector}}}[{window}])"
+
+        def error_ratio(status_class: str) -> str:
+            errors = f'iris_service_errors_1m{{{selector},status_class="{status_class}"}}'
+            return f"sum_over_time({errors}[{window}]) / ignoring(status_class) {requests}"
+
+        def public_bytes_per_second(direction: str) -> str:
+            name = "iris_service_public_network_bytes_1m"
+            return f'sum_over_time({name}{{{selector},direction="{direction}"}}[{window}]) / {step}'
+
+        def latest_latency(name: str) -> str:
+            return f"last_over_time({name}{{{selector}}}[{window}])"
+
+        queries: list[tuple[TrafficMetricKind, str, str]] = [
+            ("requests", "requests", requests),
+            ("error_rate_4xx", "ratio", error_ratio("4xx")),
+            ("error_rate_5xx", "ratio", error_ratio("5xx")),
+            ("public_network_receive", "bytes/s", public_bytes_per_second("receive")),
+            ("public_network_transmit", "bytes/s", public_bytes_per_second("transmit")),
+            (
+                "response_time_avg",
+                "seconds",
+                latest_latency("iris_service_response_time_seconds_avg5m"),
+            ),
+            (
+                "response_time_p50",
+                "seconds",
+                latest_latency("iris_service_response_time_seconds_p50_5m"),
+            ),
+            (
+                "response_time_p95",
+                "seconds",
+                latest_latency("iris_service_response_time_seconds_p95_5m"),
+            ),
+        ]
+        now = time.time()
+        available_until = now - TRAFFIC_DELAY_SECONDS
+        # 첫 버킷이 (start, start+step] 이 되도록 첫 평가 시각을 step 만큼 늦춘다.
+        sample_start = start + step + TRAFFIC_DELAY_SECONDS
+        sample_end = min(end + TRAFFIC_DELAY_SECONDS, now)
+        if sample_start > sample_end:
+            return TrafficMetrics(
+                available_until, [MetricSeries(kind, unit, []) for kind, unit, _ in queries]
+            )
+        url = f"{base_url.rstrip('/')}/api/v1/query_range"
+        payloads = await asyncio.gather(
+            *(
+                self._get(
+                    url,
+                    {
+                        "query": query,
+                        "start": str(sample_start),
+                        "end": str(sample_end),
+                        "step": str(step),
+                    },
+                )
+                for _, _, query in queries
+            )
+        )
+        series: list[MetricSeries] = []
+        for (kind, unit, _), payload in zip(queries, payloads, strict=True):
+            try:
+                if payload["resultType"] != "matrix":
+                    raise ValueError("expected matrix")
+                results = payload["result"]
+                if len(results) > 1:
+                    raise ValueError("expected a single series")
+                points = _parse_points(results[0]) if results else []
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ExternalError("invalid traffic metric query response") from exc
+            event_points = [
+                MetricPoint(point.timestamp - TRAFFIC_DELAY_SECONDS, point.value)
+                for point in points
+            ]
+            series.append(MetricSeries(kind, unit, event_points))
+        return TrafficMetrics(available_until, series)
 
 
 def _parse_points(result: dict[str, Any]) -> list[MetricPoint]:
