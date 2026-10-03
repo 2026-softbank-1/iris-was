@@ -1,6 +1,6 @@
 # FastAPI 응답·예외·로깅 템플릿
 
-FastAPI 서비스에 공통 응답 봉투, 예외 계층, 구조화 로깅을 까는 템플릿이다. 이 레포(AnyDeploy Control Plane)에서 쓰는 구성을 기록하고, 다른 프로젝트로 옮길 때 체크리스트로 쓴다.
+FastAPI 서비스에 공통 응답 봉투, 예외 계층, 구조화 로깅을 까는 템플릿이다. 이 레포(Likelion Control Plane)에서 쓰는 구성을 기록하고, 다른 프로젝트로 옮길 때 체크리스트로 쓴다.
 
 - 대상: Python 3.13+, FastAPI, Pydantic v2
 - 외부 로깅 라이브러리 없이 표준 라이브러리 `logging`·`contextvars` 만 쓴다.
