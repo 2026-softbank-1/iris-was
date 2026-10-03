@@ -139,7 +139,7 @@ sequenceDiagram
 
 1. root·OS 확인, `curl`·`jq` 설치
 2. `bootstrap` 호출
-3. Tailscale 설치 → `tailscale up --auth-key … --hostname iris-{key} --advertise-tags tag:iris-onprem` → FQDN 확인. ufw 가 켜져 있으면 `tailscale0` 으로 들어오는 tcp 6443·80 만 허용한다(`ufw allow in on tailscale0 to any port … proto tcp`, 다시 실행해도 같다)
+3. Tailscale 설치 → `tailscale up --auth-key … --hostname iris-{key} --advertise-tags tag:iris-onprem` → FQDN 확인. ufw 가 켜져 있으면 `tailscale0` 으로 들어오는 tcp 6443·80 만 허용하고(`ufw allow in on tailscale0 to any port … proto tcp`), K3s 기본 Pod·Service 대역 `10.42.0.0/16`·`10.43.0.0/16` 을 `ufw allow from <cidr> to any`·`ufw route allow from <cidr>` 로 허용한다(ufw 의 FORWARD DROP 이 Pod 의 바깥 통신·DNS 를 막는다). 다시 실행해도 같다
 4. K3s 설치(버전 고정, `--tls-san <tailnetFqdn>`, Traefik 유지)
 5. 배포 권한: namespace `iris-system`, SA `iris-argocd`, ClusterRole `iris-onprem-service-deployer`(iris-infra `clusters/onprem-workload/argocd-service-deployer.yaml` 과 같은 규칙) + `iris-system` 의 ConfigMap 쓰기 권한(probe 용), 만료 없는 토큰 Secret(`kubernetes.io/service-account-token`). 복사한 ClusterRole 은 Secret 을 포함해 클러스터 전체를 읽으므로 이 토큰을 쓰는 management Argo CD 는 `iris-system/iris-server-secret` 도 읽을 수 있다(알려진 위험, ADR 0029). 토큰 교체: 이 legacy SA 토큰 Secret 은 `iat`·`jti` 가 없어 Secret 만 다시 만들면 같은 JWT 가 나온다. 바꾸려면 SA `iris-system/iris-argocd` 와 토큰 Secret `iris-argocd-token` 을 지우고, 등록 토큰을 재발급받아 `install.sh` 를 다시 실행한다
 6. Argo Rollouts·Sealed Secrets controller 설치(버전 고정)

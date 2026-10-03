@@ -196,19 +196,27 @@ join_tailnet() {
 }
 
 # ufw 가 켜져 있으면 tailnet(tailscale0)으로 들어오는 K3s API(6443)·앱(80)만 연다. 다른 인터페이스는 그대로 둔다.
+# 또 K3s 기본 Pod(10.42.0.0/16)·Service(10.43.0.0/16) 대역의 트래픽을 허용한다. ufw 기본 정책이
+# FORWARD DROP 이라 막으면 Pod 가 밖으로(DNS 포함) 나가지 못해 ECR 갱신 Job 과 사용자 앱이 깨진다.
+K3S_CLUSTER_CIDRS=(10.42.0.0/16 10.43.0.0/16)
+
 allow_tailnet_in_firewall() {
   if is_dry; then
-    plan "ufw 가 켜져 있으면 tailscale0 의 tcp 6443·80 만 허용"
+    plan "ufw 가 켜져 있으면 tailscale0 의 tcp 6443·80 만 허용, K3s Pod·Service 대역(${K3S_CLUSTER_CIDRS[*]}) 허용"
     return
   fi
   command -v ufw >/dev/null || return 0
   ufw status 2>/dev/null | grep -q '^Status: active' || return 0
-  local port
+  local port cidr
+  # 같은 규칙이 있으면 ufw 가 건너뛴다(다시 실행해도 같다).
   for port in 6443 80; do
-    # 같은 규칙이 있으면 ufw 가 건너뛴다(다시 실행해도 같다).
     ufw allow in on tailscale0 to any port "$port" proto tcp >/dev/null
   done
-  log "방화벽(ufw): tailscale0 의 tcp 6443·80 허용"
+  for cidr in "${K3S_CLUSTER_CIDRS[@]}"; do
+    ufw allow from "$cidr" to any >/dev/null
+    ufw route allow from "$cidr" >/dev/null
+  done
+  log "방화벽(ufw): tailscale0 의 tcp 6443·80, K3s Pod·Service 대역 허용"
 }
 
 node_ready() {
