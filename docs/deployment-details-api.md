@@ -116,7 +116,7 @@ ALB 접근 로그 중 이 서비스가 처리한 요청을 돌려준다.
   BUILD_LOG_GROUP=/aws/codebuild/iris-dev-build
   ```
 
-  Control API 의 IAM Role 에 그 로그 그룹의 `logs:GetLogEvents` 가 필요하다(iris-infra). 로그 스트림은 CodeBuild build id(`{project}:{uuid}`)의 uuid 다. 읽기 전용 호출이다([ADR 0021](adr/0021-deployment-detail-logs-api.md)). Build Worker 의 로그 읽기 권한([ADR 0020](adr/0020-ai-error-diagnosis-via-agent-server.md))과는 별개의 Role 이라 각각 필요하다.
+  Control API 의 IAM Role 에 그 로그 그룹의 `logs:GetLogEvents` 가 필요하다. iris-infra [PR #46](https://github.com/2026-softbank-1/iris-infra/pull/46) 이 `control-api` 역할(`iris-platform/iris-platform-api` Pod Identity)과 차트 값 `api.buildLogGroup`(→ 위 두 환경변수)을 추가한다. 적용 뒤 API Pod 는 재시작돼야 자격 증명을 받는다. 로그 스트림은 CodeBuild build id(`{project}:{uuid}`)의 uuid 다. 읽기 전용 호출이다([ADR 0021](adr/0021-deployment-detail-logs-api.md)). Build Worker 의 로그 읽기 권한([ADR 0020](adr/0020-ai-error-diagnosis-via-agent-server.md))과는 별개의 Role 이라 각각 필요하다.
 
 ## 검증 범위
 

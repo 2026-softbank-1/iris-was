@@ -36,7 +36,7 @@
 
 ## 결과
 - 세 탭이 쓸 API 가 생기고, Control API 의 AWS 권한은 읽기 전용(스냅샷 `s3:GetObject` + 빌드 로그 `logs:GetLogEvents`)으로 한정된다.
-- **iris-infra 에 Control API Role 의 `logs:GetLogEvents`(빌드 로그 그룹 한정)와 `AWS_REGION`·`BUILD_LOG_GROUP` 을 요청해야 한다.** 그 전에는 실패한 빌드의 끝부분(`isPartial`)만 보이고 성공한 빌드는 `503` 이다. Build Worker 의 로그 읽기 권한(ADR 0020)과는 별개다.
+- **iris-infra 에 Control API Role 의 `logs:GetLogEvents`(빌드 로그 그룹 한정)와 `AWS_REGION`·`BUILD_LOG_GROUP` 이 필요하다.** iris-infra [PR #46](https://github.com/2026-softbank-1/iris-infra/pull/46) 이 역할·Pod Identity·차트 값을 추가한다(적용 순서: account → main 병합 시 foundation·management). 그 전에는 실패한 빌드의 끝부분(`isPartial`)만 보이고 성공한 빌드는 `503` 이다. Build Worker 의 로그 읽기 권한(ADR 0020)과는 별개다.
 - 네트워크 로그는 ALB 수집기가 dev 에 배포되기 전까지 비어 있다. 수집기가 URL·메서드를 보내지 않아 Railway 처럼 `GET /path` 형태는 보여 줄 수 없다. 경로가 필요하면 수집기 정책(개인정보)을 바꾸는 별도 결정이 필요하다.
 - ALB 로그는 시간 구간으로 나눠서 배포 경계 부근에서 이전·다음 배포의 요청이 섞일 수 있다.
 - `GetLogEvents` 호출에는 계정·리전 단위 한도가 있다. 화면의 폴링 간격을 짧게 잡지 않는다.
