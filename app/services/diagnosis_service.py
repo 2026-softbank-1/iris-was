@@ -11,14 +11,13 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.aws_clients import PRESIGNED_URL_SECONDS, SnapshotUrlClient
 from app.clients.diagnosis_agent_client import DiagnosisAgentClient
-from app.clients.observability_client import LogEntry
 from app.core.exceptions import (
     AppError,
     DeploymentNotFailedError,
@@ -64,6 +63,7 @@ DIAGNOSABLE_STATUSES = frozenset(
 STALE_AFTER = timedelta(minutes=4)
 STALE_ERROR_CODE = "DIAGNOSIS_ABANDONED"
 INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
+BUILD_LOG_SOURCE_ID = "codebuild"
 
 LOG_FETCH_LIMIT = 1000
 # 에이전트는 마스킹한 로그+메타데이터가 16KiB 를 넘으면 거절한다(INPUT_TOO_LARGE). 로그 한 줄마다
@@ -79,6 +79,27 @@ _SNAPSHOT_RETENTION = timedelta(hours=23)
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+LogStage = Literal["build", "runtime"]
+
+
+@dataclass(frozen=True)
+class DiagnosisLogLine:
+    timestamp: datetime
+    source_id: str
+    text: str
+
+
+@dataclass(frozen=True)
+class CollectedLogs:
+    """진단에 보낼 후보 로그. 오래된 줄부터 순서대로다."""
+
+    stage: LogStage
+    lines: list[DiagnosisLogLine]
+    window: tuple[datetime, datetime]
+    # 모으는 단계에서 이미 일부가 빠졌다(조회 한도·저장된 끝부분만 있음).
+    is_partial: bool
+
 
 # 실패 사유로 실패한 단계를 가린다. DEPLOY_FAILED 는 Sync·readiness 실패라 앱이 못 뜬 경우가 많아
 # 앱 로그(runtime)가 단서다. 시간 초과·인프라 오류는 클러스터 쪽(deploy)이다.
@@ -262,6 +283,54 @@ class DiagnosisService:
     ) -> dict[str, Any]:
         build = await self._build_repository.find_by_deployment_request_id(request.id)
         snapshot_build_id = await self._find_snapshot_build_id(request, build)
+        failed_stage = _failed_stage(request)
+        if failed_stage == "build":
+            # 빌드 단계 실패는 Build Worker 가 저장해 둔 빌드 로그로 진단한다. 앱은 뜬 적이 없다.
+            collected = _collect_build_logs(build, request.id)
+            # 읽기 트랜잭션을 닫는다. 이후 에이전트 호출 동안 DB 연결을 잡지 않는다.
+            await self._session.commit()
+        else:
+            collected = await self._collect_runtime_logs(owner_id, service, request)
+        source = await self._build_source(service, request, snapshot_build_id)
+
+        raw: dict[str, Any] | None = None
+        for index, budget in enumerate(LOG_BUDGETS_BYTES):
+            events, is_trimmed = _select_log_events(collected.lines, collected.stage, budget)
+            if not events:
+                raise _logs_unavailable(collected.stage, request.id)
+            data = AgentDiagnoseData(
+                project_id=service.project_id,
+                service_id=service.id,
+                deployment_id=request.id,
+                attempt_id=build.attempt if build is not None else None,
+                deployment_status=request.status,
+                failed_stage=failed_stage,
+                log_range=AgentLogRange(
+                    from_=collected.window[0],
+                    to=collected.window[1],
+                    is_complete=not collected.is_partial and not is_trimmed,
+                ),
+                logs=events,
+                source=source,
+            )
+            try:
+                raw = await agent_client.diagnose(
+                    data.model_dump(mode="json", by_alias=True, exclude_none=True)
+                )
+            except DiagnosisAgentError as exc:
+                if exc.agent_code == "EMPTY_LOGS":
+                    raise _logs_unavailable(collected.stage, request.id) from exc
+                is_last_budget = index + 1 == len(LOG_BUDGETS_BYTES)
+                if exc.agent_code == "INPUT_TOO_LARGE" and not is_last_budget:
+                    continue
+                raise
+            break
+        assert raw is not None
+        return _validate_result(raw)
+
+    async def _collect_runtime_logs(
+        self, owner_id: int, service: Service, request: DeploymentRequest
+    ) -> CollectedLogs:
         target_ids = (
             await self._service_repository.search_target_ids_by_service_ids([service.id])
         ).get(service.id, [])
@@ -275,58 +344,24 @@ class DiagnosisService:
 
         window = _log_window(request, now_utc())
         if namespace is None or window is None:
-            raise DiagnosisLogsUnavailableError(
-                "no runtime logs to diagnose", deployment_request_id=request.id
-            )
-        window_start, window_end = window
+            raise _logs_unavailable("runtime", request.id)
         entries = await self._observability_service.search_logs(
             target_ids[0],
             namespace,
-            _to_ns(window_start),
-            _to_ns(window_end),
+            _to_ns(window[0]),
+            _to_ns(window[1]),
             LOG_FETCH_LIMIT,
             "",
         )
-        source = await self._build_source(service, request, snapshot_build_id)
-
-        raw: dict[str, Any] | None = None
-        for index, budget in enumerate(LOG_BUDGETS_BYTES):
-            events, is_trimmed = _select_log_events(entries, budget)
-            if not events:
-                raise DiagnosisLogsUnavailableError(
-                    "no runtime logs to diagnose", deployment_request_id=request.id
-                )
-            data = AgentDiagnoseData(
-                project_id=service.project_id,
-                service_id=service.id,
-                deployment_id=request.id,
-                attempt_id=build.attempt if build is not None else None,
-                deployment_status=request.status,
-                failed_stage=_failed_stage(request),
-                log_range=AgentLogRange(
-                    from_=window_start,
-                    to=window_end,
-                    is_complete=len(entries) < LOG_FETCH_LIMIT and not is_trimmed,
-                ),
-                logs=events,
-                source=source,
-            )
-            try:
-                raw = await agent_client.diagnose(
-                    data.model_dump(mode="json", by_alias=True, exclude_none=True)
-                )
-            except DiagnosisAgentError as exc:
-                if exc.agent_code == "EMPTY_LOGS":
-                    raise DiagnosisLogsUnavailableError(
-                        "no runtime logs to diagnose", deployment_request_id=request.id
-                    ) from exc
-                is_last_budget = index + 1 == len(LOG_BUDGETS_BYTES)
-                if exc.agent_code == "INPUT_TOO_LARGE" and not is_last_budget:
-                    continue
-                raise
-            break
-        assert raw is not None
-        return _validate_result(raw)
+        return CollectedLogs(
+            stage="runtime",
+            lines=[
+                DiagnosisLogLine(_from_ns(entry.timestamp_ns), entry.pod or "app", entry.message)
+                for entry in entries
+            ],
+            window=window,
+            is_partial=len(entries) >= LOG_FETCH_LIMIT,
+        )
 
     async def _find_snapshot_build_id(
         self, request: DeploymentRequest, build: Build | None
@@ -404,39 +439,73 @@ def _from_ns(timestamp_ns: str) -> datetime:
     return _EPOCH + timedelta(microseconds=int(timestamp_ns) // 1000)
 
 
+def _logs_unavailable(stage: LogStage, deployment_request_id: int) -> DiagnosisLogsUnavailableError:
+    return DiagnosisLogsUnavailableError(
+        f"no {stage} logs to diagnose", deployment_request_id=deployment_request_id
+    )
+
+
+def _collect_build_logs(build: Build | None, deployment_request_id: int) -> CollectedLogs:
+    """`builds.log_tail` 에서 빌드 로그를 꺼낸다. 없거나 읽을 수 없으면 진단하지 않는다."""
+    tail = build.log_tail if build is not None else None
+    raw_entries = tail.get("entries") if isinstance(tail, dict) else None
+    lines: list[DiagnosisLogLine] = []
+    for entry in raw_entries if isinstance(raw_entries, list) else []:
+        try:
+            lines.append(
+                DiagnosisLogLine(
+                    timestamp=datetime.fromisoformat(entry["timestamp"]),
+                    source_id=BUILD_LOG_SOURCE_ID,
+                    text=str(entry["message"]),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not lines:
+        raise _logs_unavailable("build", deployment_request_id)
+    return CollectedLogs(
+        stage="build",
+        lines=lines,
+        window=(lines[0].timestamp, lines[-1].timestamp),
+        is_partial=bool(tail.get("is_truncated")) if isinstance(tail, dict) else False,
+    )
+
+
 def _select_log_events(
-    entries: list[LogEntry], budget_bytes: int
+    lines: list[DiagnosisLogLine], stage: LogStage, budget_bytes: int
 ) -> tuple[list[AgentLogEvent], bool]:
     """오래된 순으로 정렬된 로그에서 가장 최근 것부터 예산 안에 드는 만큼 고른다.
 
     실패 원인은 대개 끝에 있다. 잘렸으면 두 번째 값이 True 다. 빈 줄만 있는 로그는 건너뛴다.
     """
-    selected: list[tuple[LogEntry, str]] = []
+    selected: list[tuple[DiagnosisLogLine, str]] = []
     used = 0
     is_trimmed = False
-    for entry in reversed(entries):
-        text = entry.message[:_MAX_LINE_CHARS]
+    for line in reversed(lines):
+        text = line.text[:_MAX_LINE_CHARS]
         if not text.strip():
             continue
         cost = sum(
-            len(line.encode("utf-8")) + _BYTES_PER_LINE_OVERHEAD for line in text.splitlines()
+            len(part.encode("utf-8")) + _BYTES_PER_LINE_OVERHEAD for part in text.splitlines()
         )
         if used + cost > budget_bytes:
             is_trimmed = True
             break
-        selected.append((entry, text))
+        selected.append((line, text))
         used += cost
     selected.reverse()
     events = [
         AgentLogEvent(
             id=f"log-{index:04d}",
-            timestamp=_from_ns(entry.timestamp_ns),
-            stage="runtime",
-            source_id=entry.pod or "app",
+            timestamp=line.timestamp,
+            stage=stage,
+            source_id=line.source_id,
+            # CodeBuild 로그는 stdout·stderr 가 한 줄기로 섞여 있다.
+            stream="combined" if stage == "build" else None,
             sequence=index,
             text=text,
         )
-        for index, (entry, text) in enumerate(selected, start=1)
+        for index, (line, text) in enumerate(selected, start=1)
     ]
     return events, is_trimmed
 

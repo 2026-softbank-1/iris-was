@@ -42,6 +42,9 @@ class Build(TimestampMixin, Base):
         enum_column(FailureCode, "failure_code")
     )
     log_url: Mapped[str | None] = mapped_column(Text)
+    # 빌드가 실패했을 때 Build Worker 가 CloudWatch 에서 읽어 둔 로그 끝부분(비밀 패턴은 가렸다).
+    # `{"entries": [{"timestamp", "message"}], "is_truncated"}`. AI 진단이 읽는다.
+    log_tail: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -89,6 +92,9 @@ class Build(TimestampMixin, Base):
         self.image_tag = image_tag
         self.deploy_config = deploy_config
         self.status = BuildStatus.BUILDING
+
+    def record_log_tail(self, log_tail: dict[str, Any]) -> None:
+        self.log_tail = log_tail
 
     def reset_codebuild(self) -> None:
         """CodeBuild 인프라 오류로 다시 빌드해야 할 때. 다음 시도는 스냅샷부터 새로 한다."""

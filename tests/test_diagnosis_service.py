@@ -25,6 +25,7 @@ from tests.fakes_diagnosis import (
     SOURCE_SHA,
     DiagnosisSetup,
     make_log,
+    make_log_tail,
     valid_agent_result,
 )
 
@@ -68,8 +69,6 @@ async def test_diagnose_failed_deployment_saves_result_and_sends_logs_in_time_or
 @pytest.mark.parametrize(
     ("failure_code", "stage"),
     [
-        (FailureCode.BUILD_FAILED, "build"),
-        (FailureCode.SOURCE_REF_NOT_FOUND, "build"),
         (FailureCode.DEPLOY_FAILED, "runtime"),
         (FailureCode.DEPLOY_TIMED_OUT, "deploy"),
         (FailureCode.DEPLOY_INFRA_ERROR, "deploy"),
@@ -563,3 +562,125 @@ async def test_run_diagnosis_in_background_logs_unexpected_error_instead_of_rais
 
     assert "diagnosis crashed" in caplog.text
     assert started.diagnosis.error_code == INTERNAL_ERROR_CODE
+
+
+async def test_diagnose_build_failure_uses_stored_build_logs_not_runtime_logs(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    setup.add_build(
+        request,
+        log_tail=make_log_tail(["npm ERR! missing script: build", "error Command failed"]),
+    )
+
+    diagnosis = await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    assert diagnosis.status == DiagnosisStatus.SUCCEEDED
+    data = setup.agent.requests[0]
+    assert data["failedStage"] == "build"
+    assert [log["text"] for log in data["logs"]] == [
+        "npm ERR! missing script: build",
+        "error Command failed",
+    ]
+    assert {(log["stage"], log["sourceId"], log["stream"]) for log in data["logs"]} == {
+        ("build", "codebuild", "combined")
+    }
+    assert [log["sequence"] for log in data["logs"]] == [1, 2]
+    assert data["logRange"]["from"] <= data["logs"][0]["timestamp"]
+    assert data["logs"][-1]["timestamp"] <= data["logRange"]["to"]
+    assert data["logRange"]["isComplete"] is True
+    assert setup.loki.calls == []
+
+
+async def test_diagnose_build_failure_marks_range_incomplete_when_tail_was_cut(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_TIMED_OUT)
+    setup.add_build(request, log_tail=make_log_tail(["step 9"], is_truncated=True))
+
+    await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    assert setup.agent.requests[0]["logRange"]["isComplete"] is False
+
+
+async def test_diagnose_build_failure_without_stored_logs_fails_without_calling_anything(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    setup.add_build(request)
+
+    with pytest.raises(DiagnosisLogsUnavailableError):
+        await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    assert setup.agent.requests == []
+    assert setup.loki.calls == []
+    assert setup.diagnoses.rows[0].error_code == "DIAGNOSIS_LOGS_UNAVAILABLE"
+
+
+async def test_diagnose_build_failure_without_build_row_fails(setup: DiagnosisSetup) -> None:
+    request = setup.add_request(failure_code=FailureCode.SOURCE_REF_NOT_FOUND)
+
+    with pytest.raises(DiagnosisLogsUnavailableError):
+        await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    assert setup.agent.requests == []
+
+
+async def test_diagnose_build_failure_skips_malformed_entries_and_fails_when_none_remain(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    tail = make_log_tail(["ok line"])
+    tail["entries"] += [{"message": "no timestamp"}, {"timestamp": "not-a-date", "message": "x"}]
+    setup.add_build(request, log_tail=tail)
+
+    await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    assert [log["text"] for log in setup.agent.requests[0]["logs"]] == ["ok line"]
+
+    broken = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    setup.add_build(broken, log_tail={"entries": [{"message": "no timestamp"}]})
+    with pytest.raises(DiagnosisLogsUnavailableError):
+        await setup.diagnosis_service().diagnose(OWNER, setup.service.id, broken.id)
+
+
+async def test_diagnose_build_failure_keeps_newest_build_logs_within_budget(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    setup.add_build(
+        request,
+        log_tail=make_log_tail([f"line {i:04d} " + "x" * 80 for i in range(1, 201)]),
+    )
+
+    await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    data = setup.agent.requests[0]
+    texts = [log["text"] for log in data["logs"]]
+    assert 0 < len(texts) < 200
+    assert texts[-1].startswith("line 0200")
+    assert sum(len(t.encode()) + 200 for t in texts) <= LOG_BUDGETS_BYTES[0]
+    assert data["logRange"]["isComplete"] is False
+
+
+async def test_diagnose_build_failure_also_sends_source_snapshot(setup: DiagnosisSetup) -> None:
+    request = setup.add_request(failure_code=FailureCode.BUILD_FAILED)
+    build = setup.add_build(request, log_tail=make_log_tail(["Dockerfile:3 error"]))
+
+    await setup.diagnosis_service(snapshots=True).diagnose(OWNER, setup.service.id, request.id)
+
+    assert setup.snapshots.build_ids == [build.id]
+    assert "source" in setup.agent.requests[0]
+
+
+async def test_diagnose_deploy_stage_failure_ignores_stored_build_logs(
+    setup: DiagnosisSetup,
+) -> None:
+    request = setup.add_request(failure_code=FailureCode.DEPLOY_TIMED_OUT)
+    setup.add_build(request, log_tail=make_log_tail(["old build output"]))
+
+    await setup.diagnosis_service().diagnose(OWNER, setup.service.id, request.id)
+
+    data = setup.agent.requests[0]
+    assert {log["stage"] for log in data["logs"]} == {"runtime"}
+    assert [log["text"] for log in data["logs"]] == ["line 1", "line 2", "line 3"]
