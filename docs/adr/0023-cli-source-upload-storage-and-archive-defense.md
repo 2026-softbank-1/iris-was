@@ -88,7 +88,7 @@ CLI 는 폴더 밖을 가리키는 링크를 빼고 안쪽을 가리키는 `..` 
 
 ```hcl
 # foundation/control-api-identity.tf — 기존 aws_iam_role_policy.control_api(read-build-logs)는 두고 새 인라인 정책을 더한다
-resource "aws_iam_role_policy" "control_api_artifacts" {
+resource "aws_iam_role_policy" "control_api_source_uploads" {
   name = "source-uploads"
   role = aws_iam_role.control_api.id
 
@@ -128,8 +128,8 @@ resource "aws_iam_role_policy" "control_api_artifacts" {
 ### 운영 절차
 순서를 지킨다. 2 의 환경변수가 업로드 API 와 진단의 소스 전송을 **함께** 켜므로, 1 의 Role 권한(Control API 의 `uploads/*` Put·AbortMultipartUpload, `snapshots/*` Get)이 먼저 적용돼 있어야 한다. 권한 없이 켜면 진단이 받는 presigned URL 이 `403` 을 준다.
 
-1. **iris-infra 정책 PR 을 병합한다**(CI 가 apply). 위 Control API 인라인 정책과 Build Worker 의 `ReadSourceUploads` 를 함께 올린다. 역할이 이미 Pod 에 연결돼 있고 IAM 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용되므로 **재시작이 필요 없다**. Pod 재시작은 새 Pod Identity association 을 만들 때만 필요하다.
-2. **운영 Secret `iris-platform-was-env` 에 `ARTIFACT_BUCKET` 키를 추가한다.** dev 값은 `iris-dev-build-artifacts-187069338876-ap-northeast-2` 다. chart 값(`api.artifactBucket` 같은 것)으로 넣지 않는다. Argo CD root 가 iris-infra 의 특정 SHA 에 고정돼 있어 iris-infra 의 chart ConfigMap 변경이 클러스터에 바로 들어가지 않기 때문이다. Build Worker 는 이미 ConfigMap 으로 `AWS_REGION`·`ARTIFACT_BUCKET` 을 갖고 있어 바꾸지 않는다. API 에 `AWS_REGION` 이 이미 들어오는지는 운영 Pod 에서 확인한 뒤 정한다(없으면 같은 Secret 에 함께 넣는다). 확인하기 전에는 들어온다고 가정하지 않는다.
+1. **iris-infra 정책 PR 을 병합한다**(CI 가 apply. 2026-10-03 iris-infra PR #50 이 병합·apply 됐고 AWS 에서 두 역할의 정책을 확인했다). 위 Control API 인라인 정책과 Build Worker 의 `ReadSourceUploads` 를 함께 올린다. 역할이 이미 Pod 에 연결돼 있고 IAM 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용되므로 **재시작이 필요 없다**. Pod 재시작은 새 Pod Identity association 을 만들 때만 필요하다.
+2. **운영 Secret `iris-platform-was-env` 에 `ARTIFACT_BUCKET` 키를 추가한다.** dev 값은 `iris-dev-build-artifacts-187069338876-ap-northeast-2` 다. chart 값(`api.artifactBucket` 같은 것)으로 넣지 않는다. Argo CD root 가 iris-infra 의 특정 SHA 에 고정돼 있어 iris-infra 의 chart ConfigMap 변경이 클러스터에 바로 들어가지 않기 때문이다. Build Worker 는 이미 ConfigMap 으로 `AWS_REGION`·`ARTIFACT_BUCKET` 을 갖고 있어 바꾸지 않는다. API 의 `AWS_REGION` 은 ConfigMap `iris-platform-api` 와 Pod Identity 웹훅이 이미 넣어 주므로(2026-10-03 운영 Pod 에서 확인) Secret 에는 `ARTIFACT_BUCKET` 만 넣는다.
 3. **API 를 롤링 재시작한다.** 환경변수를 바꾼 API 에만 필요하다. Build Worker 는 환경변수도 새 association 도 없으므로 재시작하지 않는다.
 4. **확인한다.** 로그인한 사용자의 토큰으로 본인 서비스에 빈 본문 `POST /api/v1/services/{id}/uploads` 를 보내 `503 NOT_CONFIGURED` 가 `422 INVALID_INPUT`(`Content-Length` 0)으로 바뀐 것을 본다. 이어서 같은 사용자로 `likelion up` 을 끝까지 돌려 배포가 `SUCCEEDED` 로 끝나는지 본다.
 
