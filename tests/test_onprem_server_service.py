@@ -247,7 +247,16 @@ async def test_connect_after_connected_is_rejected() -> None:
         ("iris-other000.tailb046e8.ts.net", CA_PEM, SEALED_SECRETS_CERT, {"tailnetFqdn"}),
         ("{key}", CA_PEM, SEALED_SECRETS_CERT, {"tailnetFqdn"}),
         ("{key}.tail net.ts.net", CA_PEM, SEALED_SECRETS_CERT, {"tailnetFqdn"}),
-        ("{key}.ts.net", "not a pem", "not a pem", {"apiCaCert", "sealedSecretsCert"}),
+        ("{key}.ts.net", CA_PEM, SEALED_SECRETS_CERT, {"tailnetFqdn"}),
+        ("{key}.a.b.ts.net", CA_PEM, SEALED_SECRETS_CERT, {"tailnetFqdn"}),
+        ("{key}.tailb046e8.example.com", CA_PEM, SEALED_SECRETS_CERT, {"tailnetFqdn"}),
+        ("{key}x.tailb046e8.ts.net", CA_PEM, SEALED_SECRETS_CERT, {"tailnetFqdn"}),
+        (
+            "{key}.tailb046e8.ts.net",
+            "not a pem",
+            "not a pem",
+            {"apiCaCert", "sealedSecretsCert"},
+        ),
     ],
 )
 async def test_connect_invalid_values_are_rejected_without_change(

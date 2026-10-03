@@ -128,7 +128,7 @@ sequenceDiagram
 ### `POST /api/v1/onprem-servers/registry-credentials`
 헤더 `Authorization: Bearer <serverSecret>` · `CONNECTED` 일 때만.
 응답 `data`: `{ "registry": "<계정>.dkr.ecr.ap-northeast-2.amazonaws.com", "username": "AWS", "password": "<ECR 토큰>", "expiresAt": "...", "serviceIds": [12, 15] }`
-- `expiresAt` 은 ECR 응답 값이다. Control API 자격 증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션이 1시간이고, ECR 토큰도 그 안에서 끝날 수 있다. CronJob 이 5분마다 갱신하므로 문제없다.
+- `expiresAt` 은 ECR 토큰 만료와 임시 자격증명 만료 중 이른 쪽이다. Control API 자격 증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션이 1시간이고, ECR 토큰도 그 안에서 끝날 수 있다. CronJob 이 5분마다 갱신하므로 문제없다.
 - Control API 가 ECR pull 전용 Role 을 AssumeRole 하면서 세션 정책으로 이 서버 타깃에 붙은 서비스들의 저장소만 허용한다. 붙은 서비스가 없으면 `serviceIds: []`, password 없음.
 - `CONNECTED` 전에는 401 이 아니라 409 `ONPREM_SERVER_NOT_CONNECTED` 를 준다(CronJob 이 조용히 다음 회차를 기다린다).
 - 서버의 CronJob(설치 스크립트가 만든다)이 5분마다 불러 `svc-{id}/iris-ecr-pull` Secret 을 갱신하고 default SA 에 `imagePullSecrets` 로 붙인다.

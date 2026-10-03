@@ -59,7 +59,8 @@ _RERUNNABLE_STATUSES = (
     OnpremServerStatus.REGISTERING,
     OnpremServerStatus.FAILED,
 )
-_FQDN_LABEL = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
+# iris-infra chart `iris-onprem-server` 의 values schema 가 받는 tailnet FQDN 모양과 같다.
+_TAILNET_SUFFIX = re.compile(r"\.[a-z0-9-]+\.ts\.net")
 
 
 def generate_server_key() -> str:
@@ -399,14 +400,12 @@ def _validate_connection(
 ) -> None:
     """GitOps values·봉인에 그대로 들어가는 값이라 모양을 먼저 본다. 값은 오류에 담지 않는다."""
     issues: list[FieldIssue] = []
-    labels = tailnet_fqdn.split(".")
-    if (
-        len(tailnet_fqdn) > 253
-        or len(labels) < 2
-        or labels[0] != tailscale_hostname(server.server_key)
-        or not all(_FQDN_LABEL.fullmatch(label) for label in labels)
+    hostname = tailscale_hostname(server.server_key)
+    if not (
+        tailnet_fqdn.startswith(hostname)
+        and _TAILNET_SUFFIX.fullmatch(tailnet_fqdn.removeprefix(hostname))
     ):
-        issues.append(FieldIssue("tailnetFqdn", f"must start with iris-{server.server_key}."))
+        issues.append(FieldIssue("tailnetFqdn", f"must match {hostname}.<tailnet>.ts.net"))
     try:
         x509.load_pem_x509_certificates(api_ca_cert.strip().encode())
     except ValueError:

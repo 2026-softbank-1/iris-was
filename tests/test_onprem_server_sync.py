@@ -73,8 +73,9 @@ class FakeAws:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.credentials_expire = datetime.now(UTC) + timedelta(hours=12)
-        self.token_expires = datetime.now(UTC) + timedelta(hours=12, minutes=5)
+        # 연쇄된 role 세션은 1시간, ECR 토큰은 12시간이다.
+        self.credentials_expire = datetime.now(UTC) + timedelta(hours=1)
+        self.token_expires = datetime.now(UTC) + timedelta(hours=12)
 
     def __call__(self, service: str, **kwargs: Any) -> "FakeAws":
         self.calls.append((f"client:{service}", kwargs))
@@ -101,7 +102,7 @@ class FakeAws:
 async def test_issue_pull_credential_scopes_session_policy_to_repositories() -> None:
     aws = FakeAws()
     client = EcrPullCredentialClient(
-        "ap-northeast-2", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-pull", 43200, aws
+        "ap-northeast-2", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-pull", 3600, aws
     )
 
     credential = await client.issue_pull_credential(
@@ -110,10 +111,10 @@ async def test_issue_pull_credential_scopes_session_policy_to_repositories() -> 
 
     assert credential.registry == "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com"
     assert (credential.username, credential.password) == ("AWS", "ecr-password")
-    assert credential.expires_at == aws.token_expires
+    assert credential.expires_at == aws.credentials_expire
     assume = next(kwargs for name, kwargs in aws.calls if name == "assume_role")
     assert assume["RoleSessionName"] == "iris-onprem-k3x9q2ma"
-    assert assume["DurationSeconds"] == 43200
+    assert assume["DurationSeconds"] == 3600
     statements = json.loads(assume["Policy"])["Statement"]
     assert statements[0] == {
         "Effect": "Allow",
@@ -127,6 +128,18 @@ async def test_issue_pull_credential_scopes_session_policy_to_repositories() -> 
     assert "ecr:BatchGetImage" in statements[1]["Action"]
     ecr_client = next(kwargs for name, kwargs in aws.calls if name == "client:ecr")
     assert ecr_client["aws_session_token"] == "session"
+
+
+async def test_issue_pull_credential_expiry_is_token_when_it_ends_first() -> None:
+    aws = FakeAws()
+    aws.token_expires = aws.credentials_expire - timedelta(minutes=10)
+    client = EcrPullCredentialClient(
+        "ap-northeast-2", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-pull", 3600, aws
+    )
+
+    credential = await client.issue_pull_credential("iris-onprem-k3x9q2ma", ["iris/services/12"])
+
+    assert credential.expires_at == aws.token_expires
 
 
 def test_pull_credential_client_rejects_invalid_role_arn() -> None:
