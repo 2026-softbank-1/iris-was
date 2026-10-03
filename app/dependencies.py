@@ -42,6 +42,7 @@ from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
 from app.services.service_registry_service import ServiceRegistryService
+from app.services.service_scaling_service import ServiceScalingService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
 from app.services.target_service import TargetService
@@ -238,12 +239,28 @@ def get_deployment_request_service(session: SessionDep) -> DeploymentRequestServ
         DeploymentStatusHistoryRepository(session),
         BuildRepository(session),
         ServiceVariableRepository(session),
+        ServiceRepository(session),
     )
 
 
 DeploymentRequestServiceDep = Annotated[
     DeploymentRequestService, Depends(get_deployment_request_service)
 ]
+
+
+def get_service_scaling_service(
+    session: SessionDep, deployment_request_service: DeploymentRequestServiceDep
+) -> ServiceScalingService:
+    return ServiceScalingService(
+        session,
+        ServiceRepository(session),
+        DeploymentRequestRepository(session),
+        BuildRepository(session),
+        deployment_request_service,
+    )
+
+
+ServiceScalingServiceDep = Annotated[ServiceScalingService, Depends(get_service_scaling_service)]
 
 
 def get_deployment_status_service(session: SessionDep) -> DeploymentStatusService:

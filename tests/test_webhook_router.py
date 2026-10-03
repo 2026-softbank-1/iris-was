@@ -59,6 +59,7 @@ async def client() -> AsyncIterator[AsyncClient]:
             FakeDeploymentStatusHistoryRepository(),  # type: ignore[arg-type]
             FakeBuildRepository(),  # type: ignore[arg-type]
             FakeServiceVariableRepository(),  # type: ignore[arg-type]
+            FakeWebhookServiceRepository([service]),  # type: ignore[arg-type]
         ),
         SECRET,
     )

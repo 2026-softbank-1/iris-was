@@ -14,6 +14,7 @@ from app.services.deploy_service import (
     render_service_values,
     service_host_label,
 )
+from app.services.scaling_config import ScalingConfig
 
 NOW = datetime(2026, 10, 1, tzinfo=UTC)
 DEADLINE = NOW + timedelta(minutes=5)
@@ -72,7 +73,12 @@ def test_evaluate_release_previous_failed_operation_waits() -> None:
     assert evaluate_release(status, False, False, NOW, DEADLINE) == Verdict.WAIT
 
 
-def _render(deploy: DeployConfig, builder: Builder = Builder.DOCKERFILE) -> dict[str, Any]:
+def _render(
+    deploy: DeployConfig,
+    builder: Builder = Builder.DOCKERFILE,
+    *,
+    scaling: ScalingConfig | None = None,
+) -> dict[str, Any]:
     content = render_service_values(
         host_label="my-app",
         release_id=345,
@@ -82,6 +88,7 @@ def _render(deploy: DeployConfig, builder: Builder = Builder.DOCKERFILE) -> dict
         builder=builder,
         deploy=deploy,
         base_domain="example.app",
+        scaling=scaling,
     )
     values: dict[str, Any] = json.loads(content)
     return values
@@ -104,6 +111,26 @@ def test_render_service_values_healthcheck_path_sets_health_path() -> None:
     values = _render(DeployConfig(healthcheck_path="/health", healthcheck_timeout=120))
 
     assert values["health"] == {"path": "/health", "timeoutSeconds": 120}
+
+
+@pytest.mark.parametrize("replicas", [0, 3, 10])
+def test_render_service_values_applies_pod_count_and_resources(replicas: int) -> None:
+    scaling = ScalingConfig.model_validate(
+        {
+            "replicas": replicas,
+            "resources": {
+                "requests": {"cpu": "500m", "memory": "512Mi"},
+                "limits": {"cpu": "2", "memory": "1Gi"},
+            },
+        }
+    )
+
+    values = _render(DeployConfig(healthcheck_path="/ready"), scaling=scaling)
+
+    assert values["replicas"] == replicas
+    assert values["resources"] == scaling.model_dump(mode="json")["resources"]
+    assert values["health"] == {"path": "/ready", "timeoutSeconds": 300}
+    assert values["image"]["digest"] == "sha256:abc"
 
 
 @pytest.mark.parametrize(

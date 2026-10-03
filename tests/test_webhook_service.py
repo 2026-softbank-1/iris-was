@@ -10,6 +10,7 @@ from app.enums import DeploymentStatus, DeploymentTrigger, JobKind
 from app.models.service import Service
 from app.models.user import GithubInstallation
 from app.services.deployment_request_service import DeploymentRequestService
+from app.services.scaling_config import ScalingConfig
 from app.services.webhook_service import WebhookService
 from tests.fakes import FakeGithubInstallationRepository, FakeSession
 from tests.fakes_variable import FakeServiceVariableRepository
@@ -75,6 +76,7 @@ class Parts:
                 self.histories,  # type: ignore[arg-type]
                 self.builds,  # type: ignore[arg-type]
                 self.variables,  # type: ignore[arg-type]
+                FakeWebhookServiceRepository(services),  # type: ignore[arg-type]
             ),
             SECRET,
         )
@@ -118,6 +120,31 @@ async def test_push_snapshots_current_variables() -> None:
     await parts.receive("push", _push())
 
     assert parts.requests.requests[0].variables_snapshot == {"A": "enc(1)"}
+
+
+async def test_push_snapshots_current_scaling_and_keeps_it_after_service_edit() -> None:
+    config = ScalingConfig.defaults().model_dump(mode="json")
+    config["replicas"] = 3
+    service = _service(scaling_config=config)
+    parts = Parts([service])
+
+    await parts.receive("push", _push())
+    service.scaling_config["replicas"] = 4
+    service.scaling_config["resources"]["requests"]["memory"] = "128Mi"
+
+    snapshot = parts.requests.requests[0].scaling_snapshot
+    assert snapshot["replicas"] == 3
+    assert snapshot["resources"]["requests"]["memory"] == "256Mi"
+
+
+async def test_push_snapshots_infra_defaults_when_service_is_unconfigured() -> None:
+    parts = Parts([_service()])
+
+    await parts.receive("push", _push())
+
+    assert parts.requests.requests[0].scaling_snapshot == ScalingConfig.defaults().model_dump(
+        mode="json"
+    )
 
 
 async def test_push_creates_deployment_request_and_build_job() -> None:
