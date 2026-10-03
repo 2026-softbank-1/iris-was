@@ -141,3 +141,11 @@ async def test_automatic_queue_requires_explicit_authorization_and_current_owner
         service.is_deleted = True
         await session.flush()
         assert await repo.pending_automatic() == []
+        repair.status = "RUNNING"
+        await session.flush()
+        deadline = now_utc() + timedelta(minutes=4)
+        assert await repo.claim_generation(repair.id, deadline_at=deadline)
+        assert not await repo.claim_generation(
+            repair.id, deadline_at=deadline + timedelta(minutes=5)
+        )
+        assert (await repo.get_by_id(repair.id)).deadline_at == deadline

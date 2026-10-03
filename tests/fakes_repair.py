@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from itertools import count
 from typing import Any
 
@@ -86,11 +87,15 @@ class FakeRepairRepository:
         self.rows.append(row)
         return row
 
-    async def claim_generation(self, repair_id: int) -> bool:
+    async def claim_generation(
+        self, repair_id: int, *, deadline_at: datetime | None = None
+    ) -> bool:
         row = await self.get_by_id(repair_id)
         if row.status != "RUNNING" or row.generation_started_at is not None:
             return False
         row.generation_started_at = now_utc()
+        if deadline_at is not None:
+            row.deadline_at = deadline_at
         return True
 
 

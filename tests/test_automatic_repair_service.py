@@ -179,3 +179,80 @@ async def test_unknown_generation_recovers_receipt_then_merges_without_another_p
     await service.advance(OWNER, setup.service.id, repair.id)
     assert repair.request_metadata["publication"]["status"] == "MERGED"
     assert len(setup.repair_agent.requests) == 1
+
+
+async def test_waiting_runner_never_overwrites_another_replicas_completed_merge(
+    publication_setup, monkeypatch
+):
+    from app.clients.repair_publication_client import GitHubPublisher
+
+    setup, _, repair, _, _, _, _ = publication_setup
+    service = automatic(publication_setup)
+    await service.resume(OWNER, setup.service.id, repair.id)
+
+    async def concurrent_merge(self, *args):
+        raise RepairError("MERGE_BLOCKED", "checks were pending", 409)
+
+    monkeypatch.setattr(GitHubPublisher, "merge_pull_request", concurrent_merge)
+    original = setup.repairs.lock_publication
+    calls = 0
+
+    async def lock(repair_id):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            # Another replica finishes after publish/merge release their locks.
+            repair.request_metadata = {
+                **repair.request_metadata,
+                "publication": {"status": "MERGED", "mergeCommitSha": "m" * 40},
+            }
+        return await original(repair_id)
+
+    setup.repairs.lock_publication = lock
+    await service.advance(OWNER, setup.service.id, repair.id)
+    assert repair.request_metadata["publication"]["status"] == "MERGED"
+
+
+async def test_expiry_does_not_overwrite_concurrent_completion(publication_setup):
+    setup, _, repair, _, calls, _, _ = publication_setup
+    service = automatic(publication_setup)
+    await service.resume(OWNER, setup.service.id, repair.id)
+    repair.request_metadata = {
+        **repair.request_metadata,
+        "autoDeadlineAt": (now_utc() - timedelta(seconds=1)).isoformat(),
+    }
+    original = setup.repairs.lock_publication
+
+    async def lock(repair_id):
+        repair.request_metadata = {**repair.request_metadata, "publication": {"status": "MERGED"}}
+        return await original(repair_id)
+
+    setup.repairs.lock_publication = lock
+    await service.advance(OWNER, setup.service.id, repair.id)
+    assert repair.request_metadata["publication"]["status"] == "MERGED"
+    assert calls == []
+
+
+async def test_unsubmitted_queued_job_gets_model_timeout_on_claim_not_enqueue(publication_setup):
+    setup, _, original, _, _, _, _ = publication_setup
+    service = automatic(publication_setup)
+    started = await service.start(
+        OWNER,
+        setup.service.id,
+        original.deployment_request_id,
+        original.diagnosis_id,
+        "queued-auto",
+    )
+    repair = started.repair
+    repair.deadline_at = now_utc() - timedelta(minutes=1)
+    setup.repair_agent.candidate = False
+    candidate = await setup.repair_service().get_repair(OWNER, setup.service.id, repair.id)
+    assert candidate.status == "RUNNING" and candidate.generation_started_at is None
+    assert setup.repair_agent.receipt_calls == []
+    await service.advance(OWNER, setup.service.id, repair.id)
+    assert repair.status == "SUCCEEDED"
+    assert repair.request_metadata["publication"]["status"] == "SKIPPED"
+    assert repair.deadline_at > now_utc()
+    assert (
+        len(setup.repair_agent.requests) == 2
+    )  # The existing fixture and one new queued generation.

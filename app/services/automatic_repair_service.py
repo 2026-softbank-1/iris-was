@@ -94,10 +94,22 @@ class AutomaticRepairService:
         if publication.get("status") in {"MERGED", "ERROR", "SKIPPED"}:
             return
         if datetime.fromisoformat(repair.request_metadata["autoDeadlineAt"]) < now_utc():
-            repair.request_metadata = {
-                **repair.request_metadata,
-                "publication": {**publication, "status": "ERROR", "errorCode": "DEADLINE_EXCEEDED"},
-            }
+            repair = await self._repairs.lock_publication(repair_id)
+            publication = repair.request_metadata.get("publication") or {}
+            # A concurrent completion or explicit retry may have changed the row while we waited.
+            if publication.get("status") not in {"MERGED", "ERROR", "SKIPPED"} and (
+                datetime.fromisoformat(repair.request_metadata["autoDeadlineAt"]) < now_utc()
+            ):
+                repair.request_metadata = {
+                    **repair.request_metadata,
+                    "publication": {
+                        **publication,
+                        "status": "ERROR",
+                        "errorCode": "DEADLINE_EXCEEDED",
+                    },
+                }
+                if repair.status == "RUNNING" and repair.generation_started_at is None:
+                    repair.finish("FAILED", error_code="DEADLINE_EXCEEDED")
             await self._session.commit()
             return
         if repair.status == "RUNNING":
@@ -116,15 +128,26 @@ class AutomaticRepairService:
                 repair = await self._publication.execute(owner_id, service_id, repair_id, "publish")
             await self._publication.execute(owner_id, service_id, repair_id, "merge")
         except AppError as exc:
-            repair = await self._repairs.get_by_id(repair_id)
+            if exc.fields.get("publication_busy"):
+                return
+            try:
+                repair = await self._repairs.lock_publication(repair_id)
+            except ConflictError as locked:
+                if locked.fields.get("publication_busy"):
+                    return
+                raise
             publication = dict(repair.request_metadata.get("publication") or {})
+            if publication.get("status") in {"MERGED", "SKIPPED"} or (
+                publication.get("status") == "ERROR"
+                and publication.get("errorCode") not in {exc.code, "GITHUB_OUTCOME_UNKNOWN"}
+            ):
+                await self._session.commit()
+                return
             if exc.code == "MERGE_BLOCKED":
                 # Required CI can finish later; retry this same PR without another model call.
                 publication.update(status="WAITING_CHECKS", errorCode="MERGE_BLOCKED")
             elif publication.get("errorCode") == "GITHUB_OUTCOME_UNKNOWN":
                 publication.update(status="RECOVERING")
-            elif exc.fields.get("publication_busy"):
-                return  # Another replica holds the publication lock; it continues the same action.
             else:
                 publication.update(status="ERROR", errorCode=exc.code)
             repair.request_metadata = {**repair.request_metadata, "publication": publication}

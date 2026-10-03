@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select, update
@@ -119,7 +120,9 @@ class DeploymentRepairRepository:
         )
         return (await self._session.scalars(statement)).one_or_none()
 
-    async def claim_generation(self, repair_id: int) -> bool:
+    async def claim_generation(
+        self, repair_id: int, *, deadline_at: datetime | None = None
+    ) -> bool:
         statement = (
             update(DeploymentRepair)
             .where(
@@ -127,7 +130,10 @@ class DeploymentRepairRepository:
                 DeploymentRepair.status == "RUNNING",
                 DeploymentRepair.generation_started_at.is_(None),
             )
-            .values(generation_started_at=now_utc())
+            .values(
+                generation_started_at=now_utc(),
+                **({"deadline_at": deadline_at} if deadline_at is not None else {}),
+            )
             .returning(DeploymentRepair.id)
         )
         return (await self._session.scalars(statement)).one_or_none() is not None

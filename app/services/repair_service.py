@@ -9,7 +9,7 @@ import re
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -241,7 +241,18 @@ class RepairService:
         repair = await self._repairs.get_by_id(repair_id)
         if repair.service_id != service_id:
             raise NotFoundError("repair not found", repair_id=repair_id)
-        if not await self._repairs.claim_generation(repair_id):
+        if repair.request_metadata.get("autoMerge") and repair.generation_started_at is None:
+            # Queue time is separate from the model timeout; set it once with the generation claim.
+            deadline = min(
+                now_utc() + timedelta(seconds=self._deadline_seconds),
+                datetime.fromisoformat(repair.request_metadata["autoDeadlineAt"]),
+            )
+            claimed = await self._repairs.claim_generation(repair_id, deadline_at=deadline)
+            if claimed:
+                repair.deadline_at = deadline
+        else:
+            claimed = await self._repairs.claim_generation(repair_id)
+        if not claimed:
             return repair
         await self._session.commit()
         assert self._agent is not None and self._handoff is not None and self._snapshots is not None
@@ -373,7 +384,11 @@ class RepairService:
         if repair.service_id != service_id:
             raise NotFoundError("repair not found", repair_id=repair_id)
         if repair.status == "UNKNOWN_OUTCOME" or (
-            repair.status == "RUNNING" and now_utc() > repair.deadline_at + timedelta(seconds=10)
+            repair.status == "RUNNING"
+            and not (
+                repair.request_metadata.get("autoMerge") and repair.generation_started_at is None
+            )
+            and now_utc() > repair.deadline_at + timedelta(seconds=10)
         ):
             await self._session.commit()
             if self._agent is not None:
