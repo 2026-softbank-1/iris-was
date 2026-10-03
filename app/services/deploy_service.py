@@ -8,7 +8,6 @@ import contextlib
 import json
 import logging
 import re
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -25,7 +24,6 @@ from app.core.crypto import VariableCipher
 from app.core.exceptions import (
     ConflictError,
     ExternalError,
-    GitOpsConflictError,
     NotConfiguredError,
     NotFoundError,
 )
@@ -40,7 +38,7 @@ from app.enums import (
     ReleaseStatus,
 )
 from app.models import Job, Release
-from app.models.target import AWS_TARGET_NAME
+from app.models.target import AWS_TARGET_NAME, Target
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.job_repository import JobRepository
@@ -48,13 +46,13 @@ from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.deployment_strategy import PROGRESSIVE_TARGET_KINDS, strategy_extra_wait
-from app.services.domain_service import service_host_label
+from app.services.domain_service import service_host_label, target_server_key
+from app.services.gitops_writer import GitOpsWriter
 from app.services.scaling_config import ScalingConfig
 
 logger = logging.getLogger(__name__)
 
 JOB_KINDS = frozenset({JobKind.DEPLOY, JobKind.RECONCILE, JobKind.ROLLBACK, JobKind.REMOVE})
-GITOPS_BRANCH = "main"
 GITOPS_ENVIRONMENT = "prod"
 VALUES_FILE_NAME = "values.yaml"
 RECONCILE_INTERVAL = timedelta(seconds=10)
@@ -64,10 +62,7 @@ DEADLINE_MARGIN = timedelta(minutes=10)
 # 디렉터리를 지운 뒤 ApplicationSet 폴링(약 3분)과 Application 정리를 기다리는 한도.
 REMOVE_TIMEOUT = timedelta(minutes=10)
 RETRY_BASE_DELAY = timedelta(seconds=30)
-MAX_PUSH_ATTEMPTS = 5
 _FAILED_PHASES = ("Failed", "Error")
-# 설치 토큰은 1시간 유효하다. 만료 직전 토큰을 쓰지 않게 일찍 갱신한다.
-_TOKEN_TTL_SECONDS = 50 * 60
 _MAX_ERROR_LENGTH = 1000
 # iris-service chart 의 values 스키마가 release.sourceSha 에 요구하는 형식.
 _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -193,9 +188,20 @@ class DeployService:
         self._settings = settings
         self._worker_id = worker_id
         # 사용자 변수를 봉인할 때만 쓴다. 변수가 없는 배포는 둘 다 없어도 동작한다.
+        # 사용자가 등록한 서버로 가는 변수는 sealer 대신 그 서버의 인증서로 봉인한다.
         self._cipher = cipher
         self._sealer = sealer
-        self._token: tuple[str, float] | None = None
+        self._gitops_writer: GitOpsWriter | None = None
+
+    @property
+    def _gitops(self) -> GitOpsWriter:
+        if self._gitops_writer is None:
+            self._gitops_writer = GitOpsWriter(
+                self._github,
+                self._settings.gitops_installation_id,
+                self._settings.gitops_repository,
+            )
+        return self._gitops_writer
 
     async def claim_next_job(self) -> Job | None:
         async with self._session_factory.begin() as session:
@@ -315,7 +321,7 @@ class DeployService:
         variables = await self._seal_variables(release)
         files = {
             VALUES_FILE_NAME: render_service_values(
-                host_label=service_host_label(service.name, service.id),
+                host_label=service_host_label(service.name, service.id, target_server_key(target)),
                 release_id=release.id,
                 image_repository=build.image_repository,
                 image_digest=release.image_digest,
@@ -382,12 +388,15 @@ class DeployService:
     async def _seal_variables(self, release: Release) -> dict[str, Any] | None:
         """요청 스냅샷의 변수를 풀어 이 release 전용으로 다시 봉인한다. 변수가 없으면 None.
 
-        봉인할 수 없으면 변수를 뺀 채 배포하지 않고 예외로 멈춘다. 앱이 변수 없이 뜨는 것을 막는다.
+        타깃 클러스터의 controller 만 풀 수 있게 봉인한다. 사용자가 등록한 서버면 그 서버가 보낸
+        인증서, 그 밖의 타깃이면 `SEALED_SECRETS_CERT` 다. 봉인할 수 없으면 변수를 뺀 채 배포하지
+        않고 예외로 멈춘다. 앱이 변수 없이 뜨는 것을 막는다.
         """
         snapshot = release.deployment_request.variables_snapshot
         if not snapshot:
             return None
-        if self._cipher is None or self._sealer is None:
+        sealer = self._target_sealer(release.target)
+        if self._cipher is None or sealer is None:
             raise NotConfiguredError(
                 "variables cannot be sealed",
                 setting="VARIABLES_ENCRYPTION_KEY, SEALED_SECRETS_CERT",
@@ -396,8 +405,18 @@ class DeployService:
         # release 마다 새 이름이라 새 Secret 이 먼저 생기고, 롤백은 이전 이름이 돌아온다.
         name = f"vars-r{release.id}"
         plaintexts = {key: self._cipher.decrypt(token) for key, token in snapshot.items()}
-        encrypted = await self._sealer.seal(service_namespace(release.service_id), name, plaintexts)
+        encrypted = await sealer.seal(service_namespace(release.service_id), name, plaintexts)
         return {"name": name, "encryptedData": encrypted}
+
+    def _target_sealer(self, target: Target) -> SecretSealer | None:
+        server = target.onprem_server
+        if server is None:
+            return self._sealer
+        if server.sealed_secrets_cert is None:
+            return None
+        return SecretSealer(
+            server.sealed_secrets_cert, setting="onprem_servers.sealed_secrets_cert"
+        )
 
     # --- RECONCILE
 
@@ -741,27 +760,7 @@ class DeployService:
         create: Callable[[str], Awaitable[str]],
         record: Callable[[str], Awaitable[None]],
     ) -> None:
-        """커밋을 main 에 fast-forward 한다. 기록된 커밋이 이미 main 에 있으면 그대로 끝낸다.
-
-        브랜치가 그새 움직였으면 새 HEAD 위에 커밋을 다시 만든다.
-        """
-        commit_sha = recorded_sha
-        if commit_sha is not None:
-            head_sha = await self._github.get_branch_sha(token, self._repository, GITOPS_BRANCH)
-            if await self._github.contains(token, self._repository, commit_sha, head_sha):
-                return
-        for _ in range(MAX_PUSH_ATTEMPTS):
-            if commit_sha is None:
-                head_sha = await self._github.get_branch_sha(token, self._repository, GITOPS_BRANCH)
-                commit_sha = await create(head_sha)
-                await record(commit_sha)
-            try:
-                await self._github.update_branch(token, self._repository, GITOPS_BRANCH, commit_sha)
-                return
-            except GitOpsConflictError:
-                logger.info("gitops branch moved, recommitting", extra={"action": "push"})
-                commit_sha = None
-        raise ExternalError("gitops branch kept moving", attempts=MAX_PUSH_ATTEMPTS)
+        await self._gitops.push(token, recorded_sha, create, record)
 
     async def _record_commit(
         self, job: Job, release_id: int, commit_sha: str, *, is_revert: bool
@@ -831,12 +830,7 @@ class DeployService:
             await JobRepository(session).release(job.id, delay)
 
     async def _gitops_token(self) -> str:
-        if self._token is None or time.monotonic() >= self._token[1]:
-            token = await self._github.create_installation_token(
-                self._settings.gitops_installation_id, None, contents="write"
-            )
-            self._token = (token, time.monotonic() + _TOKEN_TTL_SECONDS)
-        return self._token[0]
+        return await self._gitops.token()
 
     @property
     def _repository(self) -> str:
