@@ -79,7 +79,7 @@ LOG_LEVEL=INFO
 | `DIAGNOSIS_AGENT_URL`, `DIAGNOSIS_AGENT_API_KEY` | 에러 진단 에이전트 서버(`iris-error-check-agent`) 주소와 `X-API-Key` 값. dev 클러스터 주소는 `http://iris-platform-error-agent.iris-platform.svc.cluster.local:8001`, 키는 Secret `iris-error-agent` 의 `AGENT_API_KEY` 와 같은 값. 둘 중 하나라도 없으면 진단 시작이 `503 NOT_CONFIGURED`(저장된 진단 조회는 가능). [AI 진단 API](docs/diagnosis-api.md) |
 | `DIAGNOSIS_AGENT_TIMEOUT_SECONDS` | 에이전트 응답을 기다리는 시간(초). 기본 150 (모델 호출 최대 2번 × 60초 + 여유) |
 | `DIAGNOSIS_AUTO_START_ENABLED`, `DIAGNOSIS_AUTO_START_INTERVAL_SECONDS` | 실패가 확정된 배포를 서버가 자동으로 진단한다(기본 켬, 에이전트 설정이 없으면 켜지 않는다). 모델 비용이 실패마다 들어 `false` 로 끌 수 있다(끄면 버튼으로 시작하는 진단만 남는다). 진단할 배포를 찾는 주기는 기본 5초다 |
-| `AWS_REGION`, `ARTIFACT_BUCKET` | (선택) 둘 다 있어야 켜진다(`AWS_REGION` 은 아래 `BUILD_LOG_GROUP` 도 함께 쓴다). ① 소스 업로드 API(`likelion up`): `uploads/*` 의 `s3:PutObject`·`s3:AbortMultipartUpload` 가 필요하고, 없으면 `POST /services/{id}/uploads` 가 `503 NOT_CONFIGURED`. ② 진단에 빌드의 소스 스냅샷을 함께 보낸다: `snapshots/*` 의 `s3:GetObject` 가 필요하고, 없으면 로그만 진단한다. 같은 두 변수가 둘을 함께 켜므로 Role 에 두 권한을 같이 준다([ADR 0023](docs/adr/0023-cli-source-upload-storage-and-archive-defense.md)) |
+| `AWS_REGION`, `ARTIFACT_BUCKET` | (선택) 둘 다 있어야 켜진다(`AWS_REGION` 은 아래 `BUILD_LOG_GROUP` 도 함께 쓴다). ① 소스 업로드 API(`likelion up`): `uploads/*` 의 `s3:PutObject`·`s3:AbortMultipartUpload` 가 필요하고, 없으면 `POST /services/{id}/uploads` 가 `503 NOT_CONFIGURED`. ② 진단에 빌드의 소스 스냅샷을 함께 보낸다: `snapshots/*` 의 `s3:GetObject` 가 필요하고, 없으면 로그만 진단한다. 같은 두 변수가 둘을 함께 켜므로 Role 에 두 권한을 같이 주고, **권한을 먼저 적용한 뒤** 변수를 켠다. 운영은 chart 값이 아니라 Secret `iris-platform-was-env` 에 `ARTIFACT_BUCKET` 을 넣고 API 를 롤링 재시작한다([ADR 0023](docs/adr/0023-cli-source-upload-storage-and-archive-defense.md)) |
 | `UPLOAD_MAX_BYTES` | 소스 업로드의 압축한 바이트 한도. 기본 250MB(Build Worker 의 `SNAPSHOT_MAX_BYTES` 와 같게 둔다). 넘으면 본문을 읽기 전에 `413 UPLOAD_TOO_LARGE` |
 | `BUILD_LOG_GROUP` | (선택) `AWS_REGION` 과 함께 있으면 배포 상세의 빌드 로그 전체를 CloudWatch Logs 에서 읽는다(그룹 `/aws/codebuild/iris-dev-build` 의 `logs:GetLogEvents` 만 허용한 Role 필요). 없으면 Build Worker 가 남긴 실패한 빌드의 끝부분만 보여 주고, 그것도 없으면 빌드 로그 API 가 503 이다. [배포 상세 화면 API](docs/deployment-details-api.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
@@ -158,7 +158,7 @@ Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 �
 | `USER_CONCURRENT_BUILD_LIMIT` · `BUILD_TIMEOUT_MINUTES` · `SNAPSHOT_MAX_BYTES` | 사용자별 동시 빌드 2 · 빌드 15분 · 스냅샷 250MB |
 | `UPLOAD_MAX_UNCOMPRESSED_BYTES` · `UPLOAD_MAX_ENTRIES` | `CLI` 업로드 아카이브를 풀었을 때의 총 크기 2GiB · 항목 수 10만(압축 폭탄 방어). 넘으면 `SOURCE_TOO_LARGE` |
 
-Build Worker 역할(IAM)에는 `CLI` 업로드를 내려받는 `uploads/*` 의 `s3:GetObject` 가 있어야 한다(없으면 `CLI` 빌드가 `BUILD_INFRA_ERROR` 로 끝난다). 또 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`(`/aws/codebuild/<프로젝트>:*`)가 있어야 한다. 없어도 빌드는 동작하고 AI 진단만 빌드 로그 없이 끝난다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
+Build Worker 역할(IAM)에는 `CLI` 업로드를 내려받는 `uploads/*` 의 `s3:GetObject` 가 있어야 한다(없으면 `CLI` 빌드가 `BUILD_INFRA_ERROR` 로 끝난다. 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용되므로 Worker 를 재시작하지 않는다). 또 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`(`/aws/codebuild/<프로젝트>:*`)가 있어야 한다. 없어도 빌드는 동작하고 AI 진단만 빌드 로그 없이 끝난다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
 
 Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub App·자격증명을 공유하지 않는다.
 

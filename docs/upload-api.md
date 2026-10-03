@@ -113,10 +113,10 @@ CLI 가 만드는 아카이브(`.git`·`node_modules`·`.likelion` 제외, 폴�
 
 | 대상 | 필요한 것 |
 |---|---|
-| Control API | `AWS_REGION`·`ARTIFACT_BUCKET` 환경변수, 역할에 `uploads/*` 의 `s3:PutObject`·`s3:AbortMultipartUpload`(진단 소스 전송을 함께 켜므로 `snapshots/*` 의 `s3:GetObject` 도) |
-| Build Worker | 역할에 `uploads/*` 의 `s3:GetObject` |
+| Control API | 역할 `iris-dev-control-api` 의 새 인라인 정책에 `uploads/*` 의 `s3:PutObject`·`s3:AbortMultipartUpload`(진단 소스 전송을 함께 켜므로 `snapshots/*` 의 `s3:GetObject` 도). 환경변수 `AWS_REGION`·`ARTIFACT_BUCKET` 은 운영 Secret `iris-platform-was-env` 로 넣고 API 를 롤링 재시작한다 |
+| Build Worker | 역할에 `uploads/*` 의 `s3:GetObject`. `AWS_REGION`·`ARTIFACT_BUCKET` 은 이미 ConfigMap 으로 있어 재시작하지 않는다 |
 
-IAM·chart 는 iris-infra 가 소유한다. 제안 diff 는 [ADR 0023](adr/0023-cli-source-upload-storage-and-archive-defense.md) 의 "인프라 변경".
+두 환경변수가 업로드 API 와 진단의 소스 전송을 함께 켜므로 Control API 의 Role 권한을 **먼저** 적용한다. IAM 은 iris-infra 가 소유하고 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용된다. 제안 diff 와 순서는 [ADR 0023](adr/0023-cli-source-upload-storage-and-archive-defense.md) 의 "인프라 변경".
 
 ## 웹 프런트에 미치는 영향
 
