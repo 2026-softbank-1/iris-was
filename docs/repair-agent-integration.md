@@ -1,5 +1,7 @@
 # Repair candidate integration
 
+운영 주소, WAS 세션 인증, GitHub 쓰기 토큰 및 코드수정 API 계약은 [코드수정 운영 API 명세](repair-api.md)를 참고한다.
+
 The WAS hands the internal repair agent the original persisted `diagnosis-result.v3`, selected remediation IDs, and an exact source snapshot from the failed deployment's build. The public diagnosis response is a view model and must not be used as the original diagnosis. Ownership is checked by the orchestration service before the handoff service receives its records.
 
 The request uses `iris.repair-request.v1`; its `requestId` also becomes the `Idempotency-Key` header. Request and artifact calls use `X-API-Key`. Persist the request identity and pinned metadata before the model call. A source URL refresh may change the signed URL but must preserve every semantic field and both hashes. Never resolve a repair against the latest source branch.

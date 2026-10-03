@@ -96,9 +96,62 @@ async def get_repair_artifact(
     description=(
         "서비스 소유권, 로그인 시 연결된 GitHub App 설치와 현재 저장소 접근권한을 확인한다. "
         "해당 소스 저장소 하나에 Contents·Pull requests write 토큰을 발급한다. "
-        "수정 코디네이터만 사용하며 생성 API·로그·작업 기록에 저장하지 않는다."
+        "기존 WAS 세션 쿠키 또는 Bearer 토큰으로 인증하며 GitHub PAT를 입력하지 않는다. "
+        "App과 설치에 Contents·Pull requests 읽기/쓰기 승인이 모두 필요하다. "
+        "쓰기 권한이 없으면 403 FORBIDDEN이며, /api/v1/github/install로 설치/권한 승인을 진행한다. "
+        "토큰은 코디네이터 메모리에서만 사용하고 만료 60초 전에 같은 API로 갱신한다. "
+        "생성 API·로그·작업 기록에 저장하지 않는다. "
+        "이 API는 브랜치 생성·PR 머지·배포를 실행하지 않는다."
     ),
-    responses=error_responses(401, 403, 404, 409, 422, 502, 503),
+    responses={
+        **error_responses(401, 403, 404, 409, 422, 502, 503),
+        200: {
+            "description": "해당 저장소 한정 Contents·Pull requests write 단기 설치 토큰",
+            "headers": {
+                "Cache-Control": {"schema": {"type": "string", "const": "no-store"}},
+                "Pragma": {"schema": {"type": "string", "const": "no-cache"}},
+            },
+        },
+        403: {
+            **error_responses(403)[403],
+            "description": (
+                "설치/저장소 접근 불가 또는 App·설치의 Contents/Pull requests 쓰기 권한 부족"
+            ),
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "missing_write_permissions": {
+                            "summary": "App 쓰기 권한 미승인",
+                            "value": {
+                                "success": False,
+                                "code": "FORBIDDEN",
+                                "message": "github app requires Contents and Pull requests write",
+                            },
+                        },
+                        "repository_not_accessible": {
+                            "summary": "설치 또는 저장소 접근 권한 없음",
+                            "value": {
+                                "success": False,
+                                "code": "REPOSITORY_NOT_ACCESSIBLE",
+                                "message": (
+                                    "repository is not accessible; "
+                                    "install the github app and grant access"
+                                ),
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        404: {
+            **error_responses(404)[404],
+            "description": "서비스가 없거나 현재 로그인 사용자의 서비스가 아님 (SERVICE_NOT_FOUND)",
+        },
+        409: {
+            **error_responses(409)[409],
+            "description": "요청 repository가 현재 서비스 소스 저장소와 다름 (CONFLICT)",
+        },
+    },
 )
 async def issue_repair_github_token(
     service_id: int,

@@ -3986,6 +3986,10 @@
       "RepairGithubTokenRequest": {
         "properties": {
           "repository": {
+            "description": "서비스의 현재 source repository와 일치해야 하는 owner/repo. 설치 ID·권한은 WAS가 결정한다.",
+            "examples": [
+              "owner/repository"
+            ],
             "maxLength": 201,
             "minLength": 3,
             "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
@@ -4002,16 +4006,27 @@
       "RepairGithubTokenResponse": {
         "properties": {
           "expiresAt": {
+            "description": "GitHub가 정한 만료 시각(UTC). 코디네이터는 만료 60초 전에 재발급한다.",
+            "examples": [
+              "2030-01-01T01:00:00Z"
+            ],
             "format": "date-time",
             "title": "Expiresat",
             "type": "string"
           },
           "repository": {
+            "description": "발급한 토큰이 접근할 수 있는 서비스 소스 저장소 하나",
+            "examples": [
+              "owner/repository"
+            ],
             "title": "Repository",
             "type": "string"
           },
           "token": {
-            "description": "코디네이터 전용 단기 토큰. 저장·로그·모델 입력 금지",
+            "description": "Contents·Pull requests write 설치 토큰. 코디네이터 메모리에서만 사용한다.",
+            "examples": [
+              "<short-lived-installation-token>"
+            ],
             "title": "Token",
             "type": "string"
           }
@@ -8511,7 +8526,7 @@
     },
     "/api/v1/services/{service_id}/repair-github-token": {
       "post": {
-        "description": "서비스 소유권, 로그인 시 연결된 GitHub App 설치와 현재 저장소 접근권한을 확인한다. 해당 소스 저장소 하나에 Contents·Pull requests write 토큰을 발급한다. 수정 코디네이터만 사용하며 생성 API·로그·작업 기록에 저장하지 않는다.",
+        "description": "서비스 소유권, 로그인 시 연결된 GitHub App 설치와 현재 저장소 접근권한을 확인한다. 해당 소스 저장소 하나에 Contents·Pull requests write 토큰을 발급한다. 기존 WAS 세션 쿠키 또는 Bearer 토큰으로 인증하며 GitHub PAT를 입력하지 않는다. App과 설치에 Contents·Pull requests 읽기/쓰기 승인이 모두 필요하다. 쓰기 권한이 없으면 403 FORBIDDEN이며, /api/v1/github/install로 설치/권한 승인을 진행한다. 토큰은 코디네이터 메모리에서만 사용하고 만료 60초 전에 같은 API로 갱신한다. 생성 API·로그·작업 기록에 저장하지 않는다. 이 API는 브랜치 생성·PR 머지·배포를 실행하지 않는다.",
         "operationId": "issue_repair_github_token_api_v1_services__service_id__repair_github_token_post",
         "parameters": [
           {
@@ -8543,7 +8558,21 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "해당 저장소 한정 Contents·Pull requests write 단기 설치 토큰",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "schema": {
+                  "const": "no-cache",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -8558,12 +8587,30 @@
           "403": {
             "content": {
               "application/json": {
+                "examples": {
+                  "missing_write_permissions": {
+                    "summary": "App 쓰기 권한 미승인",
+                    "value": {
+                      "code": "FORBIDDEN",
+                      "message": "github app requires Contents and Pull requests write",
+                      "success": false
+                    }
+                  },
+                  "repository_not_accessible": {
+                    "summary": "설치 또는 저장소 접근 권한 없음",
+                    "value": {
+                      "code": "REPOSITORY_NOT_ACCESSIBLE",
+                      "message": "repository is not accessible; install the github app and grant access",
+                      "success": false
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ApiResponse_NoneType_"
                 }
               }
             },
-            "description": "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)"
+            "description": "설치/저장소 접근 불가 또는 App·설치의 Contents/Pull requests 쓰기 권한 부족"
           },
           "404": {
             "content": {
@@ -8573,7 +8620,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+            "description": "서비스가 없거나 현재 로그인 사용자의 서비스가 아님 (SERVICE_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8583,7 +8630,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
+            "description": "요청 repository가 현재 서비스 소스 저장소와 다름 (CONFLICT)"
           },
           "422": {
             "content": {
@@ -9762,9 +9809,19 @@
       }
     }
   },
+  "servers": [
+    {
+      "description": "현재 API 서버 (개발·운영 공통)",
+      "url": "/"
+    },
+    {
+      "description": "운영 Control API",
+      "url": "https://api.likelion.uk"
+    }
+  ],
   "tags": [
     {
-      "description": "실패한 배포의 AI 코드 수정 후보 생성과 조회",
+      "description": "실패한 배포의 AI 코드 수정 후보·artifact 조회와 서비스용 GitHub 쓰기 인증",
       "name": "repair"
     },
     {
