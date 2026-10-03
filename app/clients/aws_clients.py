@@ -15,7 +15,7 @@ from boto3.exceptions import S3UploadFailedError
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.core.exceptions import ExternalError
+from app.core.exceptions import ExternalError, InvalidInputError
 
 _BOTO_CONFIG = Config(retries={"mode": "standard", "max_attempts": 5}, signature_version="s3v4")
 PRESIGNED_URL_SECONDS = 15 * 60
@@ -143,11 +143,69 @@ class BuildLogClient(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class BuildLogChunk:
+    """빌드 로그를 앞에서부터 읽은 한 덩어리. next_token 으로 이어 읽는다."""
+
+    lines: list[LogLine]
+    # 새 줄이 없으면 보낸 토큰이 그대로 돌아온다. 그래서 진행 중인 빌드를 같은 토큰으로 폴링한다.
+    next_token: str | None
+
+
+class BuildLogReader(Protocol):
+    """Control API 가 배포 상세 화면에 빌드 로그를 보여 주려고 쓰는 읽기 전용 조회."""
+
+    async def read_events(
+        self, log_group: str, log_stream: str, limit: int, next_token: str | None
+    ) -> BuildLogChunk:
+        """처음(또는 next_token)부터 시간순으로 limit 줄. 스트림이 아직 없으면 빈 덩어리다."""
+        ...
+
+
 class CloudWatchBuildLogClient:
     """CodeBuild 가 CloudWatch Logs 에 쓴 빌드 로그를 읽는다(`logs:GetLogEvents` 권한 필요)."""
 
     def __init__(self, region: str, client: Any | None = None) -> None:
         self._client = client or boto3.client("logs", region_name=region, config=_BOTO_CONFIG)
+
+    @classmethod
+    def create_reader(cls, region: str) -> "CloudWatchBuildLogClient":
+        """Control API 용. S3 서명 설정이 없는 기본 설정에 짧은 타임아웃을 건다."""
+        config = Config(
+            retries={"mode": "standard", "max_attempts": 3}, connect_timeout=3, read_timeout=10
+        )
+        return cls(region, boto3.client("logs", region_name=region, config=config))
+
+    async def read_events(
+        self, log_group: str, log_stream: str, limit: int, next_token: str | None
+    ) -> BuildLogChunk:
+        params: dict[str, Any] = {
+            "logGroupName": log_group,
+            "logStreamName": log_stream,
+            "startFromHead": True,
+            "limit": limit,
+        }
+        if next_token is not None:
+            params["nextToken"] = next_token
+        try:
+            response = await asyncio.to_thread(self._client.get_log_events, **params)
+        except self._client.exceptions.ResourceNotFoundException:
+            # 빌드를 막 시작해 CodeBuild 가 스트림을 아직 만들지 않았다.
+            return BuildLogChunk([], next_token)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "InvalidParameterException" and next_token:
+                raise InvalidInputError("cursor is invalid") from exc
+            raise ExternalError("aws request failed", operation="get_log_events") from exc
+        except BotoCoreError as exc:
+            raise ExternalError("aws request failed", operation="get_log_events") from exc
+        # CodeBuild 는 이벤트마다 줄바꿈을 붙여 보낸다.
+        lines = [
+            LogLine(
+                timestamp_ms=int(event["timestamp"]), message=str(event["message"]).rstrip("\r\n")
+            )
+            for event in response.get("events", [])
+        ]
+        return BuildLogChunk(lines, response.get("nextForwardToken"))
 
     async def fetch_tail(self, log_group: str, log_stream: str, max_lines: int) -> BuildLogTail:
         response = await _call(

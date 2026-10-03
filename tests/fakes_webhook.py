@@ -4,12 +4,13 @@ from itertools import count
 from typing import Any
 
 from app.core.exceptions import DeploymentRequestNotFoundError
-from app.enums import ACTIVE_DEPLOYMENT_STATUSES, DeploymentStatus
+from app.enums import ACTIVE_DEPLOYMENT_STATUSES, BuildStatus, DeploymentStatus, Environment
 from app.models.base import now_utc
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
+from app.models.release import Release
 from app.models.service import Service
 
 
@@ -63,6 +64,19 @@ class FakeDeploymentRequestRepository:
             if r.service_id == service_id and r.status == DeploymentStatus.SUCCEEDED
         ]
         return max(succeeded, key=lambda r: (r.created_at, r.id), default=None)
+
+    async def find_first_succeeded_after(
+        self, service_id: int, environment: Environment, deployment_request_id: int
+    ) -> DeploymentRequest | None:
+        newer = [
+            r
+            for r in self.requests
+            if r.service_id == service_id
+            and r.environment == environment
+            and r.status == DeploymentStatus.SUCCEEDED
+            and r.id > deployment_request_id
+        ]
+        return min(newer, key=lambda r: r.id, default=None)
 
     async def get_by_id_for_update(self, deployment_request_id: int) -> DeploymentRequest:
         request = next((r for r in self.requests if r.id == deployment_request_id), None)
@@ -143,8 +157,22 @@ class FakeBuildRepository:
 
     async def add(self, build: Build) -> Build:
         build.id = len(self.builds) + 1
+        # 컬럼 기본값은 INSERT 때 채워지므로 인메모리 도우미가 같게 맞춘다.
+        if build.status is None:
+            build.status = BuildStatus.PENDING
         self.builds.append(build)
         return build
+
+
+class FakeReleaseRepository:
+    def __init__(self) -> None:
+        self.releases: list[Release] = []
+
+    async def search_by_deployment_request_id(self, deployment_request_id: int) -> list[Release]:
+        return sorted(
+            (r for r in self.releases if r.deployment_request_id == deployment_request_id),
+            key=lambda r: r.id,
+        )
 
 
 class FakeJobRepository:

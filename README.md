@@ -79,6 +79,7 @@ LOG_LEVEL=INFO
 | `DIAGNOSIS_AGENT_URL`, `DIAGNOSIS_AGENT_API_KEY` | 에러 진단 에이전트 서버(`iris-error-check-agent`) 주소와 `X-API-Key` 값. dev 클러스터 주소는 `http://iris-platform-error-agent.iris-platform.svc.cluster.local:8001`, 키는 Secret `iris-error-agent` 의 `AGENT_API_KEY` 와 같은 값. 둘 중 하나라도 없으면 진단 시작이 `503 NOT_CONFIGURED`(저장된 진단 조회는 가능). [AI 진단 API](docs/diagnosis-api.md) |
 | `DIAGNOSIS_AGENT_TIMEOUT_SECONDS` | 에이전트 응답을 기다리는 시간(초). 기본 150 (모델 호출 최대 2번 × 60초 + 여유) |
 | `AWS_REGION`, `ARTIFACT_BUCKET` | (선택) 둘 다 있으면 진단에 빌드의 소스 스냅샷을 함께 보낸다(`snapshots/*` 의 `s3:GetObject` 만 허용한 Role 필요). 없으면 로그만 진단한다 |
+| `BUILD_LOG_GROUP` | (선택) `AWS_REGION` 과 함께 있으면 배포 상세의 빌드 로그 전체를 CloudWatch Logs 에서 읽는다(그룹 `/aws/codebuild/iris-dev-build` 의 `logs:GetLogEvents` 만 허용한 Role 필요). 없으면 Build Worker 가 남긴 실패한 빌드의 끝부분만 보여 주고, 그것도 없으면 빌드 로그 API 가 503 이다. [배포 상세 화면 API](docs/deployment-details-api.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
 | `WEB_BASE_URL` | 웹 프런트 주소. 로그인 후 이 주소로 돌려보낸다. 기본 `http://localhost:3000` |
 | `API_BASE_URL` | Control API 의 공개 주소(예: `https://api.likelion.uk`). CLI 로그인의 `verificationUrl` 을 만든다. 없으면 요청의 Host 로 만든다. TLS 를 앞단에서 끝내는 운영에서는 꼭 설정한다 |
@@ -164,6 +165,8 @@ Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub Ap
 | `GITOPS_REPOSITORY` | `{owner}/gitops-environments`. `main` 에 fast-forward 커밋만 한다 |
 | `GITOPS_APP_ID` · `GITOPS_APP_PRIVATE_KEY` · `GITOPS_INSTALLATION_ID` | `iris-gitops` GitHub App(contents:write, GitOps 저장소에만 설치) |
 | `ARGOCD_SERVER_URL` · `ARGOCD_TOKEN` | Argo CD API 주소, project role `deploy-reader` 토큰(applications get) |
+| `VARIABLES_ENCRYPTION_KEY` | Control API 와 같은 값. 배포 요청의 변수 스냅샷(암호문)을 풀 때 쓴다. 변수가 있는 배포에만 필요하고, 변수가 있는데 없으면 그 배포는 `DEPLOY_INFRA_ERROR` 로 실패한다 |
+| `SEALED_SECRETS_CERT` | workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다. `\n` 두 글자로 적어도 된다). [runbook](https://github.com/2026-softbank-1/iris-infra/blob/main/docs/runbooks/sealed-secrets.md) 에서 꺼낸다. **설정하면 사용자 변수 기능이 켜져** values 에 `iris`·`variables` 를 쓴다. `iris-service` chart 0.6.0 이상이 배포된 뒤에만 설정한다(이전 chart 는 모르는 키를 거절해 모든 배포가 실패한다). 비어 있으면 이전과 같은 values 를 쓴다. 운영은 Secret `iris-platform-was-env` 에 있다(2026-10-03 설정) |
 
 ## 실행
 
@@ -177,7 +180,7 @@ Worker 는 일이 없으면 `jobs` 트리거의 `NOTIFY jobs, <kind>`·가장 �
 
 Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
 
-Deploy Worker 흐름: DEPLOY 선점 → release(PENDING) 생성(서비스·타깃마다 1개, 진행 중이면 snooze) → `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart values) 렌더링 → 커밋 SHA 기록 → `main` fast-forward → RECONCILE 이 10초마다 Argo CD 상태 확인(대기 중에는 job 을 잡지 않고 snooze) → 성공이면 ECR `r-{release_id}` 태그·`SUCCEEDED`, 실패면 이전 정상 release 의 디렉터리로 되돌리는 revert commit(ROLLBACK). 상세는 [.claude/docs/deploy-worker-plan.md](.claude/docs/deploy-worker-plan.md), 로컬 테스트는 [docs/deploy-worker-test-guide.md](docs/deploy-worker-test-guide.md).
+Deploy Worker 흐름: DEPLOY 선점 → release(PENDING) 생성(서비스·타깃마다 1개, 진행 중이면 snooze) → `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart values) 렌더링(`SEALED_SECRETS_CERT` 가 있으면: 요청의 변수 스냅샷은 풀어 `svc-{service_id}` + `vars-r{release_id}` 용으로 다시 봉인해 `variables` 에 넣고, 서비스·타깃 이름과 배포 요청 id 는 `iris` 에 넣는다. [ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md)) → 커밋 SHA 기록 → `main` fast-forward → RECONCILE 이 10초마다 Argo CD 상태 확인(대기 중에는 job 을 잡지 않고 snooze) → 성공이면 ECR `r-{release_id}` 태그·`SUCCEEDED`, 실패면 이전 정상 release 의 디렉터리로 되돌리는 revert commit(ROLLBACK). 상세는 [.claude/docs/deploy-worker-plan.md](.claude/docs/deploy-worker-plan.md), 로컬 테스트는 [docs/deploy-worker-test-guide.md](docs/deploy-worker-test-guide.md).
 
 로그는 stdout 에 JSON 한 줄씩 나간다. 로컬에서는 `... | jq` 로 보면 편하다. 로깅·응답·예외 구조는 [docs/api-response-logging-template.md](docs/api-response-logging-template.md) 참조.
 

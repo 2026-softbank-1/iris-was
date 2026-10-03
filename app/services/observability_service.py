@@ -11,7 +11,9 @@ from app.clients.observability_client import (
     LogEntry,
     MetricGrouping,
     MetricSeries,
+    NetworkLogEntry,
     ObservabilityClient,
+    StatusClass,
 )
 from app.core.exceptions import (
     ExternalError,
@@ -43,6 +45,11 @@ class ObservabilityService:
         targets = await self._service_repository.search_target_ids_by_service_ids([service_id])
         if target_id not in targets[service_id]:
             raise InvalidInputError("target is not assigned to this service", target_id=target_id)
+        return self.build_namespace(service_id)
+
+    @staticmethod
+    def build_namespace(service_id: int) -> str:
+        """서비스가 배포되는 Kubernetes namespace. 로그·메트릭의 서비스 구분 라벨 값이다."""
         return f"svc-{service_id}"
 
     def _get_url(self, target_id: int, kind: str) -> str:
@@ -61,10 +68,38 @@ class ObservabilityService:
             raise InvalidInputError("end cannot be in the future")
 
     async def search_logs(
-        self, target_id: int, namespace: str, start_ns: int, end_ns: int, limit: int, search: str
+        self,
+        target_id: int,
+        namespace: str,
+        start_ns: int,
+        end_ns: int,
+        limit: int,
+        search: str,
+        release_ids: list[int] | None = None,
     ) -> list[LogEntry]:
+        url = self._get_url(target_id, "loki_url")
+        if release_ids is None:
+            return await self._client.search_logs(url, namespace, start_ns, end_ns, limit, search)
         return await self._client.search_logs(
-            self._get_url(target_id, "loki_url"), namespace, start_ns, end_ns, limit, search
+            url, namespace, start_ns, end_ns, limit, search, release_ids=release_ids
+        )
+
+    async def search_network_logs(
+        self,
+        target_id: int,
+        namespace: str,
+        start_ns: int,
+        end_ns: int,
+        limit: int,
+        status_class: StatusClass | None,
+    ) -> list[NetworkLogEntry]:
+        return await self._client.search_network_logs(
+            self._get_url(target_id, "loki_url"),
+            namespace,
+            start_ns,
+            end_ns,
+            limit,
+            status_class,
         )
 
     async def search_metrics(

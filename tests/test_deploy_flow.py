@@ -10,11 +10,14 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.clients.argocd_client import ArgoAppStatus
+from app.clients.secret_sealer import SecretSealer
 from app.core.config import DeployWorkerSettings
+from app.core.crypto import VariableCipher
 from app.core.exceptions import ExternalError, GitOpsConflictError
 from app.enums import (
     Builder,
@@ -40,6 +43,7 @@ from app.repositories.service_variable_repository import ServiceVariableReposito
 from app.services.deploy_service import DeployService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.service_teardown_service import ServiceTeardownService
+from tests.sealed_support import make_controller_key, unseal
 from tests.worker_support import (
     add,
     requires_database,
@@ -162,7 +166,13 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
 
 class Harness:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        cipher: VariableCipher | None = None,
+        sealer: SecretSealer | None = None,
+    ) -> None:
         self.session_factory = session_factory
         self.gitops = FakeGitOps()
         self.argo = FakeArgo()
@@ -174,10 +184,18 @@ class Harness:
             self.ecr,  # type: ignore[arg-type]
             SETTINGS,
             "worker-1",
+            cipher=cipher,
+            sealer=sealer,
         )
         self.service_id: int | None = None
 
-    async def request_deploy(self, *, max_attempts: int = 3, cancelled: bool = False) -> int:
+    async def request_deploy(
+        self,
+        *,
+        max_attempts: int = 3,
+        cancelled: bool = False,
+        variables_snapshot: dict[str, str] | None = None,
+    ) -> int:
         """같은 서비스에 빌드가 끝난 배포 요청과 DEPLOY job 을 만든다. 요청 ID 를 돌려준다."""
         async with self.session_factory.begin() as session:
             if self.service_id is None:
@@ -192,6 +210,7 @@ class Harness:
                     trigger_type=DeploymentTrigger.MANUAL,
                     idempotency_key=unique,
                     status=DeploymentStatus.DEPLOYING,
+                    variables_snapshot=variables_snapshot,
                 ),
             )
             build = await add(
@@ -283,6 +302,113 @@ async def test_deploy_and_reconcile_success_marks_release_succeeded(session_fact
         (JobKind.DEPLOY, JobStatus.SUCCEEDED),
         (JobKind.RECONCILE, JobStatus.SUCCEEDED),
     ]
+
+
+def _committed_values(h: Harness) -> dict[str, Any]:
+    tree_sha = h.gitops.commits[h.gitops.head][1][f"services/{h.service_id}/prod"]
+    values: dict[str, Any] = json.loads(h.gitops.trees[tree_sha]["values.yaml"])
+    return values
+
+
+async def test_deploy_without_sealer_keeps_values_the_previous_chart_accepts(
+    session_factory: Any,
+) -> None:
+    h = Harness(session_factory)
+    await h.request_deploy()
+
+    await h.run_next(JobKind.DEPLOY)
+
+    values = _committed_values(h)
+    assert "iris" not in values and "variables" not in values
+
+
+async def test_deploy_with_sealer_writes_identity_and_no_variables_when_none_are_set(
+    session_factory: Any,
+) -> None:
+    _, certificate = make_controller_key()
+    h = Harness(session_factory, sealer=SecretSealer(certificate))
+    request_id = await h.request_deploy()
+
+    await h.run_next(JobKind.DEPLOY)
+
+    values = _committed_values(h)
+    assert "variables" not in values
+    assert values["iris"] == {"serviceName": "web", "targetName": "aws", "deploymentId": request_id}
+
+
+async def test_deploy_with_variables_commits_values_sealed_for_the_service(
+    session_factory: Any,
+) -> None:
+    key, certificate = make_controller_key()
+    cipher = VariableCipher(Fernet.generate_key().decode())
+    h = Harness(session_factory, cipher=cipher, sealer=SecretSealer(certificate))
+    plaintexts = {"DATABASE_URL": "postgres://u:p@db/app", "SESSION_SECRET": "s3cret-값"}
+    request_id = await h.request_deploy(
+        variables_snapshot={k: cipher.encrypt(v) for k, v in plaintexts.items()}
+    )
+
+    await h.run_next(JobKind.DEPLOY)
+
+    _, release, _ = await h.load(request_id)
+    assert release is not None
+    tree_sha = h.gitops.commits[h.gitops.head][1][f"services/{h.service_id}/prod"]
+    content = h.gitops.trees[tree_sha]["values.yaml"]
+    variables = json.loads(content)["variables"]
+    assert json.loads(content)["iris"]["deploymentId"] == request_id
+    assert variables["name"] == f"vars-r{release.id}"
+    assert set(variables["encryptedData"]) == set(plaintexts)
+    assert {
+        k: unseal(key, v, f"svc-{h.service_id}", variables["name"])
+        for k, v in variables["encryptedData"].items()
+    } == plaintexts
+    assert not any(value in content for value in plaintexts.values()), (
+        "Git must not hold plaintext."
+    )
+
+
+async def test_deploy_with_variables_but_no_sealer_fails_without_committing(
+    session_factory: Any,
+) -> None:
+    cipher = VariableCipher(Fernet.generate_key().decode())
+    h = Harness(session_factory)
+    request_id = await h.request_deploy(
+        max_attempts=1, variables_snapshot={"A": cipher.encrypt("x")}
+    )
+
+    await h.run_next(JobKind.DEPLOY)
+
+    request, release, jobs = await h.load(request_id)
+    assert release is not None
+    assert (release.status, request.status, request.failure_code) == (
+        ReleaseStatus.FAILED,
+        DeploymentStatus.FAILED,
+        FailureCode.DEPLOY_INFRA_ERROR,
+    )
+    assert h.gitops.head == "c0", "An app must not be deployed without its variables."
+    assert _job_states(jobs) == [(JobKind.DEPLOY, JobStatus.FAILED)]
+
+
+async def test_deploy_with_variables_encrypted_by_other_key_fails_without_committing(
+    session_factory: Any,
+) -> None:
+    _, certificate = make_controller_key()
+    snapshot = {"A": VariableCipher(Fernet.generate_key().decode()).encrypt("x")}
+    h = Harness(
+        session_factory,
+        cipher=VariableCipher(Fernet.generate_key().decode()),
+        sealer=SecretSealer(certificate),
+    )
+    request_id = await h.request_deploy(max_attempts=1, variables_snapshot=snapshot)
+
+    await h.run_next(JobKind.DEPLOY)
+
+    request, _, jobs = await h.load(request_id)
+    assert (request.status, request.failure_code) == (
+        DeploymentStatus.FAILED,
+        FailureCode.DEPLOY_INFRA_ERROR,
+    )
+    assert h.gitops.head == "c0"
+    assert _job_states(jobs) == [(JobKind.DEPLOY, JobStatus.FAILED)]
 
 
 async def test_reconcile_image_tag_failure_still_succeeds(session_factory: Any) -> None:

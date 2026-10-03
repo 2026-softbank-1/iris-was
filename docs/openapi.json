@@ -1,6 +1,63 @@
 {
   "components": {
     "schemas": {
+      "ApiResponse_BuildLogsResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuildLogsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[BuildLogsResponse]",
+        "type": "object"
+      },
       "ApiResponse_CliLoginSessionResponse_": {
         "properties": {
           "code": {
@@ -172,6 +229,63 @@
         "title": "ApiResponse[DeploymentDetailResponse]",
         "type": "object"
       },
+      "ApiResponse_DeploymentLogsResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeploymentLogsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[DeploymentLogsResponse]",
+        "type": "object"
+      },
       "ApiResponse_DeploymentResponse_": {
         "properties": {
           "code": {
@@ -341,6 +455,63 @@
           }
         },
         "title": "ApiResponse[LogsResponse]",
+        "type": "object"
+      },
+      "ApiResponse_NetworkLogsResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NetworkLogsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[NetworkLogsResponse]",
         "type": "object"
       },
       "ApiResponse_NoneType_": {
@@ -1405,6 +1576,104 @@
         "title": "BranchResponse",
         "type": "object"
       },
+      "BuildLogEntryResponse": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "timestampNs": {
+            "description": "로그 시각(Unix ns). JS 정밀도 손실을 피하려고 문자열이다.",
+            "examples": [
+              "1790812800000000000"
+            ],
+            "title": "Timestampns",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestampNs",
+          "message"
+        ],
+        "title": "BuildLogEntryResponse",
+        "type": "object"
+      },
+      "BuildLogsResponse": {
+        "properties": {
+          "buildStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuildStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "로그를 만든 빌드의 상태. 빌드가 없으면 없다."
+          },
+          "entries": {
+            "description": "시간 오름차순",
+            "items": {
+              "$ref": "#/components/schemas/BuildLogEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "isComplete": {
+            "description": "빌드가 끝났고 이번 호출에서 읽은 로그가 없다. true 이면 폴링을 멈춘다.",
+            "title": "Iscomplete",
+            "type": "boolean"
+          },
+          "isPartial": {
+            "default": false,
+            "description": "CloudWatch 를 읽을 수 없는 환경에서 Build Worker 가 남긴 실패한 빌드의 끝부분만 돌려줬고 앞부분이 빠졌다. 이때 nextCursor 는 없다.",
+            "title": "Ispartial",
+            "type": "boolean"
+          },
+          "loggedDeploymentId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "로그를 만든 빌드가 속한 배포 id. 롤백·재시작은 빌드를 새로 하지 않아 원본 배포다. 읽을 로그가 없으면 없다.",
+            "title": "Loggeddeploymentid"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "다음 호출의 cursor. 진행 중인 빌드는 이 값으로 이어서 호출해 새 로그를 받는다. 읽을 로그 스트림이 없으면 보낸 cursor 가 그대로 돌아온다.",
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "entries",
+          "isComplete"
+        ],
+        "title": "BuildLogsResponse",
+        "type": "object"
+      },
+      "BuildStatus": {
+        "enum": [
+          "PENDING",
+          "SNAPSHOTTING",
+          "BUILDING",
+          "SUCCEEDED",
+          "FAILED",
+          "CANCELLED"
+        ],
+        "title": "BuildStatus",
+        "type": "string"
+      },
       "Builder": {
         "enum": [
           "dockerfile",
@@ -1559,8 +1828,190 @@
         "title": "CreateDeploymentRequest",
         "type": "object"
       },
+      "DeploymentBuildConfigurationResponse": {
+        "properties": {
+          "buildCommand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buildcommand"
+          },
+          "builder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Builder"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "없으면 빌더를 아직 확정하지 않은 것이다(화면의 Auto-detect)."
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "저장소 안의 서비스 위치. 없으면 저장소 루트다.",
+            "title": "Rootdirectory"
+          }
+        },
+        "title": "DeploymentBuildConfigurationResponse",
+        "type": "object"
+      },
+      "DeploymentBuildResponse": {
+        "description": "이 배포 요청의 빌드 결과. 롤백·재시작은 원본 빌드를 복사한 것이라 시각이 요청 시각이다.",
+        "properties": {
+          "builder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Builder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failureCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "imageDigest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "sha256:3f1c..."
+            ],
+            "title": "Imagedigest"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BuildStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "DeploymentBuildResponse",
+        "type": "object"
+      },
+      "DeploymentConfigurationResponse": {
+        "description": "화면의 Configuration. root·build command·port 는 배포 시점이 아닌 현재 설정값이다.",
+        "properties": {
+          "build": {
+            "$ref": "#/components/schemas/DeploymentBuildConfigurationResponse"
+          },
+          "deploy": {
+            "$ref": "#/components/schemas/DeploymentDeployConfigurationResponse"
+          }
+        },
+        "required": [
+          "build",
+          "deploy"
+        ],
+        "title": "DeploymentConfigurationResponse",
+        "type": "object"
+      },
+      "DeploymentDeployConfigurationResponse": {
+        "properties": {
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "startCommand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "빌드가 기록한 값이 있으면 그 값, 없으면 서비스 설정값이다.",
+            "title": "Startcommand"
+          },
+          "targets": {
+            "description": "실제로 반영한 타깃. 아직 반영 전이면 서비스에 지정된 타깃이다.",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentTargetResponse"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "targets"
+        ],
+        "title": "DeploymentDeployConfigurationResponse",
+        "type": "object"
+      },
       "DeploymentDetailResponse": {
         "properties": {
+          "build": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeploymentBuildResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "빌드를 시작하기 전에 끝난 요청은 없다."
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/DeploymentConfigurationResponse"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
@@ -1593,6 +2044,25 @@
             "title": "Isactive",
             "type": "boolean"
           },
+          "releases": {
+            "description": "빌드 실패처럼 배포까지 가지 못한 요청은 비어 있다.",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentReleaseResponse"
+            },
+            "title": "Releases",
+            "type": "array"
+          },
+          "replacedBy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeploymentReplacedByResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "성공했던 배포를 더 새로운 성공 배포가 대신했을 때만 있다(화면의 Removed)."
+          },
           "requestedBy": {
             "anyOf": [
               {
@@ -1608,6 +2078,9 @@
           "serviceId": {
             "title": "Serviceid",
             "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DeploymentSourceResponse"
           },
           "sourceCommitMessage": {
             "anyOf": [
@@ -1665,9 +2138,166 @@
           "createdAt",
           "updatedAt",
           "history",
-          "stages"
+          "stages",
+          "source",
+          "configuration",
+          "releases"
         ],
         "title": "DeploymentDetailResponse",
+        "type": "object"
+      },
+      "DeploymentLogsResponse": {
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "실제로 조회한 구간 끝. 조회할 것이 없으면 없다.",
+            "title": "End"
+          },
+          "entries": {
+            "description": "시간 오름차순",
+            "items": {
+              "$ref": "#/components/schemas/LogEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "isTruncated": {
+            "description": "limit 에 도달했다. 범위를 좁혀 더 조회한다.",
+            "title": "Istruncated",
+            "type": "boolean"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "실제로 조회한 구간 시작. 조회할 것이 없으면 없다.",
+            "title": "Start"
+          }
+        },
+        "required": [
+          "entries",
+          "isTruncated"
+        ],
+        "title": "DeploymentLogsResponse",
+        "type": "object"
+      },
+      "DeploymentReleaseResponse": {
+        "description": "타깃 하나에 반영한 결과. Argo CD 상태는 원본 표기 그대로다.",
+        "properties": {
+          "argoHealthStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Healthy"
+            ],
+            "title": "Argohealthstatus"
+          },
+          "argoSyncStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Synced"
+            ],
+            "title": "Argosyncstatus"
+          },
+          "failureCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "gitopsCommitSha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gitopscommitsha"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReleaseStatus"
+          },
+          "targetId": {
+            "title": "Targetid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "targetId",
+          "status"
+        ],
+        "title": "DeploymentReleaseResponse",
+        "type": "object"
+      },
+      "DeploymentReplacedByResponse": {
+        "properties": {
+          "at": {
+            "description": "그 배포가 성공한 시각",
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "deploymentId": {
+            "description": "이 배포를 대신한 더 새로운 성공 배포 id",
+            "title": "Deploymentid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deploymentId",
+          "at"
+        ],
+        "title": "DeploymentReplacedByResponse",
         "type": "object"
       },
       "DeploymentResponse": {
@@ -1766,6 +2396,33 @@
         "title": "DeploymentResponse",
         "type": "object"
       },
+      "DeploymentSourceResponse": {
+        "description": "배포한 소스. 커밋 SHA·메시지는 배포 요청 최상위 필드(sourceSha·sourceCommitMessage)다.",
+        "properties": {
+          "branch": {
+            "description": "서비스에 지정된 배포 브랜치. 배포 시점이 아니라 지금의 설정값이다.",
+            "examples": [
+              "main"
+            ],
+            "title": "Branch",
+            "type": "string"
+          },
+          "repository": {
+            "description": "owner/repo 형식의 소스 저장소",
+            "examples": [
+              "Saccharine1211/railway-deploy-demo"
+            ],
+            "title": "Repository",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "branch"
+        ],
+        "title": "DeploymentSourceResponse",
+        "type": "object"
+      },
       "DeploymentStageResponse": {
         "description": "한 상태에 머문 구간. 마지막 구간은 finishedAt·durationSeconds 가 없다.",
         "properties": {
@@ -1861,6 +2518,31 @@
           "createdAt"
         ],
         "title": "DeploymentStatusHistoryResponse",
+        "type": "object"
+      },
+      "DeploymentTargetResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TargetKind"
+          },
+          "name": {
+            "examples": [
+              "aws"
+            ],
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "DeploymentTargetResponse",
         "type": "object"
       },
       "DeploymentTrigger": {
@@ -2485,6 +3167,116 @@
         "title": "MetricSeriesResponse",
         "type": "object"
       },
+      "NetworkLogEntryResponse": {
+        "properties": {
+          "receivedBytes": {
+            "description": "ALB 가 받은 요청 바이트",
+            "title": "Receivedbytes",
+            "type": "integer"
+          },
+          "responseTimeSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ALB 가 서비스에 요청을 보내고 응답 헤더를 받기까지(초)",
+            "title": "Responsetimeseconds"
+          },
+          "sentBytes": {
+            "description": "ALB 가 보낸 응답 바이트",
+            "title": "Sentbytes",
+            "type": "integer"
+          },
+          "status": {
+            "description": "사용자에게 돌려준 ALB 최종 응답 코드",
+            "examples": [
+              200
+            ],
+            "title": "Status",
+            "type": "integer"
+          },
+          "targetStatus": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "서비스(Pod)가 돌려준 응답 코드. ALB 가 직접 응답하면 없다.",
+            "title": "Targetstatus"
+          },
+          "timestampNs": {
+            "examples": [
+              "1790812800000000000"
+            ],
+            "title": "Timestampns",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestampNs",
+          "status",
+          "receivedBytes",
+          "sentBytes"
+        ],
+        "title": "NetworkLogEntryResponse",
+        "type": "object"
+      },
+      "NetworkLogsResponse": {
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "실제로 조회한 구간 끝. 서비스한 적 없는 배포는 없다.",
+            "title": "End"
+          },
+          "entries": {
+            "description": "시간 오름차순",
+            "items": {
+              "$ref": "#/components/schemas/NetworkLogEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "isTruncated": {
+            "description": "limit 에 도달했다. 범위를 좁혀 더 조회한다.",
+            "title": "Istruncated",
+            "type": "boolean"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "실제로 조회한 구간 시작. 서비스한 적 없는 배포는 없다.",
+            "title": "Start"
+          }
+        },
+        "required": [
+          "entries",
+          "isTruncated"
+        ],
+        "title": "NetworkLogsResponse",
+        "type": "object"
+      },
       "Page_DeploymentResponse_": {
         "properties": {
           "items": {
@@ -2703,6 +3495,17 @@
         },
         "title": "ProjectUpdateRequest",
         "type": "object"
+      },
+      "ReleaseStatus": {
+        "enum": [
+          "PENDING",
+          "SUCCEEDED",
+          "FAILED",
+          "ROLLING_BACK",
+          "ROLLED_BACK"
+        ],
+        "title": "ReleaseStatus",
+        "type": "string"
       },
       "Remediation": {
         "properties": {
@@ -5777,6 +6580,323 @@
         ]
       }
     },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/build-logs": {
+      "get": {
+        "description": "처음부터 limit 개를 시간순으로 돌려주고 nextCursor 를 준다. 그 값을 cursor 로 다시 호출해 이어 읽는다. 진행 중인 빌드는 isComplete 가 true 가 될 때까지 폴링한다. 롤백·재시작은 원본 배포의 빌드 로그를 돌려주며 loggedDeploymentId 가 그 배포다. 빌드가 아직 로그를 만들지 않았거나 빌드가 없으면 entries 가 비어 있다. CloudWatch 를 읽도록 설정되지 않은 환경에서는 실패한 빌드의 저장된 끝부분만 돌려주고(isPartial), 그것도 없으면 503 이다.",
+        "operationId": "search_build_logs_api_v1_services__service_id__deployments__deployment_id__build_logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "이전 응답의 nextCursor. 없으면 처음부터 읽는다.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이전 응답의 nextCursor. 없으면 처음부터 읽는다.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "한 번에 읽을 로그 수",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "description": "한 번에 읽을 로그 수",
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_BuildLogsResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포 빌드 로그 조회 (CodeBuild)",
+        "tags": [
+          "deployments"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/deploy-logs": {
+      "get": {
+        "description": "서비스 앱 컨테이너 로그 중 이 배포의 release(iris_release_id)가 붙은 것만 돌려준다. release 가 없는 배포(빌드 실패 등)는 entries 가 비어 있다. stdout/stderr 구분은 수집 라벨이 없어 제공하지 않는다.",
+        "operationId": "search_deploy_logs_api_v1_services__service_id__deployments__deployment_id__deploy_logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "없으면 이 배포가 반영된 첫 타깃. 배포에 없는 타깃이면 422.",
+            "in": "query",
+            "name": "targetId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "없으면 이 배포가 반영된 첫 타깃. 배포에 없는 타깃이면 422.",
+              "title": "Targetid"
+            }
+          },
+          {
+            "description": "타임존이 있는 ISO 8601. 없으면 배포 기간 시작(최대 7일 전).",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "타임존이 있는 ISO 8601. 없으면 배포 기간 시작(최대 7일 전).",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "타임존이 있는 ISO 8601. 없으면 교체된 시각, 교체되지 않았으면 지금.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "타임존이 있는 ISO 8601. 없으면 교체된 시각, 교체되지 않았으면 지금.",
+              "title": "End"
+            }
+          },
+          {
+            "description": "최근 limit 개를 시간순으로 돌려준다.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "description": "최근 limit 개를 시간순으로 돌려준다.",
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "대소문자를 구분하는 부분 문자열",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "대소문자를 구분하는 부분 문자열",
+              "maxLength": 500,
+              "title": "Search",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_DeploymentLogsResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포 런타임 로그 조회 (이 배포의 release 로 거름)",
+        "tags": [
+          "deployments"
+        ]
+      }
+    },
     "/api/v1/services/{service_id}/deployments/{deployment_id}/diagnose": {
       "post": {
         "description": "실패한 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 원인과 해결책을 받아 저장한다. 모델을 부르는 데 최대 2분 남짓 걸려 **바로 `202` 와 `status=RUNNING` 으로 답하고**, 진단은 서버가 이어서 실행한다. 결과는 `GET .../diagnosis` 를 `status` 가 `SUCCEEDED`·`FAILED` 가 될 때까지 폴링해 받는다. 성공한 진단이 이미 있으면 모델을 다시 부르지 않고 `200` 으로 그 결과를 돌려주며, refresh=true 로 다시 진단한다. 해결책은 제안일 뿐 서버가 실행하지 않고, 배포 요청의 상태도 바꾸지 않는다.",
@@ -5976,6 +7096,201 @@
         "summary": "배포의 가장 최근 AI 진단 조회",
         "tags": [
           "diagnosis"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/network-logs": {
+      "get": {
+        "description": "ALB 접근 로그 중 이 서비스가 처리한 요청을 돌려준다. ALB 로그에는 배포 구분이 없어 이 배포가 서비스한 구간(성공한 때부터 교체될 때까지)으로 나눈다. 성공하지 못한 배포는 entries 가 비어 있다. URL·메서드·IP 는 수집하지 않아 상태 코드·바이트·응답 시간만 있다. ALB 로그 수집에 몇 분 지연이 있고 수집기가 배포되기 전에는 비어 있다.",
+        "operationId": "search_network_logs_api_v1_services__service_id__deployments__deployment_id__network_logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "없으면 이 배포가 반영된 첫 타깃. 배포에 없는 타깃이면 422.",
+            "in": "query",
+            "name": "targetId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "없으면 이 배포가 반영된 첫 타깃. 배포에 없는 타깃이면 422.",
+              "title": "Targetid"
+            }
+          },
+          {
+            "description": "타임존이 있는 ISO 8601. 없으면 배포 기간 시작(최대 7일 전).",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "타임존이 있는 ISO 8601. 없으면 배포 기간 시작(최대 7일 전).",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "타임존이 있는 ISO 8601. 없으면 교체된 시각, 교체되지 않았으면 지금.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "타임존이 있는 ISO 8601. 없으면 교체된 시각, 교체되지 않았으면 지금.",
+              "title": "End"
+            }
+          },
+          {
+            "description": "최근 limit 개를 시간순으로 돌려준다.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "description": "최근 limit 개를 시간순으로 돌려준다.",
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "ALB 최종 응답 코드 범위로 거른다.",
+            "in": "query",
+            "name": "statusClass",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "2xx",
+                    "3xx",
+                    "4xx",
+                    "5xx"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ALB 최종 응답 코드 범위로 거른다.",
+              "title": "Statusclass"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NetworkLogsResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포 네트워크 로그 조회 (ALB 접근 로그)",
+        "tags": [
+          "deployments"
         ]
       }
     },

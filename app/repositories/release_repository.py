@@ -1,7 +1,7 @@
 from sqlalchemy import ColumnElement, Select, exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.enums import DeploymentStatus, DeploymentTrigger, ReleaseStatus, TargetKind
@@ -39,6 +39,15 @@ class ReleaseRepository:
         return await self._session.scalar(
             _select_with_relations().where(Release.deployment_request_id == deployment_request_id)
         )
+
+    async def search_by_deployment_request_id(self, deployment_request_id: int) -> list[Release]:
+        """배포 요청의 release 를 타깃 반영 순서(id 순)로 돌려준다. 빌드 실패 요청은 비어 있다."""
+        stmt = (
+            select(Release)
+            .where(Release.deployment_request_id == deployment_request_id)
+            .order_by(Release.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
 
     async def find_last_known_good(self, service_id: int, target_id: int) -> Release | None:
         return await self._session.scalar(
@@ -81,6 +90,8 @@ class ReleaseRepository:
 def _select_with_relations() -> Select[Release]:
     return select(Release).options(
         joinedload(Release.build, innerjoin=True),
+        # 모든 서비스가 공유하는 타깃 행을 for_update 로 잠그지 않도록 따로 읽는다.
+        selectinload(Release.target),
         joinedload(Release.deployment_request, innerjoin=True).joinedload(
             DeploymentRequest.service, innerjoin=True
         ),

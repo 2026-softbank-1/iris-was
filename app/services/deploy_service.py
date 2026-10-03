@@ -8,7 +8,7 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -18,8 +18,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.clients.argocd_client import ArgoAppStatus, ArgoCdClient
 from app.clients.aws_clients import EcrClient
 from app.clients.github_client import GitHubClient
+from app.clients.secret_sealer import SecretSealer
 from app.core.config import DeployWorkerSettings
-from app.core.exceptions import ConflictError, ExternalError, GitOpsConflictError, NotFoundError
+from app.core.crypto import VariableCipher
+from app.core.exceptions import (
+    ConflictError,
+    ExternalError,
+    GitOpsConflictError,
+    NotConfiguredError,
+    NotFoundError,
+)
 from app.enums import (
     APP_PORT,
     Builder,
@@ -103,12 +111,17 @@ def render_service_values(
     builder: Builder,
     deploy: DeployConfig,
     base_domain: str,
+    iris: Mapping[str, Any] | None = None,
+    variables: Mapping[str, Any] | None = None,
     scaling: ScalingConfig | None = None,
 ) -> str:
     """services/{service_id}/prod/values.yaml 내용. 플랫폼 Helm chart(iris-service)의 values 다.
 
     배포마다 파일 전체를 새로 만든다. Pod 수와 리소스는 요청 스냅샷을 쓰고, 스냅샷이 없는
     기존 요청과 Ingress·NetworkPolicy는 chart·타겟 기본값을 쓴다. JSON 은 YAML 이다.
+
+    `iris`(서비스·타깃 이름, 배포 요청 id)와 `variables`(봉인한 사용자 변수 `name`·`encryptedData`,
+    평문은 받지 않는다)는 chart 0.6.0 부터 받는다. 없으면 쓰지 않아 이전 chart 도 렌더링된다.
     """
     health: dict[str, Any] = {"timeoutSeconds": deploy.healthcheck_timeout}
     if deploy.healthcheck_path:
@@ -121,6 +134,11 @@ def render_service_values(
         "health": health,
         "route": {"host": f"{host_label}.{base_domain}"},
     }
+    if iris is not None:
+        # 앱에 IRIS_SERVICE_NAME·IRIS_TARGET_NAME·IRIS_DEPLOYMENT_ID 로 주입된다.
+        values["iris"] = dict(iris)
+    if variables is not None:
+        values["variables"] = dict(variables)
     if scaling is not None:
         values.update(scaling.model_dump(mode="json"))
     # Railpack 은 빌드 때 start command 를 이미지에 넣는다. Dockerfile 은 ENTRYPOINT·CMD 를
@@ -147,6 +165,9 @@ class DeployService:
         ecr: EcrClient,
         settings: DeployWorkerSettings,
         worker_id: str,
+        *,
+        cipher: VariableCipher | None = None,
+        sealer: SecretSealer | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._github = github
@@ -154,6 +175,9 @@ class DeployService:
         self._ecr = ecr
         self._settings = settings
         self._worker_id = worker_id
+        # 사용자 변수를 봉인할 때만 쓴다. 변수가 없는 배포는 둘 다 없어도 동작한다.
+        self._cipher = cipher
+        self._sealer = sealer
         self._token: tuple[str, float] | None = None
 
     async def claim_next_job(self) -> Job | None:
@@ -266,6 +290,7 @@ class DeployService:
         build = release.build
         assert build.image_repository is not None and build.source_sha is not None
         assert build.builder is not None
+        variables = await self._seal_variables(release)
         files = {
             VALUES_FILE_NAME: render_service_values(
                 host_label=service_host_label(service.name, service.id),
@@ -276,6 +301,8 @@ class DeployService:
                 builder=build.builder,
                 deploy=DeployConfig.model_validate(build.deploy_config or {}),
                 base_domain=self._settings.base_domain,
+                iris=self._identity(release),
+                variables=variables,
                 scaling=(
                     ScalingConfig.model_validate(release.deployment_request.scaling_snapshot)
                     if release.deployment_request.scaling_snapshot is not None
@@ -299,6 +326,41 @@ class DeployService:
             await self._record_commit(job, release.id, commit_sha, is_revert=False)
 
         await self._push(token, release.gitops_commit_sha, create, record)
+
+    def _identity(self, release: Release) -> dict[str, Any] | None:
+        """앱에 알릴 서비스·타깃 이름과 배포 요청 id. 사용자 변수 기능이 켜졌을 때만 쓴다.
+
+        기능은 `SEALED_SECRETS_CERT` 를 설정하면 켜진다. 그 인증서는 controller 가 뜬 클러스터,
+        곧 `iris` 와 `variables` 를 받는 chart(0.6.0 이상)가 배포된 뒤에만 있다. 모르는 키는 이전
+        chart 의 schema 가 거절하므로, 켜지 않은 Worker 는 이전과 같은 values 를 쓴다.
+        """
+        if self._sealer is None:
+            return None
+        return {
+            "serviceName": release.deployment_request.service.name,
+            "targetName": release.target.name,
+            "deploymentId": release.deployment_request_id,
+        }
+
+    async def _seal_variables(self, release: Release) -> dict[str, Any] | None:
+        """요청 스냅샷의 변수를 풀어 이 release 전용으로 다시 봉인한다. 변수가 없으면 None.
+
+        봉인할 수 없으면 변수를 뺀 채 배포하지 않고 예외로 멈춘다. 앱이 변수 없이 뜨는 것을 막는다.
+        """
+        snapshot = release.deployment_request.variables_snapshot
+        if not snapshot:
+            return None
+        if self._cipher is None or self._sealer is None:
+            raise NotConfiguredError(
+                "variables cannot be sealed",
+                setting="VARIABLES_ENCRYPTION_KEY, SEALED_SECRETS_CERT",
+                release_id=release.id,
+            )
+        # release 마다 새 이름이라 새 Secret 이 먼저 생기고, 롤백은 이전 이름이 돌아온다.
+        name = f"vars-r{release.id}"
+        plaintexts = {key: self._cipher.decrypt(token) for key, token in snapshot.items()}
+        encrypted = await self._sealer.seal(service_namespace(release.service_id), name, plaintexts)
+        return {"name": name, "encryptedData": encrypted}
 
     # --- RECONCILE
 
@@ -765,6 +827,11 @@ def _deadline(deploy: DeployConfig) -> datetime:
 
 
 def _argo_application_name(service_id: int) -> str:
+    return f"svc-{service_id}"
+
+
+def service_namespace(service_id: int) -> str:
+    """사용자 서비스 namespace. iris-infra ApplicationSet 의 `svc-{id}` 와 같아야 풀린다."""
     return f"svc-{service_id}"
 
 
