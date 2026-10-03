@@ -642,7 +642,13 @@ def build_automatic_repair_service(
         settings.github_api_base_url,
     )
     return AutomaticRepairService(
-        session, DeploymentRepairRepository(session), candidates, publication
+        session,
+        DeploymentRepairRepository(session),
+        candidates,
+        publication,
+        build_diagnosis_service(session, settings, http_client),
+        get_deployment_request_service(session),
+        get_variable_service(session, settings) if settings.variables_encryption_key else None,
     )
 
 
