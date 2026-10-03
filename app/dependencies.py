@@ -1,8 +1,10 @@
 """FastAPI Depends 주입 함수. 객체 조립은 여기서만 한다."""
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import lru_cache
 from typing import Annotated
 
 import httpx
@@ -10,6 +12,8 @@ from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients.aws_clients import ArtifactStore
+from app.clients.diagnosis_agent_client import HttpDiagnosisAgentClient
 from app.clients.oauth_client import GithubOAuthClient
 from app.clients.observability_client import LokiPrometheusObservabilityClient
 from app.clients.source_repository_client import GithubSourceRepositoryClient
@@ -20,6 +24,7 @@ from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.build_repository import BuildRepository
 from app.repositories.cli_login_session_repository import CliLoginSessionRepository
+from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -37,6 +42,7 @@ from app.services.cli_login_service import CliLoginService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.diagnosis_service import DiagnosisService, DiagnosisServiceOpener
 from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
@@ -349,10 +355,8 @@ async def get_current_user(
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
-def get_observability_service(
-    session: SessionDep,
-    settings: SettingsDep,
-    http_client: HttpClientDep,
+def build_observability_service(
+    session: AsyncSession, settings: Settings, http_client: httpx.AsyncClient
 ) -> ObservabilityService:
     return ObservabilityService(
         ServiceRepository(session),
@@ -362,4 +366,77 @@ def get_observability_service(
     )
 
 
+def get_observability_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    http_client: HttpClientDep,
+) -> ObservabilityService:
+    return build_observability_service(session, settings, http_client)
+
+
 ObservabilityServiceDep = Annotated[ObservabilityService, Depends(get_observability_service)]
+
+
+@lru_cache
+def _get_artifact_store(region: str, bucket: str) -> ArtifactStore:
+    # boto3 클라이언트는 만드는 데 시간이 걸려 요청마다 만들지 않는다.
+    return ArtifactStore(region, bucket)
+
+
+def build_diagnosis_service(
+    session: AsyncSession, settings: Settings, http_client: httpx.AsyncClient
+) -> DiagnosisService:
+    # 에이전트 설정이 없어도 저장된 진단은 조회할 수 있어야 하므로, 없다는 사실은 진단을 시작할 때
+    # 서비스가 알린다.
+    agent_client = (
+        HttpDiagnosisAgentClient(
+            http_client,
+            str(settings.diagnosis_agent_url),
+            settings.diagnosis_agent_api_key.get_secret_value(),
+            settings.diagnosis_agent_timeout_seconds,
+        )
+        if settings.diagnosis_agent_url is not None and settings.diagnosis_agent_api_key is not None
+        else None
+    )
+    # 스냅샷 버킷을 읽을 수 있을 때만 소스를 함께 보낸다. 없으면 로그만 진단한다.
+    snapshot_client = (
+        _get_artifact_store(settings.aws_region, settings.artifact_bucket)
+        if settings.aws_region and settings.artifact_bucket
+        else None
+    )
+    return DiagnosisService(
+        session,
+        ServiceRepository(session),
+        DeploymentRequestRepository(session),
+        BuildRepository(session),
+        DeploymentDiagnosisRepository(session),
+        build_observability_service(session, settings, http_client),
+        agent_client,
+        snapshot_client,
+    )
+
+
+def get_diagnosis_service(
+    session: SessionDep, settings: SettingsDep, http_client: HttpClientDep
+) -> DiagnosisService:
+    return build_diagnosis_service(session, settings, http_client)
+
+
+def get_diagnosis_service_opener(
+    settings: SettingsDep, http_client: HttpClientDep
+) -> DiagnosisServiceOpener:
+    """요청이 끝난 뒤에도 진단을 이어 갈 수 있게, 새 DB 세션으로 서비스를 여는 함수를 준다.
+
+    요청 범위의 세션은 응답과 함께 닫히므로 백그라운드 작업이 그것을 쓰면 안 된다.
+    """
+
+    @asynccontextmanager
+    async def open_service() -> AsyncIterator[DiagnosisService]:
+        async with get_session_factory()() as session:
+            yield build_diagnosis_service(session, settings, http_client)
+
+    return open_service
+
+
+DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
+DiagnosisServiceOpenerDep = Annotated[DiagnosisServiceOpener, Depends(get_diagnosis_service_opener)]

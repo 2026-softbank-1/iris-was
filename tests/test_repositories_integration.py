@@ -4,18 +4,25 @@
 테스트는 트랜잭션을 롤백해 흔적을 남기지 않는다.
 """
 
+import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.config import Settings
 from app.core.exceptions import InvalidStatusTransitionError
+from app.dependencies import build_diagnosis_service
 from app.enums import (
     DeploymentStatus,
     DeploymentTrigger,
+    DiagnosisStatus,
     Environment,
     FailureCode,
     ReleaseStatus,
@@ -27,6 +34,7 @@ from app.models.release import Release
 from app.models.service import Service
 from app.models.user import GithubInstallation, User
 from app.repositories.build_repository import BuildRepository
+from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -36,8 +44,15 @@ from app.repositories.project_repository import ProjectRepository, ServiceCounts
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
+from app.schemas.diagnosis import DiagnosisResponse
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
+from app.services.diagnosis_service import (
+    DiagnosisService,
+    DiagnosisServiceOpener,
+    run_diagnosis_in_background,
+)
+from tests.fakes_diagnosis import valid_agent_result
 
 pytestmark = [
     pytest.mark.integration,
@@ -448,3 +463,235 @@ async def test_deployment_request_service_snapshots_variables_into_jsonb(
     )
     assert stored is not None
     assert stored.variables_snapshot == {"A": "enc-a", "B": "enc-b"}
+
+
+async def _failed_request(session: AsyncSession, service: Service, key: str) -> DeploymentRequest:
+    request = DeploymentRequest(
+        service_id=service.id,
+        environment=Environment.PROD,
+        source_sha="b" * 40,
+        trigger_type=DeploymentTrigger.MANUAL,
+        idempotency_key=key,
+        status=DeploymentStatus.FAILED,
+        failure_code=FailureCode.DEPLOY_FAILED,
+    )
+    session.add(request)
+    await session.flush()
+    return request
+
+
+async def test_diagnosis_add_running_if_absent_allows_one_running_per_request(
+    session: AsyncSession,
+) -> None:
+    user, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    first_request = await _failed_request(session, service, "diag-1")
+    second_request = await _failed_request(session, service, "diag-2")
+    repository = DeploymentDiagnosisRepository(session)
+
+    running = await repository.add_running_if_absent(first_request.id, user.id)
+    assert running is not None and running.status == DiagnosisStatus.RUNNING
+    assert await repository.add_running_if_absent(first_request.id, user.id) is None
+    # 다른 배포 요청은 동시에 진단할 수 있다.
+    assert await repository.add_running_if_absent(second_request.id, user.id) is not None
+
+    running.fail("MODEL_TIMEOUT")
+    await session.flush()
+    assert await repository.add_running_if_absent(first_request.id, user.id) is not None
+
+
+async def test_diagnosis_fail_stale_running_closes_only_old_running_rows(
+    session: AsyncSession,
+) -> None:
+    user, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    old_request = await _failed_request(session, service, "diag-old")
+    new_request = await _failed_request(session, service, "diag-new")
+    repository = DeploymentDiagnosisRepository(session)
+    old = await repository.add_running_if_absent(old_request.id, user.id)
+    fresh = await repository.add_running_if_absent(new_request.id, user.id)
+    assert old is not None and fresh is not None
+    await session.execute(
+        text(
+            "UPDATE deployment_diagnoses SET created_at = now() - interval '30 minutes' "
+            "WHERE id = :id"
+        ),
+        {"id": old.id},
+    )
+    threshold = datetime.now(UTC) - timedelta(minutes=4)
+
+    await repository.fail_stale_running(old_request.id, threshold, "DIAGNOSIS_ABANDONED")
+    await repository.fail_stale_running(new_request.id, threshold, "DIAGNOSIS_ABANDONED")
+    await session.refresh(old)
+    await session.refresh(fresh)
+
+    assert (old.status, old.error_code) == (DiagnosisStatus.FAILED, "DIAGNOSIS_ABANDONED")
+    assert old.finished_at is not None
+    assert fresh.status == DiagnosisStatus.RUNNING
+    assert await repository.add_running_if_absent(old_request.id, user.id) is not None
+
+
+async def test_diagnosis_latest_queries_pick_newest_row_and_newest_success(
+    session: AsyncSession,
+) -> None:
+    user, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    request = await _failed_request(session, service, "diag-latest")
+    repository = DeploymentDiagnosisRepository(session)
+    assert await repository.find_latest_by_deployment_request_id(request.id) is None
+
+    rows = []
+    for index, outcome in enumerate(["ok", "fail"]):
+        row = await repository.add_running_if_absent(request.id, user.id)
+        assert row is not None
+        if outcome == "ok":
+            row.succeed({"job_status": "succeeded"})
+        else:
+            row.fail("MODEL_TIMEOUT")
+        await session.flush()
+        await session.execute(
+            text(
+                "UPDATE deployment_diagnoses SET created_at = now() - make_interval(mins => :m) "
+                "WHERE id = :id"
+            ),
+            {"m": 10 - index, "id": row.id},
+        )
+        rows.append(row)
+
+    latest = await repository.find_latest_by_deployment_request_id(request.id)
+    latest_succeeded = await repository.find_latest_succeeded_by_deployment_request_id(request.id)
+
+    assert latest is not None and latest.id == rows[1].id
+    assert latest_succeeded is not None and latest_succeeded.id == rows[0].id
+
+
+async def test_diagnosis_result_is_stored_as_jsonb_and_status_is_checked(
+    session: AsyncSession,
+) -> None:
+    user, project, installation = await _seed(session)
+    service = await ServiceRepository(session).save(_service(project, installation, "web"))
+    request = await _failed_request(session, service, "diag-jsonb")
+    row = await DeploymentDiagnosisRepository(session).add_running_if_absent(request.id, user.id)
+    assert row is not None
+    result = {"analysis": {"summary": "원인: DATABASE_URL 누락", "hypotheses": [{"id": "H1"}]}}
+
+    row.succeed(result)
+    await session.flush()
+    await session.refresh(row)
+
+    assert row.result == result
+    with pytest.raises(IntegrityError):
+        async with session.begin_nested():
+            await session.execute(
+                text(
+                    "INSERT INTO deployment_diagnoses (deployment_request_id, status) "
+                    "VALUES (:id, 'DONE')"
+                ),
+                {"id": request.id},
+            )
+
+
+def _diagnosis_http_handler(
+    agent_requests: list[httpx.Request], log_lines: list[str]
+) -> Callable[[httpx.Request], httpx.Response]:
+    now_ns = int(datetime.now(UTC).timestamp() * 1e9) - 5 * 10**9
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/loki/api/v1/query_range":
+            values = [[str(now_ns + i * 10**6), line] for i, line in enumerate(log_lines)]
+            streams = (
+                [
+                    {
+                        "stream": {"k8s_pod_name": "app-0", "k8s_container_name": "app"},
+                        "values": values,
+                    }
+                ]
+                if values
+                else []
+            )
+            return httpx.Response(
+                200,
+                json={"status": "success", "data": {"resultType": "streams", "result": streams}},
+            )
+        if request.url.path == "/diagnose":
+            agent_requests.append(request)
+            return httpx.Response(200, json=valid_agent_result())
+        return httpx.Response(404)
+
+    return handler
+
+
+async def _diagnosis_wiring(
+    session: AsyncSession, log_lines: list[str]
+) -> tuple[DiagnosisServiceOpener, DeploymentRequest, User, Service, list[httpx.Request]]:
+    user, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    service = await services.save(_service(project, installation, "web"))
+    aws = next(t for t in await TargetRepository(session).search_all() if t.name == "aws")
+    await services.replace_targets(service.id, {aws.id})
+    request = await _failed_request(session, service, "diag-e2e")
+    agent_requests: list[httpx.Request] = []
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(_diagnosis_http_handler(agent_requests, log_lines))
+    )
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql+asyncpg://unused",
+        loki_url="http://loki.test:3100",
+        diagnosis_agent_url="http://agent.test:8001/",
+        diagnosis_agent_api_key="k" * 40,
+    )
+    # 서비스가 새 세션을 열어도 같은 연결(바깥 트랜잭션)을 쓰게 해, 테스트가 끝나면 롤백된다.
+    factory = async_sessionmaker(session.bind, expire_on_commit=False)
+
+    @asynccontextmanager
+    async def opener() -> AsyncIterator[DiagnosisService]:
+        async with factory() as new_session:
+            yield build_diagnosis_service(new_session, settings, http)
+
+    return opener, request, user, service, agent_requests
+
+
+async def test_diagnosis_flow_runs_end_to_end_on_real_database(session: AsyncSession) -> None:
+    opener, request, user, service, agent_requests = await _diagnosis_wiring(
+        session, ["boot", "ERROR Missing required configuration: DATABASE_URL"]
+    )
+
+    async with opener() as starter:
+        started = await starter.start_diagnosis(user.id, service.id, request.id)
+    assert started.is_started and started.diagnosis.status == DiagnosisStatus.RUNNING
+    await run_diagnosis_in_background(opener, user.id, service.id, request.id, started.diagnosis.id)
+
+    async with opener() as reader:
+        saved = await reader.get_diagnosis(user.id, service.id, request.id)
+    assert saved.status == DiagnosisStatus.SUCCEEDED
+    assert DiagnosisResponse.from_model(saved).analysis is not None
+    sent = json.loads(agent_requests[0].content)
+    assert agent_requests[0].headers["X-API-Key"] == "k" * 40
+    assert sent["serviceId"] == service.id and sent["failedStage"] == "runtime"
+    assert [log["text"] for log in sent["logs"]] == [
+        "boot",
+        "ERROR Missing required configuration: DATABASE_URL",
+    ]
+    assert {log["sourceId"] for log in sent["logs"]} == {"app-0"}
+    async with opener() as again:
+        cached = await again.start_diagnosis(user.id, service.id, request.id)
+    assert cached.is_started is False and cached.diagnosis.id == saved.id
+
+
+async def test_diagnosis_flow_without_logs_ends_failed_on_real_database(
+    session: AsyncSession,
+) -> None:
+    opener, request, user, service, agent_requests = await _diagnosis_wiring(session, [])
+
+    async with opener() as starter:
+        started = await starter.start_diagnosis(user.id, service.id, request.id)
+    await run_diagnosis_in_background(opener, user.id, service.id, request.id, started.diagnosis.id)
+
+    async with opener() as reader:
+        saved = await reader.get_diagnosis(user.id, service.id, request.id)
+    assert (saved.status, saved.error_code) == (
+        DiagnosisStatus.FAILED,
+        "DIAGNOSIS_LOGS_UNAVAILABLE",
+    )
+    assert agent_requests == []
