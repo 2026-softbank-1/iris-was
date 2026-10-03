@@ -32,6 +32,19 @@ class ServiceRepository:
             stmt = stmt.with_for_update(of=Service).execution_options(populate_existing=True)
         return (await self._session.scalars(stmt)).one_or_none()
 
+    async def find_owner_id_by_id(self, service_id: int) -> int | None:
+        """서비스를 가진 프로젝트의 소유자. 삭제된 서비스·프로젝트는 없는 것으로 본다."""
+        stmt = (
+            select(Project.owner_id)
+            .join(Service, Service.project_id == Project.id)
+            .where(
+                Service.id == service_id,
+                Service.is_deleted.is_(False),
+                Project.is_deleted.is_(False),
+            )
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
     async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
         """원하는 설정의 최신 값을 읽고 배포 요청이 커밋될 때까지 서비스 행을 잠근다."""
         # PUT이 같은 트랜잭션에서 바꾼 값도 DB에서 읽을 수 있도록 먼저 반영한다.

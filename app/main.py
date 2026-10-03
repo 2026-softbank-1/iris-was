@@ -11,11 +11,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.database import get_engine
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
+from app.dependencies import build_diagnosis_service_opener
 from app.routers import (
     auth_router,
     cli_login_router,
@@ -33,6 +34,7 @@ from app.routers import (
     variable_router,
     webhook_router,
 )
+from app.services.auto_diagnosis import AutoDiagnosisRunner
 
 configure_logging("control-api", get_settings().log_level)
 logger = logging.getLogger(__name__)
@@ -44,11 +46,42 @@ HTTP_CLIENT_TIMEOUT_SECONDS = 10.0
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
     # 외부 API(GitHub) 호출용 클라이언트는 앱 수명 동안 하나를 공유한다.
     async with httpx.AsyncClient(timeout=HTTP_CLIENT_TIMEOUT_SECONDS) as http_client:
         app.state.http_client = http_client
-        yield
+        auto_diagnosis = _start_auto_diagnosis(settings, http_client)
+        try:
+            yield
+        finally:
+            if auto_diagnosis is not None:
+                await auto_diagnosis.stop()
     await get_engine().dispose()
+
+
+def _start_auto_diagnosis(
+    settings: Settings, http_client: httpx.AsyncClient
+) -> AutoDiagnosisRunner | None:
+    """실패가 확정된 배포를 자동으로 진단하는 반복 작업을 켠다. 에이전트가 없으면 켜지 않는다."""
+    is_agent_configured = (
+        settings.diagnosis_agent_url is not None and settings.diagnosis_agent_api_key is not None
+    )
+    if not settings.diagnosis_auto_start_enabled or not is_agent_configured:
+        logger.info(
+            "auto diagnosis is off",
+            extra={
+                "action": "start_auto_diagnosis",
+                "is_enabled": settings.diagnosis_auto_start_enabled,
+                "is_agent_configured": is_agent_configured,
+            },
+        )
+        return None
+    runner = AutoDiagnosisRunner(
+        build_diagnosis_service_opener(settings, http_client),
+        settings.diagnosis_auto_start_interval_seconds,
+    )
+    runner.start()
+    return runner
 
 
 OPENAPI_TAGS = [
