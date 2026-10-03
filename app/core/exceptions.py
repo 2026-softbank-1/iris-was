@@ -9,6 +9,8 @@ raise 는 Service·Repository·Client 에서 하고, HTTP 변환은 exception_ha
 도메인 예외는 클라이언트 분기나 재시도 정책이 다를 때만 카테고리를 상속해 만든다.
 """
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import ClassVar
 
 from app.enums import FailureCode
@@ -30,11 +32,28 @@ class NotFoundError(AppError):
     status_code = 404
 
 
+@dataclass(frozen=True)
+class FieldIssue:
+    """입력의 어느 부분이 왜 틀렸는지. 응답의 `details` 가 된다. 값은 담지 않는다."""
+
+    field: str
+    reason: str
+
+
 class InvalidInputError(AppError):
-    """도메인 규칙상 받을 수 없는 입력. 스키마 검증 실패(VALIDATION_ERROR)와 구분한다."""
+    """도메인 규칙상 받을 수 없는 입력. 스키마 검증 실패(VALIDATION_ERROR)와 구분한다.
+
+    틀린 위치가 여러 곳이면 issues 에 담아 응답 `details` 로 알린다. message 는 계약이다.
+    """
 
     code = "INVALID_INPUT"
     status_code = 422
+
+    def __init__(
+        self, message: str | None = None, *, issues: Sequence[FieldIssue] = (), **fields: object
+    ) -> None:
+        super().__init__(message, **fields)
+        self.issues = tuple(issues)
 
 
 class ConflictError(AppError):
