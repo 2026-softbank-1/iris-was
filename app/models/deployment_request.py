@@ -53,6 +53,8 @@ class DeploymentRequest(TimestampMixin, Base):
     )
     # 요청 시점의 환경변수(키 → 암호문). 평문은 담지 않는다. 롤백이 그때의 변수로 되돌릴 때 쓴다.
     variables_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 요청 시점의 원하는 Pod 수와 리소스. 기존 요청의 None 은 chart 기본값을 쓴다.
+    scaling_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # 재배포·롤백·재시작이 따라가는 원본 배포 요청. 직접 만든 요청은 None 이다.
     source_deployment_request_id: Mapped[int | None] = mapped_column(
         ForeignKey(

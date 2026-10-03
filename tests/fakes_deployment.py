@@ -71,6 +71,7 @@ class DeploymentSetup:
             self.histories,  # type: ignore[arg-type]
             self.builds,  # type: ignore[arg-type]
             self.variables,  # type: ignore[arg-type]
+            self.services,  # type: ignore[arg-type]
         )
 
     def manual_service(self) -> ManualDeploymentService:

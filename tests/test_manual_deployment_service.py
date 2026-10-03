@@ -11,6 +11,7 @@ from app.core.exceptions import (
 from app.enums import Builder, BuildStatus, DeploymentStatus, DeploymentTrigger, JobKind
 from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
+from app.services.scaling_config import ScalingConfig
 from tests.fakes_deployment import FULL_NAME, HEAD_SHA, OWNER, DeploymentSetup
 
 
@@ -64,6 +65,81 @@ async def test_create_deployment_request_manual_uses_branch_head(setup: Deployme
         (None, DeploymentStatus.QUEUED)
     ]
     assert setup.session.commit_count == 1
+
+
+async def test_manual_deployment_snapshots_defaults_when_service_has_no_scaling_config(
+    setup: DeploymentSetup,
+) -> None:
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    assert request.scaling_snapshot == ScalingConfig.defaults().model_dump(mode="json")
+
+
+async def test_manual_deployment_snapshot_is_independent_of_later_scaling_change(
+    setup: DeploymentSetup,
+) -> None:
+    config = ScalingConfig.defaults().model_dump(mode="json")
+    config["replicas"] = 3
+    setup.service.scaling_config = config
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+    setup.service.scaling_config["replicas"] = 4
+    setup.service.scaling_config["resources"]["requests"]["cpu"] = "250m"
+
+    assert request.scaling_snapshot["replicas"] == 3
+    assert request.scaling_snapshot["resources"]["requests"]["cpu"] == "100m"
+
+
+@pytest.mark.parametrize(
+    "trigger_type",
+    [DeploymentTrigger.REDEPLOY, DeploymentTrigger.RESTART, DeploymentTrigger.ROLLBACK],
+)
+async def test_reused_source_deployment_keeps_current_desired_scaling(
+    setup: DeploymentSetup, trigger_type: DeploymentTrigger
+) -> None:
+    source = await _finished_request(setup)
+    config = ScalingConfig.defaults().model_dump(mode="json")
+    config["replicas"] = 3
+    setup.service.scaling_config = config
+    source_id = (
+        source.id
+        if trigger_type in {DeploymentTrigger.REDEPLOY, DeploymentTrigger.ROLLBACK}
+        else None
+    )
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER,
+        setup.service.id,
+        trigger_type=trigger_type,
+        source_deployment_request_id=source_id,
+    )
+
+    assert request.scaling_snapshot == config
+    assert source.scaling_snapshot == ScalingConfig.defaults().model_dump(mode="json")
+
+
+async def test_deployment_snapshot_reads_persisted_scaling_instead_of_stale_service_object(
+    setup: DeploymentSetup,
+) -> None:
+    config = ScalingConfig.defaults().model_dump(mode="json")
+    config["replicas"] = 4
+    setup.service.scaling_config = config
+    stale = Service(id=setup.service.id, scaling_config=None)
+
+    request = await setup.deployment_request_service().create_deployment_request(
+        stale,
+        source_sha=HEAD_SHA,
+        source_commit_message=None,
+        trigger_type=DeploymentTrigger.PUSH,
+        idempotency_key="stale-service",
+    )
+
+    assert request is not None
+    assert request.scaling_snapshot == config
 
 
 async def test_create_deployment_request_manual_with_source_sha_skips_github(

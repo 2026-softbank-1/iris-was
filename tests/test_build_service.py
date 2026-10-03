@@ -38,6 +38,7 @@ from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
 )
 from app.repositories.job_repository import JobRepository
+from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.build_service import BuildService
 from app.services.deployment_request_service import DeploymentRequestService
@@ -310,6 +311,7 @@ async def test_run_job_from_deployment_request_service_builds_and_records_histor
             DeploymentStatusHistoryRepository(session),
             BuildRepository(session),
             ServiceVariableRepository(session),
+            ServiceRepository(session),
         ).create_deployment_request(
             service_row,
             source_sha="a" * 40,

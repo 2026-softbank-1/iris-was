@@ -113,6 +113,7 @@ class DeploymentRequestRepository:
                 idempotency_key=request.idempotency_key,
                 requested_by=request.requested_by,
                 variables_snapshot=request.variables_snapshot,
+                scaling_snapshot=request.scaling_snapshot,
                 source_deployment_request_id=request.source_deployment_request_id,
             )
             .on_conflict_do_nothing()

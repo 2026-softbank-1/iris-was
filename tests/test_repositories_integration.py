@@ -258,6 +258,7 @@ async def _queued_request(session: AsyncSession, service: Service) -> Deployment
         DeploymentStatusHistoryRepository(session),
         BuildRepository(session),
         ServiceVariableRepository(session),
+        ServiceRepository(session),
     ).create_deployment_request(
         service,
         source_sha="c" * 40,
