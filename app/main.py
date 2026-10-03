@@ -18,6 +18,7 @@ from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.routers import (
     auth_router,
+    cli_login_router,
     deployment_router,
     domain_router,
     github_router,
@@ -49,7 +50,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 OPENAPI_TAGS = [
     {"name": "observability", "description": "서비스 런타임 로그·메트릭·SSE"},
-    {"name": "auth", "description": "GitHub 로그인·로그아웃"},
+    {"name": "auth", "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)"},
     {"name": "user", "description": "현재 사용자"},
     {"name": "github", "description": "GitHub App 설치와 저장소·브랜치 조회"},
     {"name": "projects", "description": "서비스를 묶는 프로젝트"},
@@ -85,6 +86,7 @@ app.add_middleware(
 )
 register_exception_handlers(app)
 app.include_router(auth_router.router)
+app.include_router(cli_login_router.router)
 app.include_router(observability_router.router)
 app.include_router(user_router.router)
 app.include_router(github_router.router)

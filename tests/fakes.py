@@ -10,6 +10,7 @@ from app.clients.source_repository_client import (
     InstallationToken,
     RepositoryInfo,
 )
+from app.models.cli_login_session import CliLoginSession
 from app.models.user import GithubInstallation, User
 
 
@@ -37,6 +38,29 @@ class FakeUserRepository:
             user.id = next(self._ids)
         self.users[user.id] = user
         return user
+
+
+class FakeCliLoginSessionRepository:
+    def __init__(self) -> None:
+        self.sessions: dict[int, CliLoginSession] = {}
+        self.for_update_lookups = 0
+        self._ids = count(1)
+
+    async def find_by_public_id(self, public_id: str) -> CliLoginSession | None:
+        return next((s for s in self.sessions.values() if s.public_id == public_id), None)
+
+    async def find_by_public_id_for_update(self, public_id: str) -> CliLoginSession | None:
+        self.for_update_lookups += 1
+        return await self.find_by_public_id(public_id)
+
+    async def save(self, cli_session: CliLoginSession) -> CliLoginSession:
+        if getattr(cli_session, "id", None) is None:
+            cli_session.id = next(self._ids)
+        self.sessions[cli_session.id] = cli_session
+        return cli_session
+
+    async def delete_expired_before(self, cutoff: datetime) -> None:
+        self.sessions = {i: s for i, s in self.sessions.items() if s.expires_at >= cutoff}
 
 
 class FakeGithubInstallationRepository:

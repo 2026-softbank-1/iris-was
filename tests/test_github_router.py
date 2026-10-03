@@ -14,9 +14,11 @@ from app.dependencies import (
 from app.main import app
 from app.models.user import User
 from app.services.auth_service import AuthService
+from app.services.cli_login_service import CliLoginService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
 from tests.fakes import (
+    FakeCliLoginSessionRepository,
     FakeGithubInstallationRepository,
     FakeOAuthClient,
     FakeSession,
@@ -47,12 +49,20 @@ async def client() -> AsyncIterator[AsyncClient]:
     user = User(github_id=1001, login="octocat")
     user.id = 1
     users = FakeUserRepository([user])
+    db_session = FakeSession()
+    session_service = SessionService(users, SECRET, timedelta(minutes=5))  # type: ignore[arg-type]
     auth_service = AuthService(
-        FakeSession(),  # type: ignore[arg-type]
+        db_session,  # type: ignore[arg-type]
         users,  # type: ignore[arg-type]
         installations,  # type: ignore[arg-type]
         FakeOAuthClient(),
-        SessionService(users, SECRET, timedelta(minutes=5)),  # type: ignore[arg-type]
+        session_service,
+        CliLoginService(
+            db_session,  # type: ignore[arg-type]
+            FakeCliLoginSessionRepository(),  # type: ignore[arg-type]
+            users,  # type: ignore[arg-type]
+            session_service,
+        ),
         SECRET,
     )
     app.dependency_overrides[get_settings] = lambda: settings

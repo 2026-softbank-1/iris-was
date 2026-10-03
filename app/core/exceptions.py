@@ -52,6 +52,19 @@ class ForbiddenError(AppError):
     status_code = 403
 
 
+class TooManyRequestsError(AppError):
+    """허용된 빈도보다 빠른 요청. 몇 초 뒤에 다시 보내면 되는지 retry_after_seconds 에 담는다."""
+
+    code = "TOO_MANY_REQUESTS"
+    status_code = 429
+
+    def __init__(
+        self, message: str | None = None, *, retry_after_seconds: int, **fields: object
+    ) -> None:
+        super().__init__(message, retry_after_seconds=retry_after_seconds, **fields)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class ExternalError(AppError):
     """외부 시스템(CodeBuild·Git·Argo CD) 호출 실패. Client 가 SDK 예외를 이것으로 바꾼다."""
 

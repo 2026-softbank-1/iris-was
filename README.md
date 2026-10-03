@@ -78,6 +78,7 @@ LOG_LEVEL=INFO
 | `LOKI_URL`, `PROMETHEUS_URL` | 로그·메트릭 백엔드 내부 주소. 없으면 관측 API 503. [로그·메트릭 연결 및 API](docs/observability-api.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
 | `WEB_BASE_URL` | 웹 프런트 주소. 로그인 후 이 주소로 돌려보낸다. 기본 `http://localhost:3000` |
+| `API_BASE_URL` | Control API 의 공개 주소(예: `https://api.likelion.uk`). CLI 로그인의 `verificationUrl` 을 만든다. 없으면 요청의 Host 로 만든다. TLS 를 앞단에서 끝내는 운영에서는 꼭 설정한다 |
 | `CORS_ALLOW_ORIGIN_REGEX` | CORS 허용 Origin 정규식(전체 일치). 기본은 `likelion.uk`·하위 도메인(https)과 `localhost`·`127.0.0.1` 모든 포트. 메서드·헤더는 전부 허용하고 쿠키(credentials)도 허용한다 |
 | `SESSION_SECRET` | 세션·OAuth state 서명 키(HS256). 없으면 로그인·인증 API 가 `503 NOT_CONFIGURED` |
 | `SESSION_TTL_MINUTES` | 세션 유효 시간(분). 기본 7일 |
@@ -94,7 +95,7 @@ LOG_LEVEL=INFO
 
 App 설정에서 맞춰야 할 값:
 
-- Callback URL: `<API 주소>/api/v1/auth/github/callback`
+- Callback URL: `<API 주소>/api/v1/auth/github/callback` (웹 로그인과 CLI 로그인 승인이 같은 콜백을 쓴다)
 - **Request user authorization (OAuth) during installation** 켜기 (설치 직후 로그인으로 이어진다)
 - 권한: Repository → Contents `Read-only`, Metadata `Read-only`
 - 웹훅(push 자동 배포·설치 동기화): Webhook URL `<API 주소>/api/v1/webhooks/github`, Content type `application/json`, Secret 은 `GITHUB_WEBHOOK_SECRET` 과 같게, 이벤트는 Push 를 구독한다. 설계는 [ADR 0009](docs/adr/0009-github-webhook-receiver.md).
@@ -111,7 +112,8 @@ App 설정에서 맞춰야 할 값:
 | 메서드·경로 | 설명 |
 |---|---|
 | `GET /auth/github` · `GET /auth/github/callback` · `POST /auth/logout` | GitHub 로그인 시작·콜백·로그아웃 |
-| `GET /me` | 현재 사용자 |
+| `POST /auth/cli/sessions` · `GET /auth/cli/sessions/{sessionId}/authorize` · `POST /auth/cli/sessions/{sessionId}/token` | CLI 로그인: 세션 생성(인증 없음) · 브라우저 승인(GitHub 로그인으로 이동) · 폴링으로 토큰 수령(승인 뒤 처음 한 번만, `interval` 보다 빠르면 `429`). 계약은 iris-cli 의 `docs/login-contract.md`, 설계는 [ADR 0018](docs/adr/0018-cli-login-session-table-and-polling.md) |
+| `GET /me` | 현재 사용자 (`likelion whoami`) |
 | `GET /github/install` · `GET /github/installations` | GitHub App 설치 시작 · 내 설치 목록 |
 | `GET /github/repos?q&installationId&page&size` | 접근 가능한 저장소 검색 |
 | `GET /github/repos/resolve?url=` | 붙여넣은 GitHub 주소 해석·권한 확인 |

@@ -9,8 +9,10 @@ from app.dependencies import get_auth_service, get_session_service
 from app.main import app
 from app.routers.auth_router import OAUTH_NONCE_COOKIE
 from app.services.auth_service import AuthService
+from app.services.cli_login_service import CliLoginService
 from app.services.session_service import SessionService
 from tests.fakes import (
+    FakeCliLoginSessionRepository,
     FakeGithubInstallationRepository,
     FakeOAuthClient,
     FakeSession,
@@ -30,12 +32,19 @@ async def client() -> AsyncIterator[AsyncClient]:
     )
     users = FakeUserRepository()
     session_service = SessionService(users, SECRET, timedelta(minutes=5))  # type: ignore[arg-type]
+    db_session = FakeSession()
     auth_service = AuthService(
-        FakeSession(),  # type: ignore[arg-type]
+        db_session,  # type: ignore[arg-type]
         users,  # type: ignore[arg-type]
         FakeGithubInstallationRepository(),  # type: ignore[arg-type]
         FakeOAuthClient(),
         session_service,
+        CliLoginService(
+            db_session,  # type: ignore[arg-type]
+            FakeCliLoginSessionRepository(),  # type: ignore[arg-type]
+            users,  # type: ignore[arg-type]
+            session_service,
+        ),
         SECRET,
     )
     app.dependency_overrides[get_settings] = lambda: settings

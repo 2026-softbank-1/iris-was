@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     # 웹 프런트엔드 주소. 로그인이 끝나면 여기로 돌려보낸다.
     web_base_url: str = "http://localhost:3000"
+    # Control API 의 공개 주소(예: https://api.likelion.uk). CLI 로그인의 verificationUrl 을 만든다.
+    # 없으면 요청의 Host 로 만든다. TLS 를 앞단에서 끝내는 운영에서는 https 주소로 꼭 지정한다.
+    api_base_url: str | None = None
     # CORS 로 허용할 Origin 정규식(전체 일치). 쿠키 인증이라 `*` 대신 Origin 을 되돌려 줘야 한다.
     # 기본값: likelion.uk 와 모든 하위 도메인(https), localhost·127.0.0.1 의 모든 포트.
     cors_allow_origin_regex: str = (

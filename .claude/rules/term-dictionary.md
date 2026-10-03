@@ -45,6 +45,7 @@
 erDiagram
   users ||--o{ projects : "소유"
   users }o--o{ github_installations : "user_github_installations"
+  users ||--o{ cli_login_sessions : "CLI 로그인 승인"
   projects ||--o{ services : "포함"
   github_installations ||--o{ services : "소스 접근"
   services }o--o{ targets : "service_targets"
@@ -247,6 +248,22 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 > 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`deployment_status_histories`·`jobs`·`builds`·`releases`)은 지우지 않는다.
 
+### 4.12 CLI 로그인 세션 (CliLoginSession) — `cli_login_sessions`\*
+
+CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 1건이다. 승인되면 CLI 가 폴링으로 세션 토큰을 받아 간다. 이 행은 토큰을 넘기기 위한 대기용이고, 토큰 자체는 저장하지 않는다 (ADR 0018).
+
+| 필드 | 설명 |
+|---|---|
+| `public_id`\* | 인증 URL 에 들어가는 추측 불가한 공개 ID(256비트 무작위). unique. 비밀이 아니라 세션을 가리키는 주소다 |
+| `poll_secret_hash`\* | 폴링 비밀(`pollSecret`)의 SHA-256(hex). 평문은 CLI 만 갖고, 비교는 상수 시간으로 한다 |
+| `status`\* | `cli_login_session_status` Enum (§5) |
+| `user_id`\* | 승인한 사용자. `APPROVED` 가 될 때 채운다 |
+| `expires_at`\* | 만료 시각. 만든 때부터 10분 |
+| `consumed_at`\* | 토큰을 내준 시각. 토큰은 한 번만 내주므로 값이 있으면 다시 주지 않는다 |
+| `last_polled_at`\* | 마지막 폴링 시각. `interval`(2초)보다 빠른 폴링을 `429` 로 막는 기준이다 |
+
+- 만료된 지 하루가 지난 행은 새 세션을 만들 때 지운다(인증 없이 만들 수 있는 행이라 쌓이지 않게 한다). 소프트 삭제를 쓰지 않는다.
+
 ---
 
 ## 5. Enum 값 정의
@@ -312,6 +329,13 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 `PENDING`(Worker 대기) → `SNAPSHOTTING`(소스 스냅샷 중) → `BUILDING`(CodeBuild 실행 중) → `SUCCEEDED` / `FAILED` / `CANCELLED`. 요청의 `status` 는 빌드가 직접 바꾸지 않고 Worker 가 `DeploymentStatusService` 로 옮긴다.
 
+### CLI 로그인 세션 상태 (`cli_login_session_status`)\* — `cli_login_sessions.status`
+
+- `PENDING`(승인 대기) → `APPROVED`(브라우저에서 GitHub 로그인 승인) · `DENIED`(GitHub 에서 승인을 취소) · `EXPIRED`(10분 만료)
+- `APPROVED` → `EXPIRED`: 토큰을 내줬을 때(`consumed_at` 이 채워진다). 토큰을 가져가기 전에 만료돼도 같다.
+- `DENIED`·`EXPIRED` 는 끝이다. 한번 `APPROVED` 가 되면 다시 승인할 수 없다.
+- API 응답의 `status` 도 같은 코드다. 만료는 읽을 때 `expires_at` 으로 판단하고, 폴링이 만료를 보면 `EXPIRED` 로 저장한다.
+
 ### 릴리스 상태 (`release_status`)\* — `releases.status`
 
 `PENDING`(Git 반영, 동기화 대기) · `SUCCEEDED`(원문. Sync·Health·smoke test 모두 통과) · `FAILED` · `ROLLING_BACK`(revert commit 반영, 되돌림 대기) · `ROLLED_BACK`
@@ -354,6 +378,8 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
 | 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
 | 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
+| pollSecret | `poll_secret`\* | CLI 로그인 세션을 만든 CLI 만 아는 폴링 비밀. 서버에는 해시(`poll_secret_hash`)만 둔다 |
+| 폴링 간격 | `interval`\* | CLI 가 `/token` 을 부르는 간격(2초). 이보다 빠르면 `429` 와 `Retry-After` 로 답한다 |
 
 ---
 
@@ -369,4 +395,5 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | Release | GitOps 반영 결과 (`Release`) | Helm release | Helm 쪽은 `helm_release` |
 | Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `variable`(엔티티 `ServiceVariable`, §4.11), 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
+| Session | 로그인 상태를 나르는 세션 토큰(JWT). 변수·함수는 `session_token`, `SessionService` | CLI 로그인 세션(`CliLoginSession`), DB 세션(`AsyncSession`) | CLI 로그인 세션은 토큰을 CLI 로 넘기려고 기다리는 행이라 항상 `cli_login_session`. DB 세션 변수는 `session`(Repository·Service 관례) |
 | Rollback | job `ROLLBACK` = revert commit(자동). 트리거 `ROLLBACK` = 사용자가 이전 이미지로 시작한 새 배포 요청 | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분. 요청은 `deployment_request`, revert 는 `revert_commit` |

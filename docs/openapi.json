@@ -1,6 +1,120 @@
 {
   "components": {
     "schemas": {
+      "ApiResponse_CliLoginSessionResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CliLoginSessionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CliLoginSessionResponse]",
+        "type": "object"
+      },
+      "ApiResponse_CliLoginTokenResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CliLoginTokenResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CliLoginTokenResponse]",
+        "type": "object"
+      },
       "ApiResponse_DeploymentDetailResponse_": {
         "properties": {
           "code": {
@@ -1185,6 +1299,94 @@
         "title": "Builder",
         "type": "string"
       },
+      "CliLoginSessionResponse": {
+        "properties": {
+          "expiresIn": {
+            "description": "세션 유효 시간(초)",
+            "examples": [
+              600
+            ],
+            "title": "Expiresin",
+            "type": "integer"
+          },
+          "interval": {
+            "description": "폴링 간격(초). 이보다 빠르면 429 가 될 수 있다",
+            "examples": [
+              2
+            ],
+            "title": "Interval",
+            "type": "integer"
+          },
+          "pollSecret": {
+            "description": "CLI 만 아는 비밀. 폴링할 때만 쓰고, 이 응답 말고는 다시 볼 수 없다",
+            "examples": [
+              "Xy9Qw2Er4Ty6Ui8Op0As1Df3Gh5Jk7Lz9Cv1Bn3Mq5W"
+            ],
+            "title": "Pollsecret",
+            "type": "string"
+          },
+          "sessionId": {
+            "description": "추측할 수 없는 공개 ID. verificationUrl 에 들어간다",
+            "examples": [
+              "Zk3v1u0eQ8mY2nXr5oPq7sT9wUa4bC6dEfGhIjKlMnO"
+            ],
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "verificationUrl": {
+            "description": "브라우저로 열 주소. GitHub 로그인으로 이어진다",
+            "examples": [
+              "https://api.likelion.uk/api/v1/auth/cli/sessions/<sessionId>/authorize"
+            ],
+            "title": "Verificationurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "pollSecret",
+          "verificationUrl",
+          "expiresIn",
+          "interval"
+        ],
+        "title": "CliLoginSessionResponse",
+        "type": "object"
+      },
+      "CliLoginSessionStatus": {
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "DENIED",
+          "EXPIRED"
+        ],
+        "title": "CliLoginSessionStatus",
+        "type": "string"
+      },
+      "CliLoginTokenResponse": {
+        "properties": {
+          "accessToken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "세션 JWT. `Authorization: Bearer` 로 보낸다. APPROVED 로 처음 답할 때만 있다",
+            "title": "Accesstoken"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CliLoginSessionStatus",
+            "description": "PENDING 승인 전 · APPROVED 승인됨(처음 한 번만 accessToken 을 준다) · DENIED 거절됨 · EXPIRED 만료됐거나 토큰을 이미 가져감"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CliLoginTokenResponse",
+        "type": "object"
+      },
       "CreateDeploymentRequest": {
         "description": "배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백·재시작·삭제에 쓴다.",
         "properties": {
@@ -1877,6 +2079,22 @@
           "size"
         ],
         "title": "Page[RepositoryResponse]",
+        "type": "object"
+      },
+      "PollCliLoginTokenRequest": {
+        "properties": {
+          "pollSecret": {
+            "description": "세션을 만들 때 받은 pollSecret",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Pollsecret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pollSecret"
+        ],
+        "title": "PollCliLoginTokenRequest",
         "type": "object"
       },
       "ProjectCreateRequest": {
@@ -2712,6 +2930,192 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/cli/sessions": {
+      "post": {
+        "description": "인증 없이 호출한다. 응답의 `verificationUrl` 을 브라우저로 열어 GitHub 로그인을 승인하면,\nCLI 는 `sessionId`·`pollSecret` 으로 `/token` 을 폴링해 세션 토큰을 받는다.",
+        "operationId": "create_cli_login_session_api_v1_auth_cli_sessions_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CliLoginSessionResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "summary": "CLI 로그인 세션 생성",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/cli/sessions/{session_id}/authorize": {
+      "get": {
+        "description": "CLI 가 알려 준 주소를 브라우저로 여는 곳. GitHub 로그인이 끝나면 `/auth/github/callback` 이\n이 세션을 승인으로 바꾸고 \"터미널로 돌아가세요\" 화면을 보여 준다.\n만료됐거나 모르는 세션이면 404 다.",
+        "operationId": "authorize_cli_login_api_v1_auth_cli_sessions__session_id__authorize_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "summary": "CLI 로그인 승인 (GitHub 로그인으로 이동)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/cli/sessions/{session_id}/token": {
+      "post": {
+        "description": "`interval` 초마다 호출한다. `APPROVED` 일 때 `accessToken` 은 처음 한 번만 내려가고,\n그 뒤에는 `EXPIRED` 다. `pollSecret` 이 틀리면 401 이다(이 API 의 401 은 로그인 필요가 아니다).",
+        "operationId": "poll_cli_login_token_api_v1_auth_cli_sessions__session_id__token_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollCliLoginTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CliLoginTokenResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "summary": "CLI 로그인 폴링 (승인되면 토큰 발급)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/github": {
       "get": {
         "operationId": "start_github_login_api_v1_auth_github_get",
@@ -2743,7 +3147,7 @@
     },
     "/api/v1/auth/github/callback": {
       "get": {
-        "description": "GitHub 가 로그인(또는 App 설치 직후 사용자 인증) 뒤 돌려보내는 주소.\n\n이 주소를 GitHub App 의 Callback URL 로 등록하고 \"Request user authorization (OAuth)\nduring installation\" 을 켜 두면, 설치를 마친 사용자도 같은 흐름으로 설치 목록이 맞춰진다.",
+        "description": "GitHub 가 로그인(또는 App 설치 직후 사용자 인증) 뒤 돌려보내는 주소.\n\n이 주소를 GitHub App 의 Callback URL 로 등록하고 \"Request user authorization (OAuth)\nduring installation\" 을 켜 두면, 설치를 마친 사용자도 같은 흐름으로 설치 목록이 맞춰진다.\n\nstate 가 CLI 로그인 승인용이면 웹 세션 쿠키를 만들지 않고 해당 CLI 로그인 세션을 승인(취소면\n거절)한 뒤 안내 화면을 보여 준다.",
         "operationId": "complete_github_login_api_v1_auth_github_callback_get",
         "parameters": [
           {
@@ -2796,6 +3200,12 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "text/html": {}
+            },
+            "description": "CLI 로그인 승인(또는 취소) 안내 화면(HTML). 웹 로그인은 302 다."
+          },
           "302": {
             "content": {
               "application/json": {
@@ -2813,6 +3223,16 @@
               }
             },
             "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5545,7 +5965,7 @@
       "name": "observability"
     },
     {
-      "description": "GitHub 로그인·로그아웃",
+      "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)",
       "name": "auth"
     },
     {
