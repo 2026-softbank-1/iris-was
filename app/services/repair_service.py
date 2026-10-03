@@ -105,7 +105,6 @@ class RepairService:
         auto_merge: bool = False,
         await_diagnosis: bool = False,
         owns_diagnosis: bool = False,
-        configuration_keys: list[str] | None = None,
     ) -> StartedRepair:
         service = await self._get_owned_service(owner_id, service_id)
         request = await self._deployments.find_by_id_and_service_id(deployment_id, service_id)
@@ -197,11 +196,6 @@ class RepairService:
                         "autoRedeploy": True,
                         "awaitingDiagnosis": await_diagnosis,
                         "ownsDiagnosis": owns_diagnosis,
-                        **(
-                            {"strategy": "variables", "configurationKeys": configuration_keys}
-                            if configuration_keys
-                            else {}
-                        ),
                         "autoDeadlineAt": (now_utc() + timedelta(minutes=30)).isoformat(),
                         "publication": {"status": "DIAGNOSING" if await_diagnosis else "QUEUED"},
                     }
