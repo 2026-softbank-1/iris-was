@@ -75,6 +75,8 @@ sequenceDiagram
 
 `Control API`는 긴 작업을 기다리지 않는다. 요청 ID를 반환하고 상태 조회·webhook·SSE로 진행 상태를 제공한다.
 
+Control API 의 AWS 권한은 읽기 전용이다. 소스 스냅샷 버킷 `snapshots/*` 의 `s3:GetObject`(AI 진단, [ADR 0020](../../docs/adr/0020-ai-error-diagnosis-via-agent-server.md))와 CodeBuild 로그 그룹의 `logs:GetLogEvents`(배포 상세 화면의 빌드 로그, [ADR 0021](../../docs/adr/0021-deployment-detail-logs-api.md))뿐이고, CodeBuild·ECR 호출 권한은 없다.
+
 ## 4. 빌드 정책
 
 ### 빌더 선택

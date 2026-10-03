@@ -77,6 +77,7 @@ _MAX_LOG_AGE = timedelta(days=7)
 # 빌드가 올린 스냅샷은 하루 뒤 지워진다. 그 전까지만 소스를 함께 보낸다.
 _SNAPSHOT_RETENTION = timedelta(hours=23)
 
+_BUILD_FAILED_PHASE_PATTERN = re.compile(r"Phase complete: \w+ State: FAILED")
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -461,6 +462,7 @@ def _collect_build_logs(build: Build | None, deployment_request_id: int) -> Coll
             )
         except (KeyError, TypeError, ValueError):
             continue
+    lines = _drop_after_build_failure(lines)
     if not lines:
         raise _logs_unavailable("build", deployment_request_id)
     return CollectedLogs(
@@ -469,6 +471,19 @@ def _collect_build_logs(build: Build | None, deployment_request_id: int) -> Coll
         window=(lines[0].timestamp, lines[-1].timestamp),
         is_partial=bool(tail.get("is_truncated")) if isinstance(tail, dict) else False,
     )
+
+
+def _drop_after_build_failure(lines: list[DiagnosisLogLine]) -> list[DiagnosisLogLine]:
+    """마지막 실패 표시줄(`Phase complete: BUILD State: FAILED`) 뒤를 버린다.
+
+    CodeBuild 는 단계가 실패해도 뒤 단계(POST_BUILD·UPLOAD_ARTIFACTS)를 이어서 돌리고
+    실패한 스크립트를 통째로 다시 출력한다. 이 잡음이 최근 줄부터 고르는 예산을 채워 정작
+    오류 출력이 밀려난다. 표시줄이 없으면(시간 초과 등) 그대로 둔다.
+    """
+    for index in range(len(lines) - 1, -1, -1):
+        if _BUILD_FAILED_PHASE_PATTERN.search(lines[index].text):
+            return lines[: index + 1]
+    return lines
 
 
 def _select_log_events(

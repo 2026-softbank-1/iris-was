@@ -14,7 +14,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.clients.argocd_client import ArgoCdClient
 from app.clients.aws_clients import EcrClient
 from app.clients.github_client import GITHUB_API_URL, GitHubClient
+from app.clients.secret_sealer import SecretSealer
 from app.core.config import get_deploy_worker_settings, get_settings
+from app.core.crypto import VariableCipher
 from app.core.database import get_session_factory
 from app.core.logging import configure_logging, log_context
 from app.models import Job
@@ -88,6 +90,14 @@ async def main() -> None:
             ecr=EcrClient(settings.aws_region),
             settings=settings,
             worker_id=f"{socket.gethostname()}:{os.getpid()}",
+            cipher=(
+                VariableCipher(settings.variables_encryption_key.get_secret_value())
+                if settings.variables_encryption_key is not None
+                else None
+            ),
+            sealer=(
+                SecretSealer(settings.sealed_secrets_cert) if settings.sealed_secrets_cert else None
+            ),
         )
         wakeup = JobWakeup(JOB_KINDS, service.find_seconds_until_next_run)
         try:

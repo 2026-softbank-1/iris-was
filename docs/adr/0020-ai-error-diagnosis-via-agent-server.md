@@ -62,6 +62,7 @@ task 에는 에이전트 호출 방식(URL·메서드·인증, 응답 형식, �
 - 저장 전에 소스 스냅샷 presigned URL 의 서명, `Authorization` 헤더, GitHub 토큰 모양을 `[REDACTED]` 로 가리고, 한 줄 2,000자·200줄·64KB 로 줄인다(최근 줄을 남긴다). 진단 에이전트도 마스킹하지만 DB 에는 가린 값만 둔다.
 - **읽기에 실패해도 빌드 결과는 바뀌지 않는다.** 권한이 없거나 로그가 아직 없으면 경고 로그만 남기고 `log_tail` 을 비운다. 이 경우 진단은 `DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다.
 - 진단은 `failure_code` 가 `BUILD_*`·`SOURCE_*` 이면 이 로그를 쓰고(런타임 로그·Loki 는 보지 않는다), 로그 범위는 첫 줄~마지막 줄 시각이며 `is_truncated` 면 `isComplete=false` 로 알린다.
+- **마지막 실패 표시줄(`Phase complete: BUILD State: FAILED`) 뒤는 버리고 보낸다.** 운영 E2E(2026-10-03)에서 찾았다: CodeBuild 는 단계가 실패해도 POST_BUILD·UPLOAD_ARTIFACTS 를 이어서 돌리고 실패한 스크립트를 통째로 다시 출력해, 최근 줄부터 고르는 에이전트 입력 예산(12KB)이 이 잡음에 소진돼 실제 오류 출력(실패 표시줄 앞 18줄)이 밀려났고 진단이 `insufficient_evidence` 로 끝났다. 읽는 시점에 자르므로 이미 저장된 로그에도 적용되고, 표시줄이 없으면(시간 초과 등) 그대로 둔다.
 - **iris-infra 에 필요한 권한**: Build Worker 역할(`iris-dev-build-worker`, `terraform/environments/aws/dev/foundation/build.tf` 의 `aws_iam_role_policy.build_worker`)에 아래를 더한다. 로그 그룹 ARN 에 `:*` 를 붙이면 로그 스트림까지 덮는다.
 
 ```hcl

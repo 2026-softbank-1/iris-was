@@ -3,7 +3,7 @@ from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import DeploymentRequestNotFoundError
-from app.enums import DeploymentStatus
+from app.enums import DeploymentStatus, Environment
 from app.models.deployment_request import DeploymentRequest
 
 
@@ -45,6 +45,23 @@ class DeploymentRequestRepository:
                 DeploymentRequest.status == DeploymentStatus.SUCCEEDED,
             )
             .order_by(DeploymentRequest.created_at.desc(), DeploymentRequest.id.desc())
+            .limit(1)
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
+    async def find_first_succeeded_after(
+        self, service_id: int, environment: Environment, deployment_request_id: int
+    ) -> DeploymentRequest | None:
+        """이 요청 다음에 처음 성공한 같은 서비스·환경의 요청. 이 요청을 대신한 배포다."""
+        stmt = (
+            select(DeploymentRequest)
+            .where(
+                DeploymentRequest.service_id == service_id,
+                DeploymentRequest.environment == environment,
+                DeploymentRequest.status == DeploymentStatus.SUCCEEDED,
+                DeploymentRequest.id > deployment_request_id,
+            )
+            .order_by(DeploymentRequest.id)
             .limit(1)
         )
         return (await self._session.scalars(stmt)).one_or_none()

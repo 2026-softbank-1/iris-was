@@ -209,6 +209,25 @@ async def test_get_deployment_request_returns_history_and_stages(
     assert "durationSeconds" not in data["stages"][-1]
 
 
+async def test_get_deployment_request_returns_source_configuration_and_build(
+    client: DeploymentClient,
+) -> None:
+    client.setup.services.targets[client.setup.service.id] = {1}
+    created = await client.post(client.url, json={"triggerType": "MANUAL"})
+    deployment_id = created.json()["data"]["id"]
+
+    response = await client.get(f"{client.url}/{deployment_id}")
+
+    data = response.json()["data"]
+    assert response.status_code == 200
+    assert data["source"] == {"repository": "iris-org/web", "branch": "main"}
+    assert data["configuration"]["build"] == {}
+    assert data["configuration"]["deploy"]["targets"] == [{"id": 1, "name": "aws", "kind": "AWS"}]
+    assert data["build"] == {"status": "PENDING"}
+    assert data["releases"] == []
+    assert "replacedBy" not in data
+
+
 async def test_get_deployment_request_of_other_users_service_returns_not_found(
     client: DeploymentClient,
 ) -> None:
