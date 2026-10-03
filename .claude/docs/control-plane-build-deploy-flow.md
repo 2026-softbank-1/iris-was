@@ -159,7 +159,7 @@ RETURNING jobs.*;
 - Worker는 lease를 주기적으로 갱신한다.
 - lease 만료 작업은 다른 Worker가 회수한다.
 - 외부 호출 직후 Worker가 종료될 수 있으므로 CodeBuild ID, Git commit SHA, Argo revision을 먼저 기록하고 재시도 시 기존 결과를 조회한다.
-- `LISTEN/NOTIFY`는 즉시 깨우기 용도로만 쓰고, 작업의 진실한 원본은 `jobs` 테이블로 둔다.
+- `LISTEN/NOTIFY`는 즉시 깨우기 용도로만 쓰고, 작업의 진실한 원본은 `jobs` 테이블로 둔다. `jobs` 트리거가 job 생성·RUNNING 종료 때 알리고, Worker 는 알림·가장 이른 미래 `run_after`·60초 fallback 중 먼저 오는 때에 선점한다([ADR 0019](../../docs/adr/0019-job-wakeup-listen-notify.md)).
 
 ## 6. 배포와 실패 복구
 

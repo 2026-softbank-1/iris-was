@@ -3,7 +3,6 @@ Argo CD 상태를 수집한다.
 """
 
 import asyncio
-import contextlib
 import logging
 import os
 import signal
@@ -19,33 +18,33 @@ from app.core.config import get_deploy_worker_settings, get_settings
 from app.core.database import get_session_factory
 from app.core.logging import configure_logging, log_context
 from app.models import Job
-from app.services.deploy_service import DeployService
+from app.services.deploy_service import JOB_KINDS, DeployService
+from app.workers.job_wakeup import JobWakeup
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL_SECONDS = 5.0
 
-
-async def run(stop: asyncio.Event, service: DeployService) -> None:
+async def run(stop: asyncio.Event, service: DeployService, wakeup: JobWakeup) -> None:
     """job 을 하나씩 처리한다. job 은 짧게 끝나므로 stop 이 켜지면 현재 job 을 마치고 끝낸다."""
     # ponytail: job 을 한 번에 하나만 처리한다. 진행 중 release 가 많아 RECONCILE 이 밀리면
     #   build_worker 처럼 Semaphore 로 동시 처리하거나 replica 를 늘린다.
     logger.info("worker started", extra={"action": "run"})
     while not stop.is_set():
-        job = await _claim(service)
+        wakeup.clear()
+        job = await _claim(service, wakeup)
         if job is None:
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop.wait(), timeout=POLL_INTERVAL_SECONDS)
+            await wakeup.wait(stop)
             continue
         await _process(service, job)
     logger.info("worker stopped", extra={"action": "run"})
 
 
-async def _claim(service: DeployService) -> Job | None:
+async def _claim(service: DeployService, wakeup: JobWakeup) -> Job | None:
     try:
         return await service.claim_next_job()
     except (SQLAlchemyError, OSError):
         logger.exception("job claim failed", extra={"action": "claim_next_job"})
+        wakeup.retry_soon()
         return None
 
 
@@ -90,7 +89,11 @@ async def main() -> None:
             settings=settings,
             worker_id=f"{socket.gethostname()}:{os.getpid()}",
         )
-        await run(stop, service)
+        wakeup = JobWakeup(JOB_KINDS, service.find_seconds_until_next_run)
+        try:
+            await run(stop, service, wakeup)
+        finally:
+            await wakeup.close()
 
 
 if __name__ == "__main__":
