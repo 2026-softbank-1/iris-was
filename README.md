@@ -124,7 +124,7 @@ App 설정에서 맞춰야 할 값:
 | `GET /github/repos/{owner}/{repo}/branches` | 브랜치 목록 |
 | `POST·GET /projects` · `GET·PATCH·DELETE /projects/{id}` | 프로젝트 (목록은 서비스 수·online 수 포함) |
 | `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록 |
-| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제 |
+| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림) |
 | `GET·PUT /services/{id}/scaling` | 원하는 Pod 수·Pod별 CPU·메모리 조회·교체. PUT은 현재 이미지를 빌드 없이 재배포한다. [계약](docs/service-scaling-api.md) |
 | `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·재배포·롤백·재시작·삭제)·목록(최신순) |
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
@@ -136,7 +136,7 @@ App 설정에서 맞춰야 할 값:
 | `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 변수 전체를 교체한다(없는 키는 삭제) |
 | `PUT·DELETE /services/{id}/variables/{key}` | 환경변수 값 수정·삭제 |
 
-- 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제다.
+- 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제이고, 떠 있는 앱도 함께 내린다(`REMOVE` 요청을 같이 만든다). 진행 중인 배포가 있으면 아무것도 지우지 않고 `409 DEPLOYMENT_IN_PROGRESS` 다([ADR 0022](docs/adr/0022-delete-service-also-removes-app.md)).
 - 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`REDEPLOY`(`sourceDeploymentId` 의 커밋을 다시 빌드)·`ROLLBACK`(성공한 `sourceDeploymentId` 가 만든 이미지를 빌드 없이 배포)·`RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작, 원본은 보내지 않는다)·`REMOVE`(지금 떠 있는 배포를 클러스터에서 내림, 원본은 보내지 않는다)이다. 롤백·재시작·삭제는 요청이 곧바로 `DEPLOYING` 이 되고 `QUEUED → BUILDING` 이 없다([ADR 0015](docs/adr/0015-rollback-and-restart-reuse-built-image.md)·[ADR 0016](docs/adr/0016-remove-service-deployment.md)). 삭제는 iris-infra ApplicationSet 이 디렉터리 삭제로 Application 을 정리하도록 설정돼 있어야 끝난다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](docs/adr/0010-deployment-status-transitions-and-history.md).
 - AI 진단은 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 결과(`analysis.hypotheses`=원인, `analysis.remediation.plans`=해결책, `evidence`=근거 로그)를 `deployment_diagnoses` 에 저장한다. 성공한 진단이 있으면 모델을 다시 부르지 않는다. 해결책은 제안일 뿐 실행하지 않고 배포 요청 상태도 바꾸지 않는다. 빌드 단계 실패는 Build Worker 가 남긴 빌드 로그(`builds.log_tail`)로 진단한다. Build Worker 역할에 CloudWatch `logs:GetLogEvents` 가 없으면 로그가 남지 않아 진단이 `FAILED`·`DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다. 설계와 한계는 [ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md).
 - 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.

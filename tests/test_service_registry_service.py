@@ -2,6 +2,7 @@ import pytest
 
 from app.clients.source_repository_client import BranchInfo
 from app.core.exceptions import (
+    DeploymentInProgressError,
     InvalidInputError,
     ProjectNotFoundError,
     RepositoryNotAccessibleError,
@@ -24,7 +25,12 @@ from tests.fakes import (
     make_installation,
     make_repository,
 )
-from tests.fakes_project import FakeProjectRepository, FakeServiceRepository, FakeTargetRepository
+from tests.fakes_project import (
+    FakeProjectRepository,
+    FakeServiceRepository,
+    FakeTargetRepository,
+    FakeTeardownService,
+)
 from tests.fakes_webhook import FakeDeploymentRequestRepository
 
 OWNER = 1
@@ -38,6 +44,7 @@ class Setup:
         self.targets = FakeTargetRepository()
         self.installations = FakeGithubInstallationRepository()
         self.deployments = FakeDeploymentRequestRepository()
+        self.teardown = FakeTeardownService()
         self.github = FakeSourceRepositoryClient({22: [make_repository("iris-org/My_Web.App")]})
         self.github.branches["iris-org/My_Web.App"] = [
             BranchInfo("main", True),
@@ -58,6 +65,7 @@ class Setup:
             self.installations,  # type: ignore[arg-type]
             SourceRepositoryService(self.installations, self.github),  # type: ignore[arg-type]
             self.deployments,  # type: ignore[arg-type]
+            self.teardown,  # type: ignore[arg-type]
         )
 
 
@@ -281,6 +289,30 @@ async def test_delete_service_soft_deletes_and_frees_name(setup) -> None:
     with pytest.raises(ServiceNotFoundError):
         await service.get_service(OWNER, detail.service.id)
     await _create(service, s)
+
+
+async def test_delete_service_requests_teardown_of_running_app(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+
+    await service.delete_service(OWNER, detail.service.id)
+
+    assert s.teardown.calls == [([detail.service.id], OWNER)]
+
+
+async def test_delete_service_with_deployment_in_progress_keeps_service(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+    s.teardown.error = DeploymentInProgressError(
+        "a deployment is in progress", service_id=detail.service.id
+    )
+    commits_before = s.session.commit_count
+
+    with pytest.raises(DeploymentInProgressError):
+        await service.delete_service(OWNER, detail.service.id)
+
+    assert detail.service.is_deleted is False
+    assert s.session.commit_count == commits_before
 
 
 async def test_get_service_without_deployment_has_no_latest_deployment(setup) -> None:
