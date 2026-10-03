@@ -71,6 +71,7 @@ async def client() -> AsyncIterator[AsyncClient]:
         SourceRepositoryService(installations, github),  # type: ignore[arg-type]
         deployments,  # type: ignore[arg-type]
         teardown,  # type: ignore[arg-type]
+        deployment_strategy_enabled=True,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
         http.current = current  # type: ignore[attr-defined]
@@ -267,3 +268,41 @@ async def test_delete_project_with_deployment_in_progress_returns_conflict(
     assert response.status_code == 409
     assert response.json()["code"] == "DEPLOYMENT_IN_PROGRESS"
     assert (await client.get(f"/api/v1/projects/{project_id}")).status_code == 200
+
+
+async def test_patch_service_canary_with_one_replica_returns_invalid_input(
+    client: AsyncClient,
+) -> None:
+    project_id = await _create_project(client)
+    created = await client.post(
+        f"/api/v1/projects/{project_id}/services", json={"repositoryUrl": "iris-org/web"}
+    )
+    service_id = created.json()["data"]["id"]
+
+    response = await client.patch(
+        f"/api/v1/services/{service_id}", json={"deploymentStrategy": "CANARY"}
+    )
+    after = await client.get(f"/api/v1/services/{service_id}")
+
+    assert created.json()["data"]["deploymentStrategy"] == "ROLLING"
+    assert response.status_code == 422
+    assert response.json()["code"] == "INVALID_INPUT"
+    assert [d["field"] for d in response.json()["details"]] == ["deploymentStrategy"]
+    assert after.json()["data"]["deploymentStrategy"] == "ROLLING"
+
+
+async def test_patch_service_unknown_strategy_returns_validation_error(
+    client: AsyncClient,
+) -> None:
+    project_id = await _create_project(client)
+    created = await client.post(
+        f"/api/v1/projects/{project_id}/services", json={"repositoryUrl": "iris-org/web"}
+    )
+
+    response = await client.patch(
+        f"/api/v1/services/{created.json()['data']['id']}",
+        json={"deploymentStrategy": "RECREATE"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"

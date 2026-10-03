@@ -192,7 +192,9 @@ SourceRepositoryServiceDep = Annotated[
 ]
 
 
-def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:
+def get_deployment_request_service(
+    session: SessionDep, settings: SettingsDep
+) -> DeploymentRequestService:
     return DeploymentRequestService(
         DeploymentRequestRepository(session),
         JobRepository(session),
@@ -200,6 +202,7 @@ def get_deployment_request_service(session: SessionDep) -> DeploymentRequestServ
         BuildRepository(session),
         ServiceVariableRepository(session),
         ServiceRepository(session),
+        deployment_strategy_enabled=settings.deployment_strategy_enabled,
     )
 
 
@@ -237,6 +240,7 @@ TargetServiceDep = Annotated[TargetService, Depends(get_target_service)]
 
 def get_service_registry_service(
     session: SessionDep,
+    settings: SettingsDep,
     source_repository_service: SourceRepositoryServiceDep,
     service_teardown_service: ServiceTeardownServiceDep,
 ) -> ServiceRegistryService:
@@ -250,6 +254,7 @@ def get_service_registry_service(
         source_repository_service,
         DeploymentRequestRepository(session),
         service_teardown_service,
+        deployment_strategy_enabled=settings.deployment_strategy_enabled,
     )
 
 
@@ -647,7 +652,7 @@ def build_automatic_repair_service(
         candidates,
         publication,
         build_diagnosis_service(session, settings, http_client),
-        get_deployment_request_service(session),
+        get_deployment_request_service(session, settings),
     )
 
 

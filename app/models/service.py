@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.enums import Builder
+from app.enums import Builder, DeploymentStrategy
 from app.models.base import Base, BigIntPk, SoftDeleteMixin, TimestampMixin, enum_column
 
 
@@ -46,3 +46,9 @@ class Service(TimestampMixin, SoftDeleteMixin, Base):
     start_command: Mapped[str | None] = mapped_column(Text)
     # 서비스의 원하는 Pod 수와 Pod당 리소스. 배포 요청마다 스냅샷으로 고정한다.
     scaling_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 다음 배포부터 쓸 배포 방식. Pod 가 2개 미만이면 배포 요청이 ROLLING 으로 대체한다.
+    deployment_strategy: Mapped[DeploymentStrategy] = mapped_column(
+        enum_column(DeploymentStrategy, "deployment_strategy"),
+        server_default=DeploymentStrategy.ROLLING.value,
+        default=DeploymentStrategy.ROLLING,
+    )

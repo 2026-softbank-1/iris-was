@@ -9,6 +9,7 @@ from app.enums import (
     Builder,
     BuildStatus,
     DeploymentStatus,
+    DeploymentStrategy,
     DeploymentTrigger,
     FailureCode,
     ReleaseStatus,
@@ -125,6 +126,22 @@ class DeploymentResponse(ApiModel):
         default=None, description="요청한 사용자 id. 푸시 웹훅이 만든 요청은 없다."
     )
     is_active: bool = Field(description="QUEUED·BUILDING·DEPLOYING 이면 진행 중이다.")
+    requested_deployment_strategy: DeploymentStrategy | None = Field(
+        default=None,
+        description=(
+            "요청 시점에 서비스가 고른 배포 방식. 서비스를 내리는 요청(REMOVE)과 기능 도입 전"
+            " 요청은 없다."
+        ),
+        examples=["CANARY"],
+    )
+    deployment_strategy: DeploymentStrategy | None = Field(
+        default=None,
+        description=(
+            "실제로 적용한 배포 방식. Pod 가 2개 미만이거나 기능이 꺼져 있으면 요청 방식과 달리"
+            " ROLLING 이다(화면의 롤링 대체 안내). REMOVE 와 기능 도입 전 요청은 없다."
+        ),
+        examples=["ROLLING"],
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -141,6 +158,8 @@ class DeploymentResponse(ApiModel):
             failure_code=request.failure_code,
             requested_by=request.requested_by,
             is_active=request.status in ACTIVE_DEPLOYMENT_STATUSES,
+            requested_deployment_strategy=request.requested_deployment_strategy,
+            deployment_strategy=request.deployment_strategy,
             created_at=request.created_at,
             updated_at=request.updated_at,
         )

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.enums import (
     ACTIVE_DEPLOYMENT_STATUSES,
     DeploymentStatus,
+    DeploymentStrategy,
     DeploymentTrigger,
     Environment,
     FailureCode,
@@ -55,6 +56,15 @@ class DeploymentRequest(TimestampMixin, Base):
     variables_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # 요청 시점의 원하는 Pod 수와 리소스. 기존 요청의 None 은 chart 기본값을 쓴다.
     scaling_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 요청 시점에 서비스가 고른 배포 방식과 실제로 적용할 방식. Pod 가 2개 미만이거나 기능이
+    # 꺼져 있으면 적용 방식은 ROLLING 이다. REMOVE 요청과 기능 도입 전 요청은 둘 다 None 이다.
+    # CHECK 제약 이름이 겹치지 않게 enum 이름을 컬럼마다 따로 둔다.
+    requested_deployment_strategy: Mapped[DeploymentStrategy | None] = mapped_column(
+        enum_column(DeploymentStrategy, "requested_deployment_strategy")
+    )
+    deployment_strategy: Mapped[DeploymentStrategy | None] = mapped_column(
+        enum_column(DeploymentStrategy, "deployment_strategy")
+    )
     # 재배포·롤백·재시작이 따라가는 원본 배포 요청. 직접 만든 요청은 None 이다.
     source_deployment_request_id: Mapped[int | None] = mapped_column(
         ForeignKey(

@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     ConflictError,
+    FieldIssue,
     InvalidInputError,
     ProjectNotFoundError,
     ServiceNameConflictError,
     ServiceNotFoundError,
 )
-from app.enums import Builder
+from app.enums import Builder, DeploymentStrategy
 from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
 from app.models.target import AWS_TARGET_NAME
@@ -22,6 +23,8 @@ from app.repositories.github_installation_repository import GithubInstallationRe
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
+from app.services.deployment_strategy import MIN_PROGRESSIVE_REPLICAS, PROGRESSIVE_STRATEGIES
+from app.services.scaling_config import ScalingConfig
 from app.services.service_teardown_service import ServiceTeardownService
 from app.services.source_repository_service import SourceRepositoryService
 
@@ -33,7 +36,9 @@ SERVICE_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _NULLABLE_FIELDS = frozenset(
     {"root_directory", "dockerfile_path", "port", "build_command", "start_command", "builder"}
 )
-_NON_NULL_FIELDS = frozenset({"name", "source_branch", "is_auto_deploy", "target_ids"})
+_NON_NULL_FIELDS = frozenset(
+    {"name", "source_branch", "is_auto_deploy", "target_ids", "deployment_strategy"}
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,8 @@ class ServiceRegistryService:
         source_repository_service: SourceRepositoryService,
         deployment_request_repository: DeploymentRequestRepository,
         service_teardown_service: ServiceTeardownService,
+        *,
+        deployment_strategy_enabled: bool = False,
     ) -> None:
         self._session = session
         self._project_repository = project_repository
@@ -82,6 +89,7 @@ class ServiceRegistryService:
         self._installation_repository = installation_repository
         self._source_repository_service = source_repository_service
         self._deployment_request_repository = deployment_request_repository
+        self._deployment_strategy_enabled = deployment_strategy_enabled
 
     async def create_service(
         self,
@@ -147,8 +155,14 @@ class ServiceRegistryService:
     async def update_service(
         self, owner_id: int, service_id: int, changes: Mapping[str, Any]
     ) -> ServiceDetail:
-        """`changes` 에 있는 키만 바꾼다. 명시한 null 은 값을 비운다(비울 수 없는 필드는 거부)."""
-        service = await self._get_owned(owner_id, service_id)
+        """`changes` 에 있는 키만 바꾼다. 명시한 null 은 값을 비운다(비울 수 없는 필드는 거부).
+
+        배포 방식은 저장만 하고 배포를 만들지 않는다. 다음 배포 요청부터 적용된다.
+        """
+        # 배포 방식은 저장된 Pod 수로 검사하므로 Pod 수 변경과 겹치지 않게 행을 잠근다.
+        service = await self._get_owned(
+            owner_id, service_id, for_update="deployment_strategy" in changes
+        )
         for field in changes:
             if field not in _NULLABLE_FIELDS | _NON_NULL_FIELDS:
                 raise InvalidInputError("field cannot be updated", field=field)
@@ -160,6 +174,10 @@ class ServiceRegistryService:
         if "source_branch" in changes and changes["source_branch"] != service.source_branch:
             full_name = _full_name(service.source_repository_url)
             await self._ensure_branch_exists(owner_id, full_name, changes["source_branch"])
+        if "deployment_strategy" in changes:
+            strategy = DeploymentStrategy(changes["deployment_strategy"])
+            if strategy != service.deployment_strategy:
+                self._check_deployment_strategy(service, strategy)
 
         for field, value in changes.items():
             if field == "target_ids":
@@ -168,6 +186,8 @@ class ServiceRegistryService:
                 value = normalize_root_directory(value)
             if field == "builder" and value is not None:
                 value = Builder(value)
+            if field == "deployment_strategy":
+                value = DeploymentStrategy(value)
             setattr(service, field, value)
 
         if "target_ids" in changes:
@@ -185,11 +205,32 @@ class ServiceRegistryService:
         await self._session.commit()
         logger.info("service deleted", extra={"action": "delete_service", "service_id": service_id})
 
-    async def _get_owned(self, owner_id: int, service_id: int) -> Service:
-        service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)
+    async def _get_owned(
+        self, owner_id: int, service_id: int, *, for_update: bool = False
+    ) -> Service:
+        service = await self._service_repository.find_by_id_and_owner_id(
+            service_id, owner_id, for_update=for_update
+        )
         if service is None:
             raise ServiceNotFoundError("service not found", service_id=service_id)
         return service
+
+    def _check_deployment_strategy(self, service: Service, strategy: DeploymentStrategy) -> None:
+        """카나리·블루그린은 기능이 켜져 있고 저장된 Pod 수(없으면 1)가 2 이상일 때만 저장한다."""
+        if strategy not in PROGRESSIVE_STRATEGIES:
+            return
+        if not self._deployment_strategy_enabled:
+            reason = "deployment_strategy_disabled"
+        elif _desired_replicas(service) < MIN_PROGRESSIVE_REPLICAS:
+            reason = "at_least_two_replicas_required"
+        else:
+            return
+        raise InvalidInputError(
+            "deployment strategy is not available",
+            issues=[FieldIssue("deploymentStrategy", reason)],
+            field="deploymentStrategy",
+            service_id=service.id,
+        )
 
     async def _ensure_name_available(self, project_id: int, name: str) -> None:
         if not SERVICE_NAME_PATTERN.match(name):
@@ -236,6 +277,12 @@ class ServiceRegistryService:
             [s.id for s in services]
         )
         return [ServiceDetail(s, target_ids.get(s.id, []), latest.get(s.id)) for s in services]
+
+
+def _desired_replicas(service: Service) -> int:
+    if service.scaling_config is None:
+        return ScalingConfig.defaults().replicas
+    return ScalingConfig.model_validate(service.scaling_config).replicas
 
 
 def _full_name(repository_url: str) -> str:

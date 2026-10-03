@@ -180,6 +180,7 @@ class Harness:
         *,
         cipher: VariableCipher | None = None,
         sealer: SecretSealer | None = None,
+        settings: DeployWorkerSettings = SETTINGS,
     ) -> None:
         self.session_factory = session_factory
         self.gitops = FakeGitOps()
@@ -190,7 +191,7 @@ class Harness:
             self.gitops,  # type: ignore[arg-type]
             self.argo,  # type: ignore[arg-type]
             self.ecr,  # type: ignore[arg-type]
-            SETTINGS,
+            settings,
             "worker-1",
             cipher=cipher,
             sealer=sealer,
