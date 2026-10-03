@@ -1,6 +1,7 @@
 """프로젝트·서비스 계층 테스트용 인메모리 Repository."""
 
 from itertools import count
+from typing import Any
 
 from app.enums import TargetKind
 from app.models.base import now_utc
@@ -57,7 +58,12 @@ class FakeServiceRepository:
         self.targets: dict[int, set[int]] = {}
         self._ids = count(1)
 
-    async def find_by_id_and_owner_id(self, service_id: int, owner_id: int) -> Service | None:
+    async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
+        return self.services[service_id].scaling_config
+
+    async def find_by_id_and_owner_id(
+        self, service_id: int, owner_id: int, *, for_update: bool = False
+    ) -> Service | None:
         service = self.services.get(service_id)
         if service is None or service.is_deleted:
             return None

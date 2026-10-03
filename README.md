@@ -121,6 +121,7 @@ App 설정에서 맞춰야 할 값:
 | `POST·GET /projects` · `GET·PATCH·DELETE /projects/{id}` | 프로젝트 (목록은 서비스 수·online 수 포함) |
 | `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록 |
 | `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제 |
+| `GET·PUT /services/{id}/scaling` | 원하는 Pod 수·Pod별 CPU·메모리 조회·교체. PUT은 현재 이미지를 빌드 없이 재배포한다. [계약](docs/service-scaling-api.md) |
 | `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·재배포·롤백·재시작·삭제)·목록(최신순) |
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
 | `GET /targets` | 배포 타깃(aws·local) 목록 |

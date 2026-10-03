@@ -679,6 +679,63 @@
         "title": "ApiResponse[ServiceResponse]",
         "type": "object"
       },
+      "ApiResponse_ServiceScalingResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceScalingResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ServiceScalingResponse]",
+        "type": "object"
+      },
       "ApiResponse_ServiceVariablesResponse_": {
         "properties": {
           "code": {
@@ -2240,6 +2297,46 @@
         "title": "RepositoryResponse",
         "type": "object"
       },
+      "ResourceQuantity": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu": {
+            "maxLength": 32,
+            "pattern": "^(?:[0-9]+(?:\\.[0-9]{1,3})?|\\.[0-9]{1,3}|[0-9]+m)$",
+            "title": "Cpu",
+            "type": "string"
+          },
+          "memory": {
+            "maxLength": 32,
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,3})?(?:[KMGTPE]i|[kMGTPE])?$",
+            "title": "Memory",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpu",
+          "memory"
+        ],
+        "title": "ResourceQuantity",
+        "type": "object"
+      },
+      "ResourceRequirements": {
+        "additionalProperties": false,
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/ResourceQuantity"
+          },
+          "requests": {
+            "$ref": "#/components/schemas/ResourceQuantity"
+          }
+        },
+        "required": [
+          "requests",
+          "limits"
+        ],
+        "title": "ResourceRequirements",
+        "type": "object"
+      },
       "ServiceCreateRequest": {
         "description": "저장소를 연결해 서비스를 만든다. 이름·브랜치를 생략하면 저장소 이름·기본 브랜치를 쓴다.",
         "properties": {
@@ -2514,6 +2611,39 @@
         "title": "ServiceResponse",
         "type": "object"
       },
+      "ServiceScalingResponse": {
+        "properties": {
+          "deploymentRequestId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deploymentrequestid"
+          },
+          "replicas": {
+            "title": "Replicas",
+            "type": "integer"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResourceRequirements"
+          },
+          "serviceId": {
+            "title": "Serviceid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "serviceId",
+          "replicas",
+          "resources"
+        ],
+        "title": "ServiceScalingResponse",
+        "type": "object"
+      },
       "ServiceUpdateRequest": {
         "description": "보낸 필드만 바꾼다. 명시한 null 은 값을 비운다(name·sourceBranch·isAutoDeploy 제외).",
         "properties": {
@@ -2759,6 +2889,27 @@
           "kind"
         ],
         "title": "TargetResponse",
+        "type": "object"
+      },
+      "UpdateServiceScalingRequest": {
+        "additionalProperties": false,
+        "description": "Pod 수와 Pod 당 CPU·메모리 requests/limits 전체를 교체한다.",
+        "properties": {
+          "replicas": {
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Replicas",
+            "type": "integer"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResourceRequirements"
+          }
+        },
+        "required": [
+          "replicas",
+          "resources"
+        ],
+        "title": "UpdateServiceScalingRequest",
         "type": "object"
       },
       "UserResponse": {
@@ -5344,6 +5495,205 @@
         "summary": "서비스 CPU·메모리·네트워크 시계열 조회",
         "tags": [
           "observability"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/scaling": {
+      "get": {
+        "operationId": "get_scaling_api_v1_services__service_id__scaling_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ServiceScalingResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스의 원하는 Pod 수·CPU·메모리 사양 조회",
+        "tags": [
+          "services"
+        ]
+      },
+      "put": {
+        "description": "replicas(0~10)와 resources.requests/limits 전체를 보낸다. 성공한 현재 이미지를 재사용하는 RESTART 요청으로 빌드 없이 비동기 적용한다. 202는 요청 접수이며 deploymentRequestId로 배포 상태를 조회한다. 이후 배포에도 저장한 사양을 사용한다.",
+        "operationId": "update_scaling_api_v1_services__service_id__scaling_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "같은 설정과 키로 재전송하면 같은 요청을 반환한다.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "같은 설정과 키로 재전송하면 같은 요청을 반환한다.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceScalingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ServiceScalingResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포된 서비스의 Pod 수·CPU·메모리 사양 교체",
+        "tags": [
+          "services"
         ]
       }
     },

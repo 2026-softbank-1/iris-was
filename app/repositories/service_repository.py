@@ -1,3 +1,5 @@
+from typing import Any
+
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +14,9 @@ class ServiceRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def find_by_id_and_owner_id(self, service_id: int, owner_id: int) -> Service | None:
+    async def find_by_id_and_owner_id(
+        self, service_id: int, owner_id: int, *, for_update: bool = False
+    ) -> Service | None:
         """프로젝트 소유자 기준으로 서비스를 찾는다. 삭제된 서비스·프로젝트는 없는 것으로 본다."""
         stmt = (
             select(Service)
@@ -24,7 +28,20 @@ class ServiceRepository:
                 Project.is_deleted.is_(False),
             )
         )
+        if for_update:
+            stmt = stmt.with_for_update(of=Service).execution_options(populate_existing=True)
         return (await self._session.scalars(stmt)).one_or_none()
+
+    async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
+        """원하는 설정의 최신 값을 읽고 배포 요청이 커밋될 때까지 서비스 행을 잠근다."""
+        # PUT이 같은 트랜잭션에서 바꾼 값도 DB에서 읽을 수 있도록 먼저 반영한다.
+        await self._session.flush()
+        stmt = (
+            select(Service.scaling_config)
+            .where(Service.id == service_id)
+            .with_for_update(of=Service)
+        )
+        return (await self._session.scalars(stmt)).one()
 
     async def find_by_project_id_and_name(self, project_id: int, name: str) -> Service | None:
         stmt = select(Service).where(

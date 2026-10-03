@@ -37,6 +37,7 @@ from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.domain_service import service_host_label
+from app.services.scaling_config import ScalingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +103,12 @@ def render_service_values(
     builder: Builder,
     deploy: DeployConfig,
     base_domain: str,
+    scaling: ScalingConfig | None = None,
 ) -> str:
     """services/{service_id}/prod/values.yaml 내용. 플랫폼 Helm chart(iris-service)의 values 다.
 
-    배포마다 파일 전체를 새로 만든다. 리소스·Ingress·NetworkPolicy 같은 공통값은 chart·타겟
-    기본값이 정하고, 여기엔 배포마다 달라지는 값만 둔다. JSON 은 YAML 이라 Helm 이 그대로 읽는다.
+    배포마다 파일 전체를 새로 만든다. Pod 수와 리소스는 요청 스냅샷을 쓰고, 스냅샷이 없는
+    기존 요청과 Ingress·NetworkPolicy는 chart·타겟 기본값을 쓴다. JSON 은 YAML 이다.
     """
     health: dict[str, Any] = {"timeoutSeconds": deploy.healthcheck_timeout}
     if deploy.healthcheck_path:
@@ -119,6 +121,8 @@ def render_service_values(
         "health": health,
         "route": {"host": f"{host_label}.{base_domain}"},
     }
+    if scaling is not None:
+        values.update(scaling.model_dump(mode="json"))
     # Railpack 은 빌드 때 start command 를 이미지에 넣는다. Dockerfile 은 ENTRYPOINT·CMD 를
     # exec form 으로 덮어쓴다(셸을 거치지 않아 $VAR 가 풀리지 않는다. 필요하면 sh -c 로 감싼다).
     if builder == Builder.DOCKERFILE and deploy.start_command_args:
@@ -272,6 +276,11 @@ class DeployService:
                 builder=build.builder,
                 deploy=DeployConfig.model_validate(build.deploy_config or {}),
                 base_domain=self._settings.base_domain,
+                scaling=(
+                    ScalingConfig.model_validate(release.deployment_request.scaling_snapshot)
+                    if release.deployment_request.scaling_snapshot is not None
+                    else None
+                ),
             )
         }
 
