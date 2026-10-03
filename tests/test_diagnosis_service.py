@@ -379,6 +379,21 @@ async def test_diagnose_omits_commit_sha_that_is_not_a_full_sha(setup: Diagnosis
     assert source["rootDirectory"] == "."
 
 
+async def test_diagnose_upload_source_uses_archive_root_and_no_commit_sha(
+    setup: DiagnosisSetup,
+) -> None:
+    # 업로드 스냅샷은 올린 폴더가 루트다. 서비스의 root_directory 를 따라가면 없는 폴더를 가리킨다.
+    request = setup.add_request(source_sha="upload-3fa9c2d1b7e4")
+    setup.add_build(request)
+    setup.service.root_directory = "apps/api"
+
+    await setup.diagnosis_service(snapshots=True).diagnose(OWNER, setup.service.id, request.id)
+
+    source = setup.agent.requests[0]["source"]
+    assert "commitSha" not in source
+    assert source["rootDirectory"] == "."
+
+
 async def test_diagnose_without_snapshot_upload_sends_logs_only(setup: DiagnosisSetup) -> None:
     request = setup.add_request()
     setup.add_build(request, codebuild_build_id=None)

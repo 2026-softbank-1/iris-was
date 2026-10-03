@@ -42,6 +42,7 @@ from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.build_service import BuildService
 from app.services.deployment_request_service import DeploymentRequestService
+from tests.fakes_upload import FakeUploadStorage
 from tests.worker_support import (
     TEST_DATABASE_URL,
     add,
@@ -134,7 +135,11 @@ class FakeEcr:
 
 
 class FakeArtifacts:
+    def __init__(self) -> None:
+        self.snapshots: dict[int, bytes] = {}
+
     async def put_snapshot(self, build_id: int, path: Path) -> str:
+        self.snapshots[build_id] = await asyncio.to_thread(path.read_bytes)
         return f"snapshots/{build_id}.tar.gz"
 
     async def presign(self, key: str) -> str:
@@ -188,15 +193,20 @@ def _service(
     files: dict[str, bytes] | None = None,
     worker_id: str = "worker-1",
     build_logs: FakeBuildLogs | None = None,
+    github: FakeGitHub | None = None,
+    artifacts: FakeArtifacts | None = None,
+    uploads: FakeUploadStorage | None = None,
+    settings: BuildWorkerSettings = SETTINGS,
 ) -> BuildService:
     return BuildService(
         session_factory,
-        FakeGitHub(files or {"Dockerfile": b"FROM scratch"}),  # type: ignore[arg-type]
+        github or FakeGitHub(files or {"Dockerfile": b"FROM scratch"}),  # type: ignore[arg-type]
         codebuild,  # type: ignore[arg-type]
         FakeEcr(),  # type: ignore[arg-type]
-        FakeArtifacts(),  # type: ignore[arg-type]
+        artifacts or FakeArtifacts(),  # type: ignore[arg-type]
+        uploads or FakeUploadStorage(),  # type: ignore[arg-type]
         build_logs or FakeBuildLogs(),  # type: ignore[arg-type]
-        SETTINGS,
+        settings,
         worker_id,
     )
 
