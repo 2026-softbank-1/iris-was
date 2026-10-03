@@ -94,8 +94,44 @@ source.addEventListener('error', (event) => {
 
 CPU는 Pod CPU 시간의 5분 rate를 core 단위로, 메모리는 Pod working set을 byte 단위로 집계한다. 네트워크는 Pod 인터페이스의 5분 rate이며 공용 인터넷 트래픽만 분리한 값이 아니다. 수집 주기가 30초라 최근 1분 안팎은 비어 있을 수 있다. NaN/Inf 샘플은 제외하고, 없는 메트릭을 0으로 채우지 않는다. 프론트는 timestamp를 실제 시간축에 매핑하고 30초 정도 간격으로 조회한다.
 
+## 트래픽 지표
+
+요청 수·오류율·응답 시간·공용 네트워크다. 메트릭 API(Pod CPU·메모리·네트워크)와 별개 엔드포인트다. 의미(15분 지연, 결측, 응답 시간 집계 방식)가 다르기 때문이다.
+
+`GET /api/v1/services/{serviceId}/traffic-metrics?targetId=1&start=2026-10-01T00:00:00Z&end=2026-10-01T01:00:00Z&step=60`
+
+출처는 iris-infra 가 ALB 접근 로그를 Loki 로 정규화하고 Loki ruler 가 1분마다 Prometheus 로 remote write 하는 gauge 다(iris-infra `contracts/service-traffic.md`). 서비스는 라벨 `cluster`(`TRAFFIC_CLUSTER`, 기본 `iris-dev-workload`)와 `k8s_namespace_name`(`svc-{id}`)으로 고르므로 Pod 수·TargetGroup 수와 무관하다. 백엔드 주소는 `PROMETHEUS_URL` 이고 없으면 `503 NOT_CONFIGURED`다.
+
+`start`, `end`는 요청이 일어난 **이벤트 시각**이다. `step`은 60~86400초이고 범위÷step 이 1440 을 넘으면 422 다. 7일 범위에는 최소 420초 step 을 쓴다.
+
+```json
+{"success":true,"data":{"availableUntil":1790951100.0,"series":[{"metric":"requests","unit":"requests","points":[{"timestamp":1790950200,"value":12}]},{"metric":"error_rate_5xx","unit":"ratio","points":[{"timestamp":1790950200,"value":0.08}]}]}}
+```
+
+| metric | unit | 의미 |
+|---|---|---|
+| `requests` | requests | 버킷 안에 ALB 가 완료한 요청 수 합계 |
+| `error_rate_4xx` | ratio | 같은 버킷의 4xx 응답 수 ÷ 요청 수 (0~1, % 는 ×100) |
+| `error_rate_5xx` | ratio | 같은 버킷의 5xx 응답 수 ÷ 요청 수 |
+| `public_network_receive` | bytes/s | ALB `received_bytes` 의 버킷 평균 |
+| `public_network_transmit` | bytes/s | ALB `sent_bytes` 의 버킷 평균 |
+| `response_time_avg` | seconds | 버킷에서 마지막으로 집계된 5분 구간의 `target_processing_time` 평균 |
+| `response_time_p50`, `response_time_p95` | seconds | 같은 5분 구간의 p50, p95 |
+
+- 시리즈 8개가 항상 이 순서로 온다. 데이터가 없는 지표는 `points` 가 빈 배열이다.
+- `timestamp`는 버킷이 끝나는 이벤트 시각이다. 버킷은 서로 겹치지 않는다.
+- **집계 지연**: ruler 가 15분 늦게 평가해서 최신 약 15분은 아직 집계되지 않았다. `availableUntil`(Unix 초, 현재−15분) 이후는 "비어 있음"이 아니라 "아직 모름"이다. "Last 15 min" 같은 최근 범위는 거의 비어 온다. 15분은 보장된 최대 지연이 아니라서 수집이 더 늦으면 과거 샘플은 자동으로 고쳐지지 않는다.
+- **결측은 0 이 아니다**: 요청이 없는 분에는 샘플이 만들어지지 않아 점이 없다. 접속이 없는 구간과 수집기 장애를 이 API 만으로는 구분하지 못한다. 점이 없으면 그대로 비워 그린다.
+- 오류는 사용자에게 돌려준 ALB 최종 상태 코드이고, TargetGroup 이 없는 redirect·default action·차단 응답은 서비스에 귀속하지 않는다.
+- 응답 시간은 ALB 가 target 에 요청을 보낸 뒤 응답 헤더를 받기까지다. 브라우저 체감 시간이나 다운로드 시간이 아니다. 5분 구간 지표라 더 긴 구간으로 평균내거나 합치지 않고, 버킷마다 마지막 5분 구간 값을 그대로 준다(step 이 5분보다 길면 구간 사이가 건너뛰어진다).
+- 공용 바이트는 이 외부 ALB 를 통과한 요청·응답 바이트다. Pod 내부 네트워크, 앱이 외부로 호출한 egress, TCP/TLS 오버헤드는 포함하지 않는다. 메트릭 API 의 `network_receive`·`network_transmit` 은 Pod 네트워크라 다른 값이다.
+- ALB 접근 로그는 best effort 라 청구·정산 용도가 아니다. `local` target 은 ALB 를 쓰지 않아 빈 결과가 나온다.
+- 에러: Prometheus 주소 없음 `503 NOT_CONFIGURED`, 백엔드 오류·잘못된 응답·시리즈 2개 이상 `502 EXTERNAL_ERROR`.
+
 ## 검증 범위
 
 MockTransport 및 API 테스트로 쿼리 제한, 소유권, 입력 검증, 응답 변환, SSE 커서·heartbeat·오류·종료를 검증한다. 라벨·메트릭 이름은 2026-10-02 dev 클러스터의 Loki·Prometheus에서 확인했다. API를 통한 운영 조회는 `LOKI_URL`·`PROMETHEUS_URL` 설정과 배포 후 확인한다. DB 스키마 변경은 없다.
+
+트래픽 지표는 계약 문서(iris-infra `contracts/service-traffic.md`)대로 쿼리를 만들고 MockTransport 로 쿼리 문자열, 시각 이동(15분), 결측·NaN 처리, 시리즈 수 검증을 확인했다. 생성한 PromQL 은 문법 파서로 검사했다. **실제 Prometheus 에서의 값과 ruler 가 올리는 라벨은 확인하지 못했다.** iris-infra 의 dev 배포와 서비스 트래픽 검증 뒤에 이 API 로 조회해 확인한다.
 
 외부 API 계약: [Loki HTTP API](https://grafana.com/docs/loki/latest/reference/loki-http-api/), [Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/).

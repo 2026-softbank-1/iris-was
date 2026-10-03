@@ -6,6 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
 DEFAULT_SNAPSHOT_MAX_BYTES = 250 * 1024 * 1024
+# iris-infra 가 서비스 외부 트래픽 지표에 붙이는 workload 클러스터 라벨 값(dev).
+DEFAULT_TRAFFIC_CLUSTER = "iris-dev-workload"
 
 
 class Settings(BaseSettings):
@@ -16,6 +18,8 @@ class Settings(BaseSettings):
     # 클러스터가 늘면 target 별 주소와 k8s_cluster_name selector 로 나눈다.
     loki_url: HttpUrl | None = None
     prometheus_url: HttpUrl | None = None
+    # 요청 수·오류율·응답 시간·공용 네트워크 지표를 고르는 `cluster` 라벨 값.
+    traffic_cluster: str = DEFAULT_TRAFFIC_CLUSTER
 
     # 에러 진단 에이전트 서버(iris-error-check-agent). 둘 중 하나라도 없으면 진단 API 는 503.
     diagnosis_agent_url: HttpUrl | None = None
