@@ -10,6 +10,9 @@ import pytest
 from app.clients.aws_clients import EcrPullCredentialClient
 from app.clients.secret_sealer import SecretSealer
 from app.core.exceptions import NotConfiguredError
+from app.enums import Builder
+from app.services.builder_detection import DeployConfig
+from app.services.deploy_service import ONPREM_ECR_PULL_SECRET, render_service_values
 from app.services.onprem_server_sync_service import (
     build_cluster_config,
     cluster_secret_name,
@@ -107,7 +110,7 @@ async def test_issue_pull_credential_scopes_session_policy_to_repositories() -> 
 
     assert credential.registry == "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com"
     assert (credential.username, credential.password) == ("AWS", "ecr-password")
-    assert credential.expires_at == aws.credentials_expire
+    assert credential.expires_at == aws.token_expires
     assume = next(kwargs for name, kwargs in aws.calls if name == "assume_role")
     assert assume["RoleSessionName"] == "iris-onprem-k3x9q2ma"
     assert assume["DurationSeconds"] == 43200
@@ -129,3 +132,22 @@ async def test_issue_pull_credential_scopes_session_policy_to_repositories() -> 
 def test_pull_credential_client_rejects_invalid_role_arn() -> None:
     with pytest.raises(NotConfiguredError):
         EcrPullCredentialClient("ap-northeast-2", "not-an-arn", 3600, FakeAws())
+
+
+def test_render_service_values_writes_image_pull_secrets_for_server_target() -> None:
+    values = json.loads(
+        render_service_values(
+            host_label=f"api-12-{KEY}",
+            release_id=1,
+            image_repository="123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/12",
+            image_digest="sha256:abc",
+            source_sha="f" * 40,
+            builder=Builder.RAILPACK,
+            deploy=DeployConfig(),
+            base_domain="internal.likelion.uk",
+            image_pull_secrets=[ONPREM_ECR_PULL_SECRET],
+        )
+    )
+
+    assert values["imagePullSecrets"] == [{"name": "iris-ecr-pull"}]
+    assert values["route"]["host"] == f"api-12-{KEY}.internal.likelion.uk"

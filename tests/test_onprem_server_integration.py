@@ -58,12 +58,12 @@ class World:
         self.argo = FakeArgo()
         self.sync = self.make_sync("worker-1")
 
-    def make_sync(self, worker_id: str) -> OnpremServerSyncService:
+    def make_sync(self, worker_id: str, *, has_probe: bool = True) -> OnpremServerSyncService:
         return OnpremServerSyncService(
             self.session_factory,
             self.gitops,  # type: ignore[arg-type]
             GitOpsWriter(self.gitops, 2, "org/gitops"),  # type: ignore[arg-type]
-            self.argo,  # type: ignore[arg-type]
+            self.argo if has_probe else None,  # type: ignore[arg-type]
             worker_id,
             platform_sealer=SecretSealer(PLATFORM_CERT),
             cipher=CIPHER,
@@ -216,6 +216,29 @@ async def test_probe_not_healthy_until_deadline_fails_with_connect_timed_out(
     assert server.next_check_at is None
 
 
+async def test_without_probe_token_server_stays_registering_past_deadline(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    w.sync = w.make_sync("worker-1", has_probe=False)
+    registration = await w.register(await w.owner())
+    await w.run_next()
+    async with session_factory.begin() as session:
+        await session.execute(
+            update(OnpremServer).values(connect_deadline_at=datetime.now(UTC) - timedelta(1))
+        )
+    w.argo.status = _healthy()
+
+    await w.run_next()
+
+    server = await w.load(registration.server.id)
+    assert server.status == OnpremServerStatus.REGISTERING
+    assert server.connect_deadline_at is not None
+    assert server.connect_deadline_at > datetime.now(UTC) + timedelta(minutes=14)
+    assert server.next_check_at is not None
+    assert server.locked_by is None
+
+
 async def test_commit_failures_exhausted_fail_with_gitops_commit_failed(
     session_factory: Any,
 ) -> None:
@@ -362,6 +385,7 @@ async def test_deploy_to_server_target_uses_server_host_and_server_sealing_key(
     )
     assert values["route"]["host"] == f"web-{h.service_id}-{key}.internal.likelion.uk"
     assert values["iris"]["targetName"] == f"onprem-{key}"
+    assert values["imagePullSecrets"] == [{"name": "iris-ecr-pull"}]
     variables = values["variables"]
     sealed = variables["encryptedData"]["DATABASE_URL"]
     namespace = f"svc-{h.service_id}"

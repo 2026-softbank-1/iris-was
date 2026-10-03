@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 SERVER_LEASE = timedelta(minutes=2)
 CONNECT_TIMEOUT = timedelta(minutes=15)
 PROBE_INTERVAL = timedelta(seconds=10)
+# probe 를 읽을 토큰이 없을 때 다시 볼 간격. 그동안 기한은 미룬다.
+PROBE_DISABLED_INTERVAL = timedelta(minutes=1)
 RETRY_BASE_DELAY = timedelta(seconds=30)
 MAX_GITOPS_ATTEMPTS = 5
 VALUES_FILE_NAME = "values.yaml"
@@ -127,7 +129,7 @@ class OnpremServerSyncService:
         session_factory: async_sessionmaker[AsyncSession],
         github: GitHubClient,
         gitops: GitOpsWriter,
-        argocd: ArgoCdClient,
+        probe_argocd: ArgoCdClient | None,
         worker_id: str,
         *,
         platform_sealer: SecretSealer,
@@ -136,7 +138,8 @@ class OnpremServerSyncService:
         self._session_factory = session_factory
         self._github = github
         self._gitops = gitops
-        self._argocd = argocd
+        # probe Application 의 Argo project 를 읽는 전용 토큰의 Client. 없으면 연결 확인을 안 한다.
+        self._probe_argocd = probe_argocd
         self._worker_id = worker_id
         self._platform_sealer = platform_sealer
         # 서버의 ServiceAccount 토큰(암호문)을 푼다. Control API 와 같은 키다.
@@ -274,10 +277,32 @@ class OnpremServerSyncService:
         )
 
     async def _check_probe(self, claim: _Claim, deadline_at: datetime) -> None:
-        """probe Application 이 Synced+Healthy 면 CONNECTED, 기한이 지나면 FAILED 다."""
+        """probe Application 이 Synced+Healthy 면 CONNECTED, 기한이 지나면 FAILED 다.
+
+        probe 를 읽을 토큰이 없으면 확인하지 않고 REGISTERING 으로 둔다. 기한은 그만큼 미뤄, 토큰이
+        생긴 뒤에도 연결 확인 시간을 온전히 준다.
+        """
         now = datetime.now(UTC)
+        if self._probe_argocd is None:
+            logger.warning(
+                "onprem server connection check is off",
+                extra={
+                    "action": "register_server",
+                    "onprem_server_id": claim.server_id,
+                    "setting": "ARGOCD_PROBE_TOKEN",
+                },
+            )
+            await self._update(
+                claim,
+                lambda s: s.postpone_connect_check(
+                    now + PROBE_DISABLED_INTERVAL, now + CONNECT_TIMEOUT
+                ),
+            )
+            return
         try:
-            status = await self._argocd.get_application(probe_application_name(claim.server_key))
+            status = await self._probe_argocd.get_application(
+                probe_application_name(claim.server_key)
+            )
         except ExternalError:
             logger.warning(
                 "probe status check failed",

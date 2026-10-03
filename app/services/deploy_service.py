@@ -66,6 +66,8 @@ _FAILED_PHASES = ("Failed", "Error")
 _MAX_ERROR_LENGTH = 1000
 # iris-service chart 의 values 스키마가 release.sourceSha 에 요구하는 형식.
 _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+# 등록한 서버의 CronJob 이 svc-{id} 에 만드는 ECR pull Secret. 서버 타깃 Pod 가 이것으로 받는다.
+ONPREM_ECR_PULL_SECRET = "iris-ecr-pull"
 
 
 class Verdict(StrEnum):
@@ -117,6 +119,7 @@ def render_service_values(
     variables: Mapping[str, Any] | None = None,
     scaling: ScalingConfig | None = None,
     deployment_strategy: DeploymentStrategy | None = None,
+    image_pull_secrets: list[str] | None = None,
 ) -> str:
     """services/{service_id}/{타깃 디렉터리}/values.yaml 내용. iris-service chart 의 values 다.
 
@@ -126,6 +129,7 @@ def render_service_values(
     `iris`(서비스·타깃 이름, 배포 요청 id)와 `variables`(봉인한 사용자 변수 `name`·`encryptedData`,
     평문은 받지 않는다)는 chart 0.6.0 부터 받는다. 없으면 쓰지 않아 이전 chart 도 렌더링된다.
     `deployment_strategy` 는 chart 0.7.0 부터 받는다. 없으면 chart 가 ROLLING 으로 렌더링한다.
+    `image_pull_secrets` 는 chart 0.8.0 부터 받는다. 사용자가 등록한 서버 타깃에만 쓴다.
     """
     health: dict[str, Any] = {"timeoutSeconds": deploy.healthcheck_timeout}
     if deploy.healthcheck_path:
@@ -153,6 +157,8 @@ def render_service_values(
         values.update(scaling.model_dump(mode="json"))
     if deployment_strategy is not None:
         values["deploymentStrategy"] = deployment_strategy.value
+    if image_pull_secrets:
+        values["imagePullSecrets"] = [{"name": name} for name in image_pull_secrets]
     # Railpack 은 빌드 때 start command 를 이미지에 넣는다. Dockerfile 은 ENTRYPOINT·CMD 를
     # exec form 으로 덮어쓴다(셸을 거치지 않아 $VAR 가 풀리지 않는다. 필요하면 sh -c 로 감싼다).
     if builder == Builder.DOCKERFILE and deploy.start_command_args:
@@ -337,6 +343,11 @@ class DeployService:
                     else None
                 ),
                 deployment_strategy=self._deployment_strategy(release),
+                # default SA 패치는 그 뒤의 Pod 에만 먹고 첫 Pod 가 먼저 뜰 수 있어
+                # Pod spec 에 둔다.
+                image_pull_secrets=(
+                    [ONPREM_ECR_PULL_SECRET] if target.onprem_server is not None else None
+                ),
             )
         }
 

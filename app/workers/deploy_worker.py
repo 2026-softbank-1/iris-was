@@ -3,6 +3,7 @@ Argo CD 상태를 수집한다. 사용자가 등록한 온프레미스 서버의
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
@@ -125,6 +126,7 @@ async def main() -> None:
         httpx.AsyncClient(
             base_url=settings.argocd_server_url, headers=argocd_headers, timeout=60.0
         ) as argocd_http,
+        contextlib.AsyncExitStack() as stack,
     ):
         github = GitHubClient(
             github_http,
@@ -150,13 +152,29 @@ async def main() -> None:
                 SecretSealer(settings.sealed_secrets_cert) if settings.sealed_secrets_cert else None
             ),
         )
+        probe_argocd = None
+        if settings.argocd_probe_token is not None:
+            probe_headers = {
+                "Authorization": f"Bearer {settings.argocd_probe_token.get_secret_value()}"
+            }
+            probe_http = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    base_url=settings.argocd_server_url, headers=probe_headers, timeout=60.0
+                )
+            )
+            probe_argocd = ArgoCdClient(probe_http, settings.gitops_repository)
         servers = None
         if settings.platform_sealed_secrets_cert:
+            if probe_argocd is None:
+                logger.warning(
+                    "onprem server connection check is off",
+                    extra={"action": "main", "setting": "ARGOCD_PROBE_TOKEN"},
+                )
             servers = OnpremServerSyncService(
                 get_session_factory(),
                 github,
                 GitOpsWriter(github, settings.gitops_installation_id, settings.gitops_repository),
-                argocd,
+                probe_argocd,
                 worker_id,
                 platform_sealer=SecretSealer(
                     settings.platform_sealed_secrets_cert, setting="PLATFORM_SEALED_SECRETS_CERT"

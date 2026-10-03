@@ -118,6 +118,11 @@ class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
         self.gitops_attempts = 0
         self.last_error = None
 
+    def postpone_connect_check(self, check_at: datetime, deadline_at: datetime) -> None:
+        """연결을 확인할 수 없어 다음으로 미룬다. 확인 기한도 함께 미룬다."""
+        self.next_check_at = check_at
+        self.connect_deadline_at = deadline_at
+
     def record_gitops_failure(self, error: str, retry_at: datetime) -> None:
         self.gitops_attempts += 1
         self.last_error = error
