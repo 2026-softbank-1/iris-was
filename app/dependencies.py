@@ -648,7 +648,6 @@ def build_automatic_repair_service(
         publication,
         build_diagnosis_service(session, settings, http_client),
         get_deployment_request_service(session),
-        get_variable_service(session, settings) if settings.variables_encryption_key else None,
     )
 
 

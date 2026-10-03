@@ -258,112 +258,48 @@ async def test_unsubmitted_queued_job_gets_model_timeout_on_claim_not_enqueue(pu
     )  # The existing fixture and one new queued generation.
 
 
-def configuration_service(fixture, diagnostics=None):
-    from cryptography.fernet import Fernet
-
-    from app.core.crypto import VariableCipher
-    from app.services.variable_service import VariableService
-
-    setup, publication, *_ = fixture
-    cipher = VariableCipher(Fernet.generate_key().decode())
-    variables = VariableService(setup.session, setup.services, setup.variables, cipher)
-    service = AutomaticRepairService(
-        setup.session,
-        setup.repairs,
-        setup.repair_service(),
-        publication,
-        diagnostics,
-        setup.deployment_request_service(),
-        variables,
-    )
-    return service, variables, cipher
-
-
 def session_secret_plan(setup, repair, key="SESSION_SECRET"):
     diagnosis = next(d for d in setup.diagnoses.rows if d.id == repair.diagnosis_id)
     diagnosis.result["analysis"]["remediation"]["plans"][0]["changes"] = [
-        {"kind": "configuration", "target": key, "instruction": "Restore runtime configuration"}
+        {"kind": "configuration", "target": key, "instruction": "Add runtime configuration"}
     ]
     return diagnosis
 
 
-async def test_missing_session_secret_is_encrypted_then_redeployed_without_code_model(
-    publication_setup,
+@pytest.mark.parametrize("key", ["SESSION_SECRET", "MONGO_URI", "EXTERNAL_API_KEY"])
+async def test_environment_configuration_never_generates_values_or_deployments(
+    publication_setup, key
 ):
-    setup, _, original, _, calls, _, _ = publication_setup
-    session_secret_plan(setup, original)
-    service, _, cipher = configuration_service(publication_setup)
-    started = await service.start(
-        OWNER,
-        setup.service.id,
-        original.deployment_request_id,
-        original.diagnosis_id,
-        "restore-config",
-    )
-    assert started.repair.request_metadata["strategy"] == "variables"
-    await service.advance(OWNER, setup.service.id, started.repair.id)
-    stored = await setup.variables.find_by_service_id_and_key(setup.service.id, "SESSION_SECRET")
-    assert len(cipher.decrypt(stored.encrypted_value)) == 64
-    assert cipher.decrypt(stored.encrypted_value) not in stored.encrypted_value
-    publication = started.repair.request_metadata["publication"]
-    assert publication["status"] == "REDEPLOY_REQUESTED"
-    deployment = await setup.requests.find_by_id_and_service_id(
-        publication["redeploymentId"], setup.service.id
-    )
-    assert "SESSION_SECRET" in deployment.variables_snapshot
-    assert deployment.source_sha == original.source_sha
-    assert len(setup.repair_agent.requests) == 1
-    assert all(method == "GET" for method, _, _ in calls)
+    from app.services.automatic_repair_service import ConfigurationRequiredError
+
+    setup, _, original, auth, calls, _, _ = publication_setup
+    session_secret_plan(setup, original, key)
+    # Configuration guidance does not require GitHub write access.
+    auth.issue_token.side_effect = ForbiddenError("no repository write access")
     count = len(setup.requests.requests)
-    await service.advance(OWNER, setup.service.id, started.repair.id)
-    assert len(setup.requests.requests) == count
-
-
-async def test_stored_session_secret_is_preserved(publication_setup):
-    setup, _, original, _, _, _, _ = publication_setup
-    session_secret_plan(setup, original)
-    service, variables, cipher = configuration_service(publication_setup)
-    existing = "existing-private-app-session-secret-" + "x" * 32
-    await variables.create_variable(OWNER, setup.service.id, "SESSION_SECRET", existing)
-    started = await service.start(
-        OWNER,
-        setup.service.id,
-        original.deployment_request_id,
-        original.diagnosis_id,
-        "existing-config",
-    )
-    await service.advance(OWNER, setup.service.id, started.repair.id)
-    stored = await setup.variables.find_by_service_id_and_key(setup.service.id, "SESSION_SECRET")
-    assert cipher.decrypt(stored.encrypted_value) == existing
-    assert existing not in str(started.repair.result) + str(started.repair.request_metadata)
-
-
-async def test_missing_external_credentials_are_never_invented(publication_setup):
-    setup, _, original, _, _, _, _ = publication_setup
-    session_secret_plan(setup, original, "EXTERNAL_API_KEY")
-    service, _, _ = configuration_service(publication_setup)
-    with pytest.raises(RepairError) as error:
-        await service.start(
+    with pytest.raises(ConfigurationRequiredError) as error:
+        await automatic(publication_setup).start(
             OWNER,
             setup.service.id,
             original.deployment_request_id,
             original.diagnosis_id,
-            "external-config",
+            "developer-env",
         )
     assert error.value.code == "CONFIGURATION_VALUES_REQUIRED"
+    assert [i.field for i in error.value.issues] == [key]
     assert setup.variables.variables == []
-    assert len(setup.repairs.rows) == 1
+    assert len(setup.requests.requests) == count
+    assert len(setup.repairs.rows) == 1 and len(setup.repair_agent.requests) == 1
+    assert calls == []
 
 
-async def test_failed_deployment_without_diagnosis_queues_diagnosis_then_configuration_fix(
-    publication_setup,
-):
+async def test_diagnosis_without_code_requires_developer_configuration(publication_setup):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
     from app.enums import DiagnosisStatus
 
-    setup, _, original, _, _, _, _ = publication_setup
+    setup, publication, original, _, calls, _, _ = publication_setup
     finished = session_secret_plan(setup, original).result
     diagnosis = setup.diagnoses.seed(original.deployment_request_id, DiagnosisStatus.RUNNING)
     diagnostics = AsyncMock()
@@ -372,20 +308,46 @@ async def test_failed_deployment_without_diagnosis_queues_diagnosis_then_configu
     async def finish(*args):
         diagnosis.status = DiagnosisStatus.SUCCEEDED
         diagnosis.result = finished
-        return diagnosis
 
     diagnostics.run_diagnosis.side_effect = finish
-    service, _, _ = configuration_service(publication_setup, diagnostics)
-    started = await service.start(
-        OWNER, setup.service.id, original.deployment_request_id, None, "diagnose-and-fix"
+    service = AutomaticRepairService(
+        setup.session,
+        setup.repairs,
+        setup.repair_service(),
+        publication,
+        diagnostics,
+        setup.deployment_request_service(),
     )
-    assert started.repair.request_metadata["ownsDiagnosis"] is True
-    assert started.repair.request_metadata["awaitingDiagnosis"] is True
-    assert started.repair.request_metadata["publication"]["status"] == "DIAGNOSING"
+    count = len(setup.requests.requests)
+    started = await service.start(
+        OWNER, setup.service.id, original.deployment_request_id, None, "diagnose-env"
+    )
     await service.advance(OWNER, setup.service.id, started.repair.id)
-    assert started.repair.request_metadata["publication"]["status"] == "REDEPLOY_REQUESTED"
-    assert diagnostics.run_diagnosis.await_count == 1
-    assert len(setup.repair_agent.requests) == 1
+    assert started.repair.result == {
+        "status": "configuration_required",
+        "variableNames": ["SESSION_SECRET"],
+    }
+    assert started.repair.request_metadata["publication"]["status"] == "SKIPPED"
+    assert setup.variables.variables == [] and len(setup.requests.requests) == count
+    assert diagnostics.run_diagnosis.await_count == 1 and len(setup.repair_agent.requests) == 1
+    assert calls == []
+
+
+async def test_queued_legacy_variable_strategy_is_stopped_without_modification(publication_setup):
+    setup, _, repair, _, calls, _, _ = publication_setup
+    service = automatic(publication_setup)
+    await service.resume(OWNER, setup.service.id, repair.id)
+    repair.request_metadata = {
+        **repair.request_metadata,
+        "strategy": "variables",
+        "configurationKeys": ["SESSION_SECRET"],
+    }
+    count = len(setup.requests.requests)
+    await service.advance(OWNER, setup.service.id, repair.id)
+    assert repair.result["status"] == "configuration_required"
+    assert repair.result["variableNames"] == ["SESSION_SECRET"]
+    assert len(setup.requests.requests) == count and setup.variables.variables == []
+    assert calls == []
 
 
 async def test_code_merge_requests_redeployment_even_when_webhook_auto_deploy_is_off(
@@ -410,45 +372,24 @@ async def test_code_merge_requests_redeployment_even_when_webhook_auto_deploy_is
     assert deployment.source_sha == state["mergeCommitSha"]
 
 
-@pytest.mark.parametrize("previous_status", ["FAILED", "SUCCEEDED"])
-async def test_configuration_repair_creates_fresh_snapshot_instead_of_reusing_same_sha(
-    publication_setup, previous_status
-):
-    from app.enums import DeploymentStatus
+async def test_missing_env_log_blocks_repair_even_with_code_plan(publication_setup):
+    from app.services.automatic_repair_service import ConfigurationRequiredError
 
-    setup, _, original, _, _, _, _ = publication_setup
-    session_secret_plan(setup, original)
-    service, variables, cipher = configuration_service(publication_setup)
-    old = "old-session-secret-" + "a" * 48
-    current = "current-session-secret-" + "b" * 48
-    await variables.create_variable(OWNER, setup.service.id, "SESSION_SECRET", current)
-    previous = await setup.requests.find_by_id_and_service_id(
-        original.deployment_request_id, setup.service.id
-    )
-    previous.variables_snapshot = {"SESSION_SECRET": cipher.encrypt(old)}
-    previous.status = DeploymentStatus(previous_status)
-    # Keep the diagnostic source failed while modelling another same-SHA historical deployment.
-    if previous_status == "SUCCEEDED":
-        from copy import copy
-
-        historical = copy(previous)
-        historical.id = previous.id + 100
-        historical.idempotency_key = "historical-success"
-        setup.requests.requests.append(historical)
-        previous.status = DeploymentStatus.FAILED
-    count = len(setup.requests.requests)
-    started = await service.start(
-        OWNER, setup.service.id, previous.id, original.diagnosis_id, "fresh-config"
-    )
-    await service.advance(OWNER, setup.service.id, started.repair.id)
-    state = started.repair.request_metadata["publication"]
-    assert state["status"] == "REDEPLOY_REQUESTED"
-    assert len(setup.requests.requests) == count + 1
-    fresh = await setup.requests.find_by_id_and_service_id(
-        state["redeploymentId"], setup.service.id
-    )
-    assert fresh.id != previous.id
-    assert fresh.status == DeploymentStatus.QUEUED
-    assert cipher.decrypt(fresh.variables_snapshot["SESSION_SECRET"]) == current
-    await service.advance(OWNER, setup.service.id, started.repair.id)
-    assert len(setup.requests.requests) == count + 1
+    setup, _, repair, _, calls, _, _ = publication_setup
+    diagnosis = next(d for d in setup.diagnoses.rows if d.id == repair.diagnosis_id)
+    diagnosis.result["evidence"] = [
+        {
+            "text": '"path": ["SESSION_SECRET"], '
+            '"message": "Invalid input: expected string, received undefined"'
+        }
+    ]
+    with pytest.raises(ConfigurationRequiredError) as error:
+        await automatic(publication_setup).start(
+            OWNER,
+            setup.service.id,
+            repair.deployment_request_id,
+            repair.diagnosis_id,
+            "missing-env-code",
+        )
+    assert [i.field for i in error.value.issues] == ["SESSION_SECRET"]
+    assert calls == [] and len(setup.repair_agent.requests) == 1

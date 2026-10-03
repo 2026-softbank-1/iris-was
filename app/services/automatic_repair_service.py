@@ -5,7 +5,6 @@ import contextlib
 import copy
 import logging
 import re
-import secrets
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timedelta
@@ -13,11 +12,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.repair_publication_client import RepairError
 from app.core.exceptions import (
     AppError,
     ConflictError,
     DiagnosisInProgressError,
+    FieldIssue,
+    InvalidInputError,
     NotConfiguredError,
 )
 from app.enums import DeploymentTrigger, DiagnosisStatus
@@ -28,9 +28,46 @@ from app.services.deployment_request_service import DeploymentRequestService
 from app.services.diagnosis_service import DiagnosisService
 from app.services.repair_publication_service import RepairPublicationService
 from app.services.repair_service import RepairService, StartedRepair, _digest
-from app.services.variable_service import VariableService
 
 logger = logging.getLogger(__name__)
+
+
+def environment_variable_names(result: dict[str, Any]) -> list[str]:
+    plans = ((result.get("analysis") or {}).get("remediation") or {}).get("plans", [])
+    names = set(
+        {
+            c["target"]
+            for p in plans
+            for c in (p.get("changes") or [])
+            if c.get("kind") == "configuration"
+            and isinstance(c.get("target"), str)
+            and re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", c["target"])
+        }
+    )
+    evidence = "\n".join(
+        e.get("text", "") for e in result.get("evidence", []) if isinstance(e, dict)
+    )
+    names.update(
+        re.findall(
+            r"[\"']path[\"']\s*:\s*\[\s*[\"']([A-Z][A-Z0-9_]{0,127})[\"']\s*\]"
+            r"[\s\S]{0,250}?received undefined",
+            evidence,
+        )
+    )
+    return sorted(names)
+
+
+class ConfigurationRequiredError(InvalidInputError):
+    code = "CONFIGURATION_VALUES_REQUIRED"
+    status_code = 409
+
+    def __init__(self, keys: list[str]) -> None:
+        super().__init__(
+            "Add or upload environment variables, then redeploy the service",
+            issues=[
+                FieldIssue(field=key, reason="developer_configuration_required") for key in keys
+            ],
+        )
 
 
 class AutomaticRepairService:
@@ -42,7 +79,6 @@ class AutomaticRepairService:
         publication: RepairPublicationService,
         diagnostics: DiagnosisService | None = None,
         deployer: DeploymentRequestService | None = None,
-        variables: VariableService | None = None,
     ) -> None:
         self._session = session
         self._repairs = repairs
@@ -50,7 +86,6 @@ class AutomaticRepairService:
         self._publication = publication
         self._diagnostics = diagnostics
         self._deployer = deployer
-        self._variables = variables
 
     async def start(
         self, owner_id: int, service_id: int, deployment_id: int, diagnosis_id: int | None, key: str
@@ -70,7 +105,6 @@ class AutomaticRepairService:
         )
         if request is None:
             raise ConflictError("deployment not found")
-        await self._publication.preflight(owner_id, service_id, request.source_sha)
         owns_diagnosis = False
         if diagnosis_id is None:
             if self._diagnostics is None:
@@ -98,17 +132,12 @@ class AutomaticRepairService:
             for p in plans
             if p.get("changes") and all(c.get("kind") == "code" for c in p["changes"])
         ]
-        configuration_keys: list[str] = []
-        if not awaiting and not plan_ids:
-            plan_ids, configuration_keys = await self._configuration_selection(
-                owner_id, service_id, plans
-            )
-            if not plan_ids:
-                raise RepairError(
-                    "CONFIGURATION_VALUES_REQUIRED",
-                    "Provide the required configuration values before repair",
-                    409,
-                )
+        if not awaiting:
+            self._candidates._validate_selection(request, diagnosis, plan_ids)
+            keys = environment_variable_names(raw)
+            if keys or not plan_ids:
+                raise ConfigurationRequiredError(keys)
+            await self._publication.preflight(owner_id, service_id, request.source_sha)
         created = await self._candidates.start_repair(
             owner_id,
             service_id,
@@ -119,85 +148,22 @@ class AutomaticRepairService:
             auto_merge=True,
             await_diagnosis=awaiting,
             owns_diagnosis=owns_diagnosis,
-            configuration_keys=configuration_keys,
         )
         return created
 
-    async def _configuration_selection(
-        self, owner_id: int, service_id: int, plans: list[dict[str, Any]]
-    ) -> tuple[list[str], list[str]]:
-        if self._variables is None:
-            return [], []
-        stored = await self._variables.search_variables(owner_id, service_id)
-        names = {v.key for v in stored.variables}
-        selected: list[str] = []
-        keys: set[str] = set()
-        for plan in plans:
-            changes = plan.get("changes") or []
-            targets = [c.get("target", "") for c in changes]
-            if (
-                changes
-                and all(c.get("kind") == "configuration" for c in changes)
-                and all(
-                    re.fullmatch(r"[A-Z][A-Z0-9_]*", target)
-                    and (target in names or target == "SESSION_SECRET")
-                    for target in targets
-                )
-            ):
-                selected.append(plan["id"])
-                keys.update(targets)
-        return selected, sorted(keys)
-
-    async def _configure_and_redeploy(
-        self, owner_id: int, service_id: int, repair: DeploymentRepair
-    ) -> None:
-        if self._variables is None or self._deployer is None:
-            raise NotConfiguredError("configuration repair is not configured")
-        keys = repair.request_metadata["configurationKeys"]
-        stored = await self._variables.search_variables(owner_id, service_id)
-        names = {v.key for v in stored.variables}
-        if "SESSION_SECRET" in keys and "SESSION_SECRET" not in names:
-            # Reuse a known historical secret; generate only for a never-successful initial app.
-            previous = await self._candidates._deployments.find_latest_succeeded_by_service_id(
-                service_id
-            )
-            encrypted = (
-                (previous.variables_snapshot or {}).get("SESSION_SECRET") if previous else None
-            )
-            if previous is not None and encrypted is None:
-                raise RepairError(
-                    "CONFIGURATION_VALUES_REQUIRED", "Restore the existing app session secret", 409
-                )
-            value = (
-                self._variables._cipher.decrypt(encrypted) if encrypted else secrets.token_hex(32)
-            )
-            try:
-                await self._variables.create_variable(owner_id, service_id, "SESSION_SECRET", value)
-            except ConflictError:
-                pass
+    async def _require_developer_configuration(self, repair: DeploymentRepair) -> None:
         repair = await self._repairs.lock_publication(repair.id)
-        publication = dict(repair.request_metadata.get("publication") or {})
-        if publication.get("redeploymentId"):
-            await self._session.commit()
-            return
-        service = await self._candidates._get_owned_service(owner_id, service_id)
-        await self._publication.preflight(owner_id, service_id, repair.source_sha)
-        deployment = await self._candidates._deployments.find_by_idempotency_key(
-            f"auto-repair-config:{repair.id}"
+        keys = environment_variable_names(repair.diagnosis_result)
+        if not keys:
+            keys = [
+                k
+                for k in repair.request_metadata.get("configurationKeys", [])
+                if isinstance(k, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", k)
+            ]
+        repair.finish(
+            "SUCCEEDED", result={"status": "configuration_required", "variableNames": keys}
         )
-        if deployment is None:
-            deployment = await self._deployer.create_deployment_request(
-                service,
-                source_sha=repair.source_sha,
-                source_commit_message=f"AI configuration repair #{repair.id}",
-                trigger_type=DeploymentTrigger.MANUAL,
-                idempotency_key=f"auto-repair-config:{repair.id}",
-                requested_by=owner_id,
-            )
-        if deployment is not None:
-            repair.finish("SUCCEEDED", result={"status": "configuration_restored"})
-            publication.update(status="REDEPLOY_REQUESTED", redeploymentId=deployment.id)
-            repair.request_metadata = {**repair.request_metadata, "publication": publication}
+        repair.request_metadata = {**repair.request_metadata, "publication": {"status": "SKIPPED"}}
         await self._session.commit()
 
     async def _await_diagnosis(
@@ -239,19 +205,11 @@ class AutomaticRepairService:
             for p in plans
             if p.get("changes") and all(c.get("kind") == "code" for c in p["changes"])
         ]
-        configuration_keys: list[str] = []
-        if not ids:
-            ids, configuration_keys = await self._configuration_selection(
-                owner_id, service_id, plans
-            )
-            if not ids:
-                repair.finish("SUCCEEDED", result={"status": "configuration_required"})
-                repair.request_metadata = {
-                    **repair.request_metadata,
-                    "publication": {"status": "SKIPPED"},
-                }
-                await self._session.commit()
-                return False
+        if environment_variable_names(raw) or not ids:
+            repair.diagnosis_result = copy.deepcopy(raw)
+            await self._require_developer_configuration(repair)
+            return False
+        await self._publication.preflight(owner_id, service_id, repair.source_sha)
         request = await self._candidates._deployments.find_by_id_and_service_id(
             repair.deployment_request_id, service_id
         )
@@ -274,11 +232,6 @@ class AutomaticRepairService:
                 **repair.request_metadata,
                 "awaitingDiagnosis": False,
                 "publication": {"status": "QUEUED"},
-                **(
-                    {"strategy": "variables", "configurationKeys": configuration_keys}
-                    if configuration_keys
-                    else {}
-                ),
             }
         await self._session.commit()
         return True
@@ -317,6 +270,9 @@ class AutomaticRepairService:
             return repair
         if repair.status == "FAILED":
             raise ConflictError("generation failed; start a new automatic repair attempt")
+        if repair.request_metadata.get("strategy") == "variables":
+            await self._require_developer_configuration(repair)
+            return repair
         await self._publication.preflight(owner_id, service_id)
         repair = await self._repairs.lock_publication(repair_id)
         metadata = dict(repair.request_metadata)
@@ -370,16 +326,7 @@ class AutomaticRepairService:
             if not await self._await_diagnosis(owner_id, service_id, repair):
                 return
         if repair.request_metadata.get("strategy") == "variables":
-            try:
-                await self._configure_and_redeploy(owner_id, service_id, repair)
-            except AppError as exc:
-                if not exc.fields.get("publication_busy"):
-                    repair.finish("FAILED", error_code=exc.code)
-                    repair.request_metadata = {
-                        **repair.request_metadata,
-                        "publication": {"status": "ERROR", "errorCode": exc.code},
-                    }
-                    await self._session.commit()
+            await self._require_developer_configuration(repair)
             return
         if repair.status == "RUNNING":
             repair = await self._candidates.run_repair(owner_id, service_id, repair_id)
