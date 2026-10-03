@@ -21,6 +21,7 @@ from app.clients.aws_clients import EcrPullCredentialClient
 from app.clients.secret_sealer import SecretSealer
 from app.core.crypto import VariableCipher
 from app.core.exceptions import (
+    ExternalError,
     FieldIssue,
     InvalidInputError,
     InvalidRegistrationTokenError,
@@ -337,10 +338,19 @@ class OnpremServerService:
         registry = self._ecr_pull_client.registry
         if not service_ids:
             return RegistryCredentials(registry, "AWS", None, None, [])
-        credential = await self._ecr_pull_client.issue_pull_credential(
-            f"iris-onprem-{server.server_key}",
-            [f"iris/services/{service_id}" for service_id in service_ids],
-        )
+        try:
+            credential = await self._ecr_pull_client.issue_pull_credential(
+                f"iris-onprem-{server.server_key}",
+                [f"iris/services/{service_id}" for service_id in service_ids],
+            )
+        except ExternalError as exc:
+            # 세션 정책 크기 한도(서비스 25개쯤)에 걸렸는지 서비스 수로 가릴 수 있게 남긴다.
+            # 예외 핸들러가 fields 를 구조화 로그로 한 번 남긴다.
+            raise ExternalError(
+                "ecr pull credential failed",
+                onprem_server_id=server.id,
+                service_count=len(service_ids),
+            ) from exc
         logger.info(
             "onprem registry credentials issued",
             extra={

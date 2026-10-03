@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.core.exceptions import (
+    ExternalError,
     InvalidInputError,
     InvalidRegistrationTokenError,
     InvalidStatusTransitionError,
@@ -369,3 +370,19 @@ async def test_registry_credentials_without_role_is_not_configured() -> None:
 
     with pytest.raises(NotConfiguredError):
         await setup.service.issue_registry_credentials("anything")
+
+
+async def test_registry_credentials_aws_failure_reports_service_count() -> None:
+    setup = OnpremSetup()
+    target_id, secret = await _connected_server_secret(setup)
+    await _attach_service(setup, target_id)
+
+    async def fail(session_name: str, repository_names: list[str]) -> None:
+        raise ExternalError("aws request failed", operation="assume_role")
+
+    setup.ecr.issue_pull_credential = fail  # type: ignore[assignment,method-assign]
+
+    with pytest.raises(ExternalError) as error:
+        await setup.service.issue_registry_credentials(secret)
+    assert error.value.status_code == 502
+    assert error.value.fields["service_count"] == 1
