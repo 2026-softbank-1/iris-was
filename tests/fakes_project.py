@@ -1,7 +1,6 @@
 """프로젝트·서비스 계층 테스트용 인메모리 Repository."""
 
 from itertools import count
-from typing import Any
 
 from app.enums import DeploymentStrategy, TargetKind
 from app.models.base import now_utc
@@ -9,6 +8,7 @@ from app.models.project import Project
 from app.models.service import Service
 from app.models.target import Target
 from app.repositories.project_repository import ServiceCounts
+from app.repositories.service_repository import DeploymentSettings
 
 
 class FakeProjectRepository:
@@ -51,6 +51,9 @@ class FakeProjectRepository:
         return project
 
 
+TARGET_KINDS = {1: TargetKind.AWS, 2: TargetKind.ONPREM}
+
+
 class FakeServiceRepository:
     def __init__(self, projects: FakeProjectRepository) -> None:
         self._projects = projects
@@ -58,11 +61,15 @@ class FakeServiceRepository:
         self.targets: dict[int, set[int]] = {}
         self._ids = count(1)
 
-    async def get_deployment_settings_for_update(
-        self, service_id: int
-    ) -> tuple[dict[str, Any] | None, DeploymentStrategy]:
+    async def get_deployment_settings_for_update(self, service_id: int) -> DeploymentSettings:
         service = self.services[service_id]
-        return service.scaling_config, service.deployment_strategy or DeploymentStrategy.ROLLING
+        # FakeTargetRepository 와 같은 id 다: 1 = aws(AWS), 2 = onprem(ONPREM).
+        kinds = {TARGET_KINDS[t] for t in self.targets.get(service_id, set())}
+        return DeploymentSettings(
+            service.scaling_config,
+            service.deployment_strategy or DeploymentStrategy.ROLLING,
+            TargetKind.ONPREM if TargetKind.ONPREM in kinds else TargetKind.AWS,
+        )
 
     async def find_by_id_and_owner_id(
         self, service_id: int, owner_id: int, *, for_update: bool = False

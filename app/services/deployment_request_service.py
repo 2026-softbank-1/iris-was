@@ -40,8 +40,8 @@ class DeploymentRequestService:
 
     Pod 수와 리소스는 롤백을 포함해 모든 요청에서 지금 서비스의 원하는 설정을 고정한다.
     배포 방식도 같다. 서비스가 고른 방식(요청 방식)과 실제로 적용할 방식을 함께 남기고, Pod 가
-    2개 미만이거나 기능이 꺼져 있으면 적용 방식은 ROLLING 이다. 서비스를 내리는 요청은 Pod 를
-    띄우지 않으므로 둘 다 비운다.
+    2개 미만이거나 타깃이 on-prem 이거나 기능이 꺼져 있으면 적용 방식은 ROLLING 이다. 서비스를
+    내리는 요청은 Pod 를 띄우지 않으므로 둘 다 비운다.
     """
 
     def __init__(
@@ -204,16 +204,18 @@ class DeploymentRequestService:
             variables = await self._service_variable_repository.search_by_service_id(service.id)
             variables_snapshot = {v.key: v.encrypted_value for v in variables}
         desired = await self._service_repository.get_deployment_settings_for_update(service.id)
-        scaling_config, service_strategy = desired
         scaling = ScalingConfig.model_validate(
-            scaling_config or ScalingConfig.defaults().model_dump(mode="json")
+            desired.scaling_config or ScalingConfig.defaults().model_dump(mode="json")
         )
         requested_strategy: DeploymentStrategy | None = None
         applied_strategy: DeploymentStrategy | None = None
         if trigger_type != DeploymentTrigger.REMOVE:
-            requested_strategy = service_strategy
+            requested_strategy = desired.deployment_strategy
             applied_strategy = resolve_deployment_strategy(
-                service_strategy, scaling.replicas, is_enabled=self._deployment_strategy_enabled
+                desired.deployment_strategy,
+                scaling.replicas,
+                target_kind=desired.target_kind,
+                is_enabled=self._deployment_strategy_enabled,
             )
         request = await self._deployment_request_repository.add_if_absent(
             DeploymentRequest(

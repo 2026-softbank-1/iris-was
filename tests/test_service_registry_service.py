@@ -469,3 +469,64 @@ async def test_update_service_keeps_saved_canary_after_scale_down(setup) -> None
 
     assert updated.service.deployment_strategy == DeploymentStrategy.CANARY
     assert updated.service.port == 3000
+
+
+@pytest.mark.parametrize("replicas", [3, 1])
+async def test_update_service_progressive_strategy_on_onprem_target_raises_unsupported_target(
+    setup, replicas: int
+) -> None:
+    # 타깃 검사가 Pod 수 검사보다 먼저다.
+    s, service = setup
+    detail = await _create(service, s, target_ids=[2])
+    detail.service.scaling_config = _scaling(replicas)
+
+    with pytest.raises(InvalidInputError) as error:
+        await service.update_service(
+            OWNER, detail.service.id, {"deployment_strategy": DeploymentStrategy.BLUE_GREEN}
+        )
+
+    assert [(i.field, i.reason) for i in error.value.issues] == [
+        ("deploymentStrategy", "deployment_strategy_unsupported_target")
+    ]
+    assert detail.service.deployment_strategy == DeploymentStrategy.ROLLING
+
+
+async def test_update_service_canary_with_target_change_to_onprem_raises_unsupported_target(
+    setup,
+) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+    detail.service.scaling_config = _scaling(3)
+
+    with pytest.raises(InvalidInputError) as error:
+        await service.update_service(
+            OWNER,
+            detail.service.id,
+            {"deployment_strategy": DeploymentStrategy.CANARY, "target_ids": [2]},
+        )
+
+    assert [i.reason for i in error.value.issues] == ["deployment_strategy_unsupported_target"]
+    assert s.services.targets[detail.service.id] == {1}
+
+
+async def test_update_service_onprem_target_resending_saved_strategy_is_allowed(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s, target_ids=[2])
+    detail.service.deployment_strategy = DeploymentStrategy.CANARY
+
+    updated = await service.update_service(
+        OWNER, detail.service.id, {"deployment_strategy": DeploymentStrategy.CANARY}
+    )
+
+    assert updated.service.deployment_strategy == DeploymentStrategy.CANARY
+
+
+async def test_update_service_rolling_on_onprem_target_saves(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s, target_ids=[2])
+
+    updated = await service.update_service(
+        OWNER, detail.service.id, {"deployment_strategy": DeploymentStrategy.ROLLING}
+    )
+
+    assert updated.service.deployment_strategy == DeploymentStrategy.ROLLING

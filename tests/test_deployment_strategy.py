@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from app.core.config import DeployWorkerSettings
-from app.enums import DeploymentStatus, DeploymentStrategy, DeploymentTrigger
+from app.enums import DeploymentStatus, DeploymentStrategy, DeploymentTrigger, TargetKind
 from app.services.builder_detection import DeployConfig
 from app.services.deploy_service import DEADLINE_MARGIN, DeployService, _deadline
 from app.services.deployment_strategy import resolve_deployment_strategy, strategy_extra_wait
@@ -27,22 +27,37 @@ async def setup() -> DeploymentSetup:
     return setup
 
 
+AWS = TargetKind.AWS
+ONPREM = TargetKind.ONPREM
+
+
 @pytest.mark.parametrize(
-    ("requested", "replicas", "is_enabled", "expected"),
+    ("requested", "replicas", "target_kind", "is_enabled", "expected"),
     [
-        (DeploymentStrategy.ROLLING, 3, True, DeploymentStrategy.ROLLING),
-        (DeploymentStrategy.CANARY, 2, True, DeploymentStrategy.CANARY),
-        (DeploymentStrategy.BLUE_GREEN, 10, True, DeploymentStrategy.BLUE_GREEN),
-        (DeploymentStrategy.CANARY, 1, True, DeploymentStrategy.ROLLING),
-        (DeploymentStrategy.BLUE_GREEN, 0, True, DeploymentStrategy.ROLLING),
-        (DeploymentStrategy.CANARY, 3, False, DeploymentStrategy.ROLLING),
-        (DeploymentStrategy.ROLLING, 0, False, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.ROLLING, 3, AWS, True, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.CANARY, 2, AWS, True, DeploymentStrategy.CANARY),
+        (DeploymentStrategy.BLUE_GREEN, 10, AWS, True, DeploymentStrategy.BLUE_GREEN),
+        (DeploymentStrategy.CANARY, 1, AWS, True, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.BLUE_GREEN, 0, AWS, True, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.CANARY, 3, AWS, False, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.ROLLING, 0, AWS, False, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.CANARY, 3, ONPREM, True, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.BLUE_GREEN, 3, ONPREM, True, DeploymentStrategy.ROLLING),
+        (DeploymentStrategy.ROLLING, 3, ONPREM, True, DeploymentStrategy.ROLLING),
     ],
 )
 def test_resolve_deployment_strategy_table_returns_applied_strategy(
-    requested: DeploymentStrategy, replicas: int, is_enabled: bool, expected: DeploymentStrategy
+    requested: DeploymentStrategy,
+    replicas: int,
+    target_kind: TargetKind,
+    is_enabled: bool,
+    expected: DeploymentStrategy,
 ) -> None:
-    assert resolve_deployment_strategy(requested, replicas, is_enabled=is_enabled) == expected
+    applied = resolve_deployment_strategy(
+        requested, replicas, target_kind=target_kind, is_enabled=is_enabled
+    )
+
+    assert applied == expected
 
 
 @pytest.mark.parametrize(
@@ -80,8 +95,11 @@ def _deploy_service(*, is_enabled: bool) -> DeployService:
     return DeployService(None, None, None, None, settings, "w")  # type: ignore[arg-type]
 
 
-def _release(strategy: DeploymentStrategy | None) -> Any:
-    return SimpleNamespace(deployment_request=SimpleNamespace(deployment_strategy=strategy))
+def _release(strategy: DeploymentStrategy | None, target_kind: TargetKind = AWS) -> Any:
+    return SimpleNamespace(
+        deployment_request=SimpleNamespace(deployment_strategy=strategy),
+        target=SimpleNamespace(kind=target_kind),
+    )
 
 
 @pytest.mark.parametrize(
@@ -105,6 +123,16 @@ def test_deploy_service_strategy_with_flag_off_omits_values_key() -> None:
     service = _deploy_service(is_enabled=False)
 
     assert service._deployment_strategy(_release(DeploymentStrategy.CANARY)) is None
+
+
+@pytest.mark.parametrize("strategy", [None, *DeploymentStrategy])
+def test_deploy_service_strategy_for_onprem_target_omits_values_key(
+    strategy: DeploymentStrategy | None,
+) -> None:
+    # on-prem 은 chart 0.6.0 에 남아 있어 schema 가 deploymentStrategy 키를 거절한다.
+    service = _deploy_service(is_enabled=True)
+
+    assert service._deployment_strategy(_release(strategy, ONPREM)) is None
 
 
 @pytest.mark.parametrize("trigger_type", [DeploymentTrigger.PUSH, DeploymentTrigger.CLI])
@@ -229,3 +257,16 @@ async def test_remove_request_leaves_both_strategies_empty(setup: DeploymentSetu
     assert request.status == DeploymentStatus.DEPLOYING
     assert request.requested_deployment_strategy is None
     assert request.deployment_strategy is None
+
+
+async def test_manual_deployment_on_onprem_target_applies_rolling(setup: DeploymentSetup) -> None:
+    setup.services.targets[setup.service.id] = {2}  # onprem
+    setup.service.deployment_strategy = DeploymentStrategy.CANARY
+    setup.service.scaling_config = _scaling(3)
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    assert request.requested_deployment_strategy == DeploymentStrategy.CANARY
+    assert request.deployment_strategy == DeploymentStrategy.ROLLING

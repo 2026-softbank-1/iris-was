@@ -306,3 +306,24 @@ async def test_patch_service_unknown_strategy_returns_validation_error(
 
     assert response.status_code == 422
     assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+async def test_patch_service_canary_on_onprem_target_returns_invalid_input(
+    client: AsyncClient,
+) -> None:
+    project_id = await _create_project(client)
+    created = await client.post(
+        f"/api/v1/projects/{project_id}/services",
+        json={"repositoryUrl": "iris-org/web", "targetIds": [2]},
+    )
+
+    response = await client.patch(
+        f"/api/v1/services/{created.json()['data']['id']}",
+        json={"deploymentStrategy": "CANARY"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "INVALID_INPUT"
+    assert response.json()["details"] == [
+        {"field": "deploymentStrategy", "reason": "deployment_strategy_unsupported_target"}
+    ]

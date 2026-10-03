@@ -32,18 +32,20 @@ Pod 수는 `PUT /services/{id}/scaling` 이 `services.scaling_config` 에 저장
 | D-10 | 새 Pod 를 띄우는 모든 트리거(MANUAL·PUSH·CLI·REDEPLOY·ROLLBACK·RESTART, scaling RESTART 포함)가 같은 규칙을 따른다. REMOVE 는 둘 다 비운다 | 예외 경로를 줄인다 |
 | D-11 | chart 0.7.0 반영 때 모든 서비스가 동시에 `Deployment` → `Rollout` 으로 바뀌는 것을 받아들인다 | 서비스별 chart 버전은 범위가 크다 |
 | D-12 | WAS 기능 플래그 `DEPLOYMENT_STRATEGY_ENABLED`(기본 `false`) | 레포별 병합·배포 순서를 독립시킨다 |
+| D-13 | on-prem 타깃은 롤링만 지원한다(chart 0.6.0 유지). D-1 의 "AWS·on-prem 공통" 과 D-11 의 전역 전환은 AWS 타깃에만 해당한다 | on-prem 클러스터에 Argo Rollouts 를 두지 않는다. 0.6.0 schema 가 `deploymentStrategy` 키를 거절한다 |
 
 WAS 동작:
 
 - `services.deployment_strategy`(NOT NULL, 기본 `ROLLING`). 응답 `ServiceResponse.deploymentStrategy`.
-- 배포 요청을 만들 때 서비스 행을 잠근 채 Pod 설정과 방식을 함께 읽는다. 적용 방식은 `resolve_deployment_strategy`(`app/services/deployment_strategy.py`)가 정한다. 플래그가 꺼져 있거나 적용 replicas 가 2 미만이면 `ROLLING` 이다.
-- 플래그가 꺼져 있으면 `CANARY`·`BLUE_GREEN` 저장도 같은 `422` 로 거절한다(reason `deployment_strategy_disabled`, replicas 부족은 `at_least_two_replicas_required`). 이미 저장된 값과 같은 값을 다시 보내면 검사하지 않는다.
-- 플래그를 켠 Deploy Worker 만 values 에 `deploymentStrategy` 를 쓴다(값이 없는 기능 도입 전 요청은 `ROLLING`). 키가 없으면 chart 가 `ROLLING` 으로 렌더링한다.
+- 배포 요청을 만들 때 서비스 행을 잠근 채 Pod 설정·방식·배포 타깃 종류를 함께 읽는다. 적용 방식은 `resolve_deployment_strategy`(`app/services/deployment_strategy.py`)가 정한다. 플래그가 꺼져 있거나, 타깃이 `ONPREM` 이거나, 적용 replicas 가 2 미만이면 `ROLLING` 이다.
+- 플래그가 꺼져 있거나 타깃이 `ONPREM` 이면 `CANARY`·`BLUE_GREEN` 저장도 같은 `422` 로 거절한다. reason 은 `deployment_strategy_disabled` → `deployment_strategy_unsupported_target` → `at_least_two_replicas_required` 순서로 검사한다. 같은 요청이 타깃을 바꾸면 바뀐 타깃으로 본다. 이미 저장된 값과 같은 값을 다시 보내면 검사하지 않는다.
+- 플래그를 켠 Deploy Worker 가 AWS 타깃 release 에만 values 에 `deploymentStrategy` 를 쓴다(값이 없는 기능 도입 전 요청은 `ROLLING`). `ONPREM` 타깃 release 는 플래그와 상관없이 키를 쓰지 않는다. 키가 없으면 chart 가 `ROLLING` 으로 렌더링한다.
 - release `deadline_at` 에 방식별 고정 대기(`CANARY`·`BLUE_GREEN` 60초)를 더한다. 자동 revert 의 기한은 되돌아가는 이전 정상 release 의 방식을 따른다.
 - 배포 상태 전이는 바꾸지 않는다. Rollout 이 멈춘 동안의 Argo health `Suspended`·`Progressing` 은 대기이고, `Degraded`·기한 초과는 기존 `FAILED` + 자동 rollback 경로를 탄다.
 
 ## 결과
 - 배포 순서: iris-infra(Argo Rollouts controller → chart 0.7.0) → WAS 배포 → `DEPLOYMENT_STRATEGY_ENABLED=true`(Control API·Deploy Worker 모두) → web. 플래그를 chart 0.7.0 전에 켜면 이전 chart schema 가 모르는 키를 거절해 모든 배포가 실패한다.
 - 되돌리기: 플래그를 끄면 새 배포는 롤링 values 로 돌아간다. chart 는 `chartRevision` 을 0.6.0 으로 되돌린다.
+- on-prem 타깃은 chart 0.6.0 과 롤링에 남는다. on-prem 서비스는 카나리·블루그린을 저장할 수 없고, 이미 저장된 서비스를 on-prem 으로 옮겨도 배포는 롤링으로 대체된다.
 - 블루그린은 배포 중 Pod 가 최대 2배다. 카나리 트래픽 비율은 Pod 수에 따라 정확하지 않다.
 - 수동 승격·중단, 사용자 정의 단계, 카나리 단계 실시간 표시, AnalysisTemplate 은 범위 밖이다.

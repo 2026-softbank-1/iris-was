@@ -61,9 +61,11 @@ class ServiceUpdateRequest(ApiModel):
         default=None,
         description=(
             "배포 방식. 저장만 하고 배포를 만들지 않으며 다음 배포부터 적용된다."
-            " CANARY·BLUE_GREEN 은 저장된 Pod 수(`/scaling` 의 replicas, 없으면 1)가 2 이상이어야"
-            " 하고 기능이 켜져 있어야 한다. 아니면 `422 INVALID_INPUT`"
-            "(`details[].field = deploymentStrategy`)."
+            " CANARY·BLUE_GREEN 은 기능이 켜져 있고, 타깃이 AWS 이고(on-prem 은 롤링만),"
+            " 저장된 Pod 수(`/scaling` 의 replicas, 없으면 1)가 2 이상이어야 한다. 아니면"
+            " `422 INVALID_INPUT`(`details[].field = deploymentStrategy`, reason"
+            " `deployment_strategy_disabled`·`deployment_strategy_unsupported_target`·"
+            "`at_least_two_replicas_required`)."
         ),
         examples=["CANARY"],
     )
@@ -112,7 +114,8 @@ class ServiceResponse(ApiModel):
     target_ids: list[int]
     deployment_strategy: DeploymentStrategy = Field(
         description=(
-            "다음 배포부터 쓸 배포 방식. Pod 가 2개 미만이면 배포할 때 ROLLING 으로 대체된다."
+            "다음 배포부터 쓸 배포 방식. Pod 가 2개 미만이거나 타깃이 on-prem 이면 배포할 때"
+            " ROLLING 으로 대체된다."
         ),
         examples=["ROLLING"],
     )
