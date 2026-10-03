@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -10,6 +11,7 @@ from app.dependencies import (
 )
 from app.enums import DeploymentStatus
 from app.main import app
+from app.models.service_upload import ServiceUpload
 from app.models.user import User
 from tests.fakes_deployment import HEAD_SHA, OWNER, DeploymentSetup
 
@@ -96,6 +98,15 @@ async def test_create_deployment_request_while_active_returns_conflict(
         {"triggerType": "RESTART", "sourceSha": "abcdef1"},
         {"triggerType": "REMOVE", "sourceDeploymentId": 1},
         {"triggerType": "REMOVE", "sourceSha": "abcdef1"},
+        {"triggerType": "CLI"},
+        {"triggerType": "CLI", "uploadId": ""},
+        {"triggerType": "CLI", "uploadId": "x" * 65},
+        {"triggerType": "CLI", "uploadId": "up-1", "sourceSha": "abcdef1"},
+        {"triggerType": "CLI", "uploadId": "up-1", "sourceDeploymentId": 1},
+        {"triggerType": "MANUAL", "uploadId": "up-1"},
+        {"triggerType": "REDEPLOY", "sourceDeploymentId": 1, "uploadId": "up-1"},
+        {"triggerType": "RESTART", "uploadId": "up-1"},
+        {"triggerType": "REMOVE", "uploadId": "up-1"},
     ],
 )
 async def test_create_deployment_request_with_invalid_body_returns_validation_error(
@@ -266,3 +277,87 @@ async def test_create_deployment_request_remove_without_running_deployment_retur
 
     assert response.status_code == 409
     assert response.json()["code"] == "NO_SUCCEEDED_DEPLOYMENT"
+
+
+async def _add_upload(client: DeploymentClient, public_id: str = "up-1") -> ServiceUpload:
+    return await client.setup.uploads.add(
+        ServiceUpload(
+            public_id=public_id,
+            service_id=client.setup.service.id,
+            uploaded_by=OWNER,
+            size_bytes=1234,
+            sha256="3fa9c2d1b7e4" + "0" * 52,
+            storage_key=f"uploads/{public_id}.tar.gz",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+
+
+async def test_create_deployment_request_cli_returns_created_with_upload_source(
+    client: DeploymentClient,
+) -> None:
+    await _add_upload(client)
+
+    response = await client.post(
+        client.url,
+        json={"triggerType": "CLI", "uploadId": "up-1"},
+        headers={"Idempotency-Key": "up-up-1"},
+    )
+
+    body = response.json()
+    assert response.status_code == 201
+    assert body["data"]["triggerType"] == "CLI"
+    assert body["data"]["status"] == "QUEUED"
+    assert body["data"]["sourceSha"] == "upload-3fa9c2d1b7e4"
+    assert body["data"]["requestedBy"] == OWNER
+    assert body["data"]["isActive"] is True
+    assert "sourceCommitMessage" not in body["data"]
+    assert "sourceDeploymentId" not in body["data"]
+
+
+async def test_create_deployment_request_cli_retry_replays_first_request(
+    client: DeploymentClient,
+) -> None:
+    await _add_upload(client)
+    payload = {"triggerType": "CLI", "uploadId": "up-1"}
+    headers = {"Idempotency-Key": "up-up-1"}
+
+    first = await client.post(client.url, json=payload, headers=headers)
+    second = await client.post(client.url, json=payload, headers=headers)
+
+    assert second.status_code == 201
+    assert second.json()["data"]["id"] == first.json()["data"]["id"]
+
+
+async def test_create_deployment_request_cli_unknown_upload_returns_not_found(
+    client: DeploymentClient,
+) -> None:
+    response = await client.post(client.url, json={"triggerType": "CLI", "uploadId": "nope"})
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "UPLOAD_NOT_FOUND"
+
+
+async def test_create_deployment_request_cli_used_upload_returns_conflict(
+    client: DeploymentClient,
+) -> None:
+    await _add_upload(client)
+    await client.post(client.url, json={"triggerType": "CLI", "uploadId": "up-1"})
+    client.setup.finish_active_requests()
+
+    response = await client.post(client.url, json={"triggerType": "CLI", "uploadId": "up-1"})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "UPLOAD_UNAVAILABLE"
+
+
+async def test_create_deployment_request_cli_while_active_returns_in_progress(
+    client: DeploymentClient,
+) -> None:
+    await _add_upload(client)
+    await client.post(client.url, json={"triggerType": "MANUAL"})
+
+    response = await client.post(client.url, json={"triggerType": "CLI", "uploadId": "up-1"})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "DEPLOYMENT_IN_PROGRESS"

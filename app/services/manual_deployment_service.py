@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,17 +10,22 @@ from app.core.exceptions import (
     InvalidInputError,
     NoSucceededDeploymentError,
     ServiceNotFoundError,
+    UploadNotFoundError,
+    UploadUnavailableError,
 )
 from app.enums import BuildStatus, DeploymentStatus, DeploymentTrigger
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
+from app.models.service_upload import ServiceUpload
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_upload_repository import ServiceUploadRepository
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.repository_url import parse_repository_url
 from app.services.source_repository_service import SourceRepositoryService
+from app.services.upload_source import build_upload_source_sha, is_upload_source_sha
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +36,7 @@ _IMAGE_REUSING_TRIGGERS = frozenset({DeploymentTrigger.ROLLBACK, DeploymentTrigg
 # 지금 떠 있는(마지막으로 성공한) 배포를 대상으로 하는 요청.
 _LIVE_DEPLOYMENT_TRIGGERS = frozenset({DeploymentTrigger.RESTART, DeploymentTrigger.REMOVE})
 _MANUAL_TRIGGERS = (
-    frozenset({DeploymentTrigger.MANUAL})
+    frozenset({DeploymentTrigger.MANUAL, DeploymentTrigger.CLI})
     | _SOURCE_COPYING_TRIGGERS
     | _IMAGE_REUSING_TRIGGERS
     | _LIVE_DEPLOYMENT_TRIGGERS
@@ -38,10 +44,11 @@ _MANUAL_TRIGGERS = (
 
 
 class ManualDeploymentService:
-    """사용자가 직접 만드는 배포 요청: 첫 배포·재배포·롤백·재시작·삭제. 웹훅과 로직을 공유한다.
+    """사용자가 직접 만드는 배포 요청: 첫 배포·CLI 업로드·재배포·롤백·재시작·삭제. 웹훅과 공유한다.
 
-    재배포는 같은 커밋을 다시 빌드한다. 롤백과 재시작은 이미 빌드한 이미지를 그대로 다시 배포한다.
-    삭제는 지금 떠 있는 배포를 클러스터에서 내린다.
+    CLI 는 `likelion up` 이 올린 아카이브를 GitHub 대신 소스로 빌드한다. 재배포는 같은 커밋을
+    다시 빌드한다. 롤백과 재시작은 이미 빌드한 이미지를 그대로 다시 배포한다. 삭제는 지금 떠 있는
+    배포를 클러스터에서 내린다.
     """
 
     def __init__(
@@ -52,6 +59,7 @@ class ManualDeploymentService:
         build_repository: BuildRepository,
         deployment_request_service: DeploymentRequestService,
         source_repository_service: SourceRepositoryService,
+        upload_repository: ServiceUploadRepository,
     ) -> None:
         self._session = session
         self._service_repository = service_repository
@@ -59,6 +67,7 @@ class ManualDeploymentService:
         self._build_repository = build_repository
         self._deployment_request_service = deployment_request_service
         self._source_repository_service = source_repository_service
+        self._upload_repository = upload_repository
 
     async def create_deployment_request(
         self,
@@ -68,9 +77,14 @@ class ManualDeploymentService:
         trigger_type: DeploymentTrigger,
         source_sha: str | None = None,
         source_deployment_request_id: int | None = None,
+        upload_id: str | None = None,
         idempotency_key: str | None = None,
     ) -> DeploymentRequest:
-        """같은 `idempotency_key` 로 다시 요청하면 처음 만든 배포 요청을 그대로 돌려준다."""
+        """같은 `idempotency_key` 로 다시 요청하면 처음 만든 배포 요청을 그대로 돌려준다.
+
+        CLI 는 `upload_id` 의 업로드를 이 요청에 묶는다. 묶는 일과 요청 생성은 한 트랜잭션이라,
+        요청을 만들지 못하면(진행 중인 배포가 있으면) 업로드는 다시 쓸 수 있다.
+        """
         if trigger_type not in _MANUAL_TRIGGERS:
             raise InvalidInputError("trigger type is not allowed here", trigger_type=trigger_type)
         service = await self._get_owned(owner_id, service_id)
@@ -84,6 +98,21 @@ class ManualDeploymentService:
                 source_deployment_request=live,
                 idempotency_key=key,
                 requested_by=owner_id,
+            )
+        elif trigger_type == DeploymentTrigger.CLI:
+            # 같은 키의 재시도는 이미 쓰인 업로드를 다시 가져가려 하므로, 가져가기 전에 먼저 찾는다.
+            replayed = await self._deployment_request_repository.find_by_idempotency_key(key)
+            if replayed is not None:
+                return replayed
+            upload = await self._claim_upload(service, upload_id)
+            request = await self._deployment_request_service.create_deployment_request(
+                service,
+                source_sha=build_upload_source_sha(upload.sha256),
+                source_commit_message=None,
+                trigger_type=trigger_type,
+                idempotency_key=key,
+                requested_by=owner_id,
+                service_upload_id=upload.id,
             )
         elif trigger_type in _IMAGE_REUSING_TRIGGERS:
             source = await self._find_image_source(
@@ -117,10 +146,15 @@ class ManualDeploymentService:
                 source_deployment_request=source,
             )
         if request is None:
+            if trigger_type == DeploymentTrigger.CLI:
+                # 요청을 만들지 못했으니 가져간 업로드를 되돌린다. 세션이 닫히며 되돌려지지만
+                # 아래에서 같은 세션으로 더 읽으므로 먼저 끝낸다. 롤백은 세션의 객체를 만료시켜
+                # `service` 를 더 읽을 수 없다.
+                await self._session.rollback()
             replayed = await self._deployment_request_repository.find_by_idempotency_key(key)
             if replayed is None:
                 raise DeploymentInProgressError(
-                    "a deployment is already in progress", service_id=service.id
+                    "a deployment is already in progress", service_id=service_id
                 )
             return replayed
 
@@ -135,6 +169,21 @@ class ManualDeploymentService:
             },
         )
         return request
+
+    async def _claim_upload(self, service: Service, upload_id: str | None) -> ServiceUpload:
+        """업로드를 이 요청의 소스로 가져간다. 모르는·다른 서비스의 업로드는 같은 404 다."""
+        if upload_id is None:
+            raise InvalidInputError("upload is required", field="uploadId")
+        upload = await self._upload_repository.find_by_public_id_and_service_id(
+            upload_id, service.id
+        )
+        if upload is None:
+            raise UploadNotFoundError("upload not found", service_id=service.id)
+        if not await self._upload_repository.claim(upload.id, datetime.now(UTC)):
+            raise UploadUnavailableError(
+                "upload is already used or expired", service_id=service.id, upload_id=upload.id
+            )
+        return upload
 
     async def _find_image_source(
         self,
@@ -186,6 +235,13 @@ class ManualDeploymentService:
                 "source deployment not found",
                 service_id=service.id,
                 deployment_request_id=source_deployment_request_id,
+            )
+        if trigger_type == DeploymentTrigger.REDEPLOY and is_upload_source_sha(source.source_sha):
+            # 업로드한 소스는 빌드 입력으로만 잠시 남고 GitHub 에서 다시 받을 수도 없다.
+            raise InvalidInputError(
+                "source deployment was built from a CLI upload and cannot be rebuilt",
+                field="sourceDeploymentId",
+                deployment_request_id=source.id,
             )
         if (
             trigger_type == DeploymentTrigger.ROLLBACK

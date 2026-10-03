@@ -1,9 +1,11 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import HttpUrl, SecretStr
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
+DEFAULT_SNAPSHOT_MAX_BYTES = 250 * 1024 * 1024
 # iris-infra 가 서비스 외부 트래픽 지표에 붙이는 workload 클러스터 라벨 값(dev).
 DEFAULT_TRAFFIC_CLUSTER = "iris-dev-workload"
 
@@ -24,8 +26,24 @@ class Settings(BaseSettings):
     diagnosis_agent_api_key: SecretStr | None = None
     # 에이전트는 모델을 최대 2번 부른다(호출마다 60초). 그보다 길게 기다린다.
     diagnosis_agent_timeout_seconds: float = 150.0
-    # 진단에 소스를 함께 넘기려면 빌드가 스냅샷을 올린 버킷을 읽는 권한(S3 GetObject)이 필요하다.
-    # 둘 다 있어야 소스를 보내고, 없으면 로그만 진단한다.
+    # Candidate generation only; repository publication and deployment remain separate.
+    repair_agent_url: HttpUrl | None = None
+    repair_agent_api_key: SecretStr | None = None
+    repair_agent_timeout_seconds: float = Field(default=150, gt=0, allow_inf_nan=False)
+    repair_agent_deadline_seconds: float = Field(default=240, gt=0, le=1800, allow_inf_nan=False)
+    repair_agent_max_cost_usd: float = Field(default=1, gt=0, allow_inf_nan=False)
+    repair_agent_source_hosts: str = ""
+
+    # 실패가 확정된 배포를 서버가 자동으로 진단한다(에이전트가 설정돼 있어야 한다). 모델 비용이
+    # 실패마다 들어 끄고 싶으면 false 로 둔다. 끄면 사용자가 버튼으로 시작하는 진단만 남는다.
+    diagnosis_auto_start_enabled: bool = True
+    # 진단할 배포를 찾는 주기. 실패가 확정된 뒤 진단이 시작되기까지 걸리는 시간의 상한이다.
+    diagnosis_auto_start_interval_seconds: float = 5.0
+    # 빌드 입력(소스 스냅샷·업로드)을 두는 S3 버킷. 둘 다 있어야 쓴다.
+    # - 진단에 소스를 함께 넘기려면 스냅샷(`snapshots/`)을 읽는 권한(S3 GetObject)이 필요하다.
+    #   없으면 로그만 진단한다.
+    # - 소스 업로드 API(`likelion up`)는 `uploads/` 에 쓰는 권한(S3 PutObject)이 필요하다.
+    #   없으면 업로드 API 는 503 (NOT_CONFIGURED).
     aws_region: str | None = None
     artifact_bucket: str | None = None
     # 배포 상세의 빌드 로그 전체(CodeBuild → CloudWatch Logs) 읽기 전용 조회. AWS_REGION 과
@@ -33,6 +51,8 @@ class Settings(BaseSettings):
     # 보여 준다. 그룹은 iris-infra foundation 의 CodeBuild 로그 그룹이다(dev:
     # /aws/codebuild/iris-dev-build). Control API Role 에 그 그룹의 logs:GetLogEvents 가 필요하다.
     build_log_group: str | None = None
+    # 소스 업로드의 압축한 바이트 한도. Build Worker 의 snapshot_max_bytes 와 같게 둔다.
+    upload_max_bytes: int = DEFAULT_SNAPSHOT_MAX_BYTES
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -88,7 +108,10 @@ class BuildWorkerSettings(BaseSettings):
     concurrency: int = 4
     user_concurrent_build_limit: int = 2
     build_timeout_minutes: int = 15
-    snapshot_max_bytes: int = 250 * 1024 * 1024
+    snapshot_max_bytes: int = DEFAULT_SNAPSHOT_MAX_BYTES
+    # 업로드를 풀었을 때의 총 크기·항목 수 한도(압축 폭탄 방어). 압축 크기 한도와 따로 둔다.
+    upload_max_uncompressed_bytes: int = 2 * 1024 * 1024 * 1024
+    upload_max_entries: int = 100_000
     poll_interval_seconds: float = 10.0
 
 

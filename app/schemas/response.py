@@ -55,17 +55,19 @@ _ERROR_DESCRIPTIONS = {
     404: (
         "대상을 찾을 수 없다 "
         "(NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · "
-        "VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+        "VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
     ),
     409: (
         "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 "
         "(CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · "
         "DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · "
-        "DIAGNOSIS_LOGS_UNAVAILABLE)"
+        "DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
     ),
+    413: "업로드가 크기 한도를 넘는다. 본문을 읽기 전에 거절한다 (UPLOAD_TOO_LARGE)",
+    415: "업로드 본문이 gzip 이 아니다 (UPLOAD_NOT_GZIP)",
     422: "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)",
     429: "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS)",
-    502: "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)",
+    502: "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)",
     503: "필요한 설정이 없다 (NOT_CONFIGURED)",
 }
 

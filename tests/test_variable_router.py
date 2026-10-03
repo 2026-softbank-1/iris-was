@@ -145,7 +145,51 @@ async def test_replace_variables_invalid_line_returns_422_with_line(
     response = await client.put(_url(setup), json={"raw": "A=1\nbroken line\n"})
 
     assert response.status_code == 422
-    assert response.json()["code"] == "INVALID_INPUT"
+    body = response.json()
+    assert body["code"] == "INVALID_INPUT"
+    assert body["message"] == "invalid variable line"
+    assert body["details"] == [{"field": "raw", "reason": "line 2: invalid variable line"}]
+
+
+async def test_replace_variables_reserved_keys_return_422_with_each_line(
+    client: AsyncClient, setup: VariableSetup
+) -> None:
+    response = await client.put(_url(setup), json={"raw": "A=1\nPORT=3000\nIRIS_X=y\n"})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["message"] == "variable key is reserved by the platform"
+    assert body["details"] == [
+        {"field": "raw", "reason": "line 2: reserved key PORT"},
+        {"field": "raw", "reason": "line 3: reserved key IRIS_X"},
+    ]
+    assert (await client.get(_url(setup))).json()["data"]["variables"] == []
+
+
+async def test_replace_variables_multiline_quoted_value_round_trips(
+    client: AsyncClient, setup: VariableSetup
+) -> None:
+    pem = "-----BEGIN PRIVATE KEY-----\nMIIFAKE\n-----END PRIVATE KEY-----"
+
+    response = await client.put(
+        _url(setup), json={"raw": f'BEFORE=1\nPRIVATE_KEY="{pem}"\nAFTER=2\n'}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["variables"] == [
+        {"key": "AFTER", "value": "2"},
+        {"key": "BEFORE", "value": "1"},
+        {"key": "PRIVATE_KEY", "value": pem},
+    ]
+
+
+async def test_create_variable_invalid_key_has_no_details(
+    client: AsyncClient, setup: VariableSetup
+) -> None:
+    response = await client.post(_url(setup), json={"key": "PORT", "value": "1"})
+
+    assert response.status_code == 422
+    assert "details" not in response.json()
 
 
 async def test_variables_of_other_users_service_return_404(

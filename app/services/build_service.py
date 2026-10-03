@@ -6,11 +6,13 @@ codebuild_build_id 가 있으면 스냅샷·StartBuild 를 건너뛰고 그 빌�
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import posixpath
 import tarfile
 import tempfile
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
@@ -22,19 +24,29 @@ from app.clients.aws_clients import (
     CodeBuildClient,
     CodeBuildResult,
     EcrClient,
+    UploadReader,
 )
 from app.clients.github_client import GitHubClient, SourceTooLargeError
 from app.core.config import BuildWorkerSettings
-from app.core.exceptions import BuildFailedError, ExternalError, ForbiddenError, NotFoundError
+from app.core.exceptions import (
+    ArchiveInvalidError,
+    ArchiveTooLargeError,
+    BuildFailedError,
+    ExternalError,
+    ForbiddenError,
+    NotFoundError,
+)
 from app.enums import DeploymentStatus, FailureCode, JobKind
-from app.models import Build, Job
+from app.models import Build, Job, Service, ServiceUpload
 from app.repositories.build_repository import BuildRepository
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
+from app.repositories.service_upload_repository import ServiceUploadRepository
 from app.services.build_log import to_log_tail
 from app.services.builder_detection import CONFIG_FILE_NAME, detect_builder, parse_iris_config
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.repository_url import parse_repository_url
+from app.services.source_archive import ArchiveLimits, repack_source_archive
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +56,21 @@ _MAX_CONFIG_BYTES = 64 * 1024
 # 실패한 빌드에서 CloudWatch 로 읽어 올 마지막 줄 수. 저장 한도는 build_log.to_log_tail 이 정한다.
 LOG_TAIL_FETCH_LINES = 300
 _MAX_ERROR_LENGTH = 1000
+# 업로드를 GitHub tarball 처럼 다시 묶을 때의 최상위 디렉터리 이름. buildspec 이 벗겨 낸다.
+_UPLOAD_ROOT_NAME = "source"
+_HASH_BLOCK_BYTES = 1024 * 1024
 # 사용자 소스·설정이 실행되는 buildspec 단계. 그 밖의 단계 실패는 인프라 오류로 재시도한다.
 _FAILURE_CODE_BY_PHASE = {
     "PRE_BUILD": FailureCode.BUILD_CONFIG_REQUIRED,
     "BUILD": FailureCode.BUILD_FAILED,
     "POST_BUILD": FailureCode.BUILD_FAILED,
 }
+
+
+@dataclass(frozen=True)
+class _GithubSource:
+    token: str
+    repository_full_name: str
 
 
 class BuildService:
@@ -60,6 +81,7 @@ class BuildService:
         codebuild: CodeBuildClient,
         ecr: EcrClient,
         artifacts: ArtifactStore,
+        uploads: UploadReader,
         build_logs: BuildLogClient,
         settings: BuildWorkerSettings,
         worker_id: str,
@@ -69,6 +91,7 @@ class BuildService:
         self._codebuild = codebuild
         self._ecr = ecr
         self._artifacts = artifacts
+        self._uploads = uploads
         self._build_logs = build_logs
         self._settings = settings
         self._worker_id = worker_id
@@ -123,18 +146,15 @@ class BuildService:
             )
 
     async def _start_codebuild(self, job: Job, build: Build) -> Build:
-        service = build.deployment_request.service
-        owner, repository_name = parse_repository_url(service.source_repository_url)
-        repository_full_name = f"{owner}/{repository_name}"
-        async with self._session_factory() as session:
-            installation = await GithubInstallationRepository(session).get_by_id(
-                service.github_installation_id
-            )
-        with _source_errors(FailureCode.SOURCE_NOT_ACCESSIBLE):
-            token = await self._github.create_installation_token(
-                installation.installation_id, repository_name
-            )
-        source_sha = build.source_sha or build.deployment_request.source_sha
+        request = build.deployment_request
+        service = request.service
+        source_sha = build.source_sha or request.source_sha
+        # CLI 요청은 GitHub 대신 업로드를 소스로 쓴다. 그때는 GitHub 토큰도 필요 없다.
+        github_source = (
+            await self._prepare_github_source(service)
+            if request.service_upload_id is None
+            else None
+        )
         async with self._session_factory.begin() as session:
             (await BuildRepository(session).get_by_id(build.id, for_update=True)).start_snapshot(
                 source_sha
@@ -142,16 +162,24 @@ class BuildService:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             snapshot_path = Path(temp_dir) / "source.tar.gz"
-            with _source_errors(FailureCode.SOURCE_REF_NOT_FOUND):
-                await self._github.download_tarball(
-                    token,
-                    repository_full_name,
-                    source_sha,
-                    snapshot_path,
-                    self._settings.snapshot_max_bytes,
-                )
+            if github_source is not None:
+                root_directory = service.root_directory
+                with _source_errors(FailureCode.SOURCE_REF_NOT_FOUND):
+                    await self._github.download_tarball(
+                        github_source.token,
+                        github_source.repository_full_name,
+                        source_sha,
+                        snapshot_path,
+                        self._settings.snapshot_max_bytes,
+                    )
+            else:
+                assert request.service_upload_id is not None
+                # 업로드의 루트가 곧 서비스 소스의 루트다. root_directory 는 저장소 안의 위치라
+                # 올린 폴더에는 적용하지 않는다.
+                root_directory = None
+                await self._prepare_upload_snapshot(request.service_upload_id, snapshot_path)
             file_names, config_content = await asyncio.to_thread(
-                _scan_snapshot, snapshot_path, service.root_directory
+                _scan_snapshot, snapshot_path, root_directory
             )
             config = parse_iris_config(config_content) if config_content is not None else None
             plan = detect_builder(file_names, config, service)
@@ -161,7 +189,7 @@ class BuildService:
         image_tag = f"b-{build.id}"
         env = {
             "SOURCE_URL": await self._artifacts.presign(snapshot_key),
-            "ROOT_DIRECTORY": _normalize_root(service.root_directory),
+            "ROOT_DIRECTORY": _normalize_root(root_directory),
             "BUILDER": plan.builder.value,
             "DOCKERFILE_PATH": plan.dockerfile_path,
             "REGISTRY": image_repository.split("/", 1)[0],
@@ -194,6 +222,58 @@ class BuildService:
             },
         )
         return build
+
+    async def _prepare_github_source(self, service: Service) -> _GithubSource:
+        owner, repository_name = parse_repository_url(service.source_repository_url)
+        async with self._session_factory() as session:
+            installation = await GithubInstallationRepository(session).get_by_id(
+                service.github_installation_id
+            )
+        with _source_errors(FailureCode.SOURCE_NOT_ACCESSIBLE):
+            token = await self._github.create_installation_token(
+                installation.installation_id, repository_name
+            )
+        return _GithubSource(token=token, repository_full_name=f"{owner}/{repository_name}")
+
+    async def _prepare_upload_snapshot(self, upload_id: int, snapshot_path: Path) -> None:
+        """올린 아카이브를 받아 검사하며 GitHub tarball 과 같은 모양으로 다시 묶는다.
+
+        아카이브는 사용자 입력이다. 경로 이탈·위험한 링크·압축 폭탄은 여기서 거르고, 걸리면 재시도
+        없이 소스 문제로 빌드를 끝낸다.
+        """
+        async with self._session_factory() as session:
+            upload = await ServiceUploadRepository(session).get_by_id(upload_id)
+        if upload.size_bytes > self._settings.snapshot_max_bytes:
+            raise BuildFailedError(FailureCode.SOURCE_TOO_LARGE, "upload exceeds the size limit")
+        archive_path = snapshot_path.with_name("upload.tar.gz")
+        with _source_errors(FailureCode.SOURCE_REF_NOT_FOUND):
+            await self._uploads.download_upload(upload.storage_key, archive_path)
+        limits = ArchiveLimits(
+            max_uncompressed_bytes=self._settings.upload_max_uncompressed_bytes,
+            max_entries=self._settings.upload_max_entries,
+        )
+        try:
+            await asyncio.to_thread(_verify_upload, archive_path, upload)
+            summary = await asyncio.to_thread(
+                repack_source_archive,
+                archive_path,
+                snapshot_path,
+                root_name=_UPLOAD_ROOT_NAME,
+                limits=limits,
+            )
+        except ArchiveTooLargeError as exc:
+            raise BuildFailedError(FailureCode.SOURCE_TOO_LARGE, exc.message, **exc.fields) from exc
+        except ArchiveInvalidError as exc:
+            raise BuildFailedError(FailureCode.SOURCE_INVALID, exc.message, **exc.fields) from exc
+        logger.info(
+            "upload snapshot prepared",
+            extra={
+                "action": "prepare_upload_snapshot",
+                "upload_id": upload.id,
+                "entries": summary.entries,
+                "uncompressed_bytes": summary.uncompressed_bytes,
+            },
+        )
 
     async def _wait_for_codebuild(self, job: Job, build: Build, stop: asyncio.Event) -> None:
         assert build.codebuild_build_id is not None
@@ -301,6 +381,18 @@ class BuildService:
             return await BuildRepository(session).get_by_id(_build_id(job))
 
 
+def _verify_upload(path: Path, upload: ServiceUpload) -> None:
+    """내려받은 아카이브가 올라온 그대로인지 크기와 sha256 으로 확인한다."""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        while block := file.read(_HASH_BLOCK_BYTES):
+            digest.update(block)
+    if path.stat().st_size != upload.size_bytes or digest.hexdigest() != upload.sha256:
+        raise ArchiveInvalidError(
+            "upload does not match its recorded checksum", upload_id=upload.id
+        )
+
+
 def _build_id(job: Job) -> int:
     return int(job.payload["build_id"])
 
@@ -321,7 +413,7 @@ def _scan_snapshot(path: Path, root_directory: str | None) -> tuple[set[str], by
     config_content: bytes | None = None
     with tarfile.open(path, "r:gz") as archive:
         for member in archive:
-            if not (member.isfile() or member.issym()):
+            if not (member.isfile() or member.issym() or member.islnk()):
                 continue
             # GitHub tarball 은 최상위에 {owner}-{repo}-{sha}/ 디렉터리가 하나 있다.
             relative = member.name.partition("/")[2]
@@ -329,7 +421,7 @@ def _scan_snapshot(path: Path, root_directory: str | None) -> tuple[set[str], by
                 continue
             name = relative.removeprefix(prefix)
             file_names.add(name)
-            if name == CONFIG_FILE_NAME and member.isfile():
+            if name == CONFIG_FILE_NAME and (member.isfile() or member.islnk()):
                 config_file = archive.extractfile(member)
                 config_content = config_file.read(_MAX_CONFIG_BYTES) if config_file else None
     return file_names, config_content

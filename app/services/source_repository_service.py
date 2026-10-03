@@ -97,6 +97,13 @@ class SourceRepositoryService:
             repository.installation_id, repository.full_name, branch
         )
 
+    async def create_repair_token(self, user_id: int, full_name: str) -> InstallationToken:
+        """로그인 시 연결된 설치와 현재 저장소 접근권한을 다시 확인한다."""
+        repository = await self.get_repository(user_id, full_name)
+        return await self._source_repository_client.create_repair_token(
+            repository.installation_id, repository.full_name
+        )
+
     async def create_clone_token(self, installation_id: int) -> InstallationToken:
         """빌드 쪽이 저장소를 clone 할 때 쓰는 단기 토큰."""
         return await self._source_repository_client.create_installation_token(installation_id)

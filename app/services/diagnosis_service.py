@@ -20,6 +20,7 @@ from app.clients.aws_clients import PRESIGNED_URL_SECONDS, SnapshotUrlClient
 from app.clients.diagnosis_agent_client import DiagnosisAgentClient
 from app.core.exceptions import (
     AppError,
+    ConflictError,
     DeploymentNotFailedError,
     DeploymentRequestNotFoundError,
     DiagnosisAgentError,
@@ -29,7 +30,7 @@ from app.core.exceptions import (
     NotConfiguredError,
     ServiceNotFoundError,
 )
-from app.enums import DeploymentStatus, FailureCode
+from app.enums import DeploymentStatus, DiagnosisStatus, FailureCode
 from app.models.base import now_utc
 from app.models.build import Build
 from app.models.deployment_diagnosis import DeploymentDiagnosis
@@ -48,6 +49,7 @@ from app.schemas.diagnosis import (
     FailedStage,
 )
 from app.services.observability_service import ObservabilityService
+from app.services.upload_source import is_upload_source_sha
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,11 @@ DIAGNOSABLE_STATUSES = frozenset(
 # 에이전트 대기 한도(150초)와 여유. 이보다 오래 RUNNING 이면 서버가 죽어 남은 행으로 본다.
 STALE_AFTER = timedelta(minutes=4)
 STALE_ERROR_CODE = "DIAGNOSIS_ABANDONED"
+# 서버가 실패한 배포를 자동으로 진단하는 범위. 끝난 지 이 시간이 지난 실패는 자동으로 되살리지
+# 않는다(배포 직후 옛 실패를 한꺼번에 돌려 모델 비용을 쓰지 않도록). 에이전트는 동시에 두 건만
+# 받으므로 자동 진단은 한 번에 하나만, 사용자가 시작한 진단이 돌고 있어도 기다린다.
+AUTO_MAX_AGE = timedelta(minutes=10)
+AUTO_MAX_RUNNING = 1
 INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
 BUILD_LOG_SOURCE_ID = "codebuild"
 
@@ -108,6 +115,7 @@ _FAILED_STAGE_BY_FAILURE_CODE: dict[FailureCode, FailedStage] = {
     FailureCode.SOURCE_NOT_ACCESSIBLE: "build",
     FailureCode.SOURCE_REF_NOT_FOUND: "build",
     FailureCode.SOURCE_TOO_LARGE: "build",
+    FailureCode.SOURCE_INVALID: "build",
     FailureCode.BUILD_CONFIG_REQUIRED: "build",
     FailureCode.BUILD_FAILED: "build",
     FailureCode.BUILD_TIMED_OUT: "build",
@@ -123,6 +131,16 @@ class StartedDiagnosis:
     diagnosis: DeploymentDiagnosis
     # False 면 새로 진단하지 않고 저장된 성공 결과를 그대로 돌려준 것이다.
     is_started: bool
+
+
+@dataclass(frozen=True)
+class AutomaticDiagnosis:
+    """서버가 자동으로 시작한 진단. `run_diagnosis` 에 그대로 넘겨 이어 간다."""
+
+    owner_id: int
+    service_id: int
+    deployment_request_id: int
+    diagnosis_id: int
 
 
 # 요청이 끝난 뒤 진단을 이어 갈 때 쓴다. 요청의 DB 세션은 이미 닫혔으므로 새 세션으로 서비스를 연다.
@@ -201,6 +219,46 @@ class DiagnosisService:
         await self._session.commit()
         return StartedDiagnosis(diagnosis, is_started=True)
 
+    async def start_next_automatic_diagnosis(self) -> AutomaticDiagnosis | None:
+        """실패가 확정됐는데 아직 진단하지 않은 배포 하나의 진단을 사용자 없이 시작한다.
+
+        진행 중(RUNNING) 행(`requested_by` 는 비어 있다)을 커밋해 돌려주고 모델은 안 부른다.
+        시작할 배포가 없거나, 이미 진단이 돌고 있거나, 다른 서버가 먼저 시작했으면 None 이다.
+        소유자는 서비스를 가진 프로젝트의 소유자다. 실제 진단은 `run_diagnosis` 가 한다.
+        """
+        self._require_agent_client()
+        now = now_utc()
+        stale_before = now - STALE_AFTER
+        running = await self._diagnosis_repository.count_running_since(stale_before)
+        if running >= AUTO_MAX_RUNNING:
+            return None
+        request = await self._diagnosis_repository.find_next_auto_start_candidate(
+            now - AUTO_MAX_AGE, stale_before, DIAGNOSABLE_STATUSES
+        )
+        if request is None:
+            return None
+        owner_id = await self._service_repository.find_owner_id_by_id(request.service_id)
+        if owner_id is None:
+            return None
+
+        await self._diagnosis_repository.fail_stale_running(
+            request.id, stale_before, STALE_ERROR_CODE
+        )
+        diagnosis = await self._diagnosis_repository.add_running_if_absent(request.id, None)
+        if diagnosis is None:
+            return None
+        await self._session.commit()
+        logger.info(
+            "diagnosis started automatically",
+            extra={
+                "action": "start_next_automatic_diagnosis",
+                "service_id": request.service_id,
+                "deployment_request_id": request.id,
+                "diagnosis_id": diagnosis.id,
+            },
+        )
+        return AutomaticDiagnosis(owner_id, request.service_id, request.id, diagnosis.id)
+
     async def run_diagnosis(
         self, owner_id: int, service_id: int, deployment_request_id: int, diagnosis_id: int
     ) -> DeploymentDiagnosis:
@@ -274,6 +332,77 @@ class DiagnosisService:
                 "diagnosis not found", deployment_request_id=deployment_request_id
             )
         return diagnosis
+
+    async def get_repair_context(
+        self,
+        owner_id: int,
+        service_id: int,
+        deployment_request_id: int,
+        *,
+        diagnosis_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Return an owned frozen diagnosis and transient source URL to trusted coordinators."""
+        service = await self._get_owned_service(owner_id, service_id)
+        request = await self._get_deployment_request(service_id, deployment_request_id)
+        if request.status not in DIAGNOSABLE_STATUSES:
+            raise DeploymentNotFailedError("only failed deployments can be repaired")
+        diagnosis = (
+            await self._diagnosis_repository.get_by_id(diagnosis_id)
+            if diagnosis_id is not None
+            else await self.get_diagnosis(owner_id, service_id, deployment_request_id)
+        )
+        if diagnosis.deployment_request_id != request.id:
+            raise DiagnosisNotFoundError("diagnosis not found", diagnosis_id=diagnosis.id)
+        raw = diagnosis.result
+        if (
+            diagnosis.status != DiagnosisStatus.SUCCEEDED
+            or not isinstance(raw, dict)
+            or raw.get("schema_version") != "diagnosis-result.v3"
+            or raw.get("job_status") != "succeeded"
+        ):
+            raise ConflictError("successful original diagnosis required")
+        if self._snapshot_client is None:
+            raise NotConfiguredError("repair source snapshots are not configured")
+        build = await self._build_repository.find_by_deployment_request_id(request.id)
+        snapshot_id = await self._find_snapshot_build_id(request, build)
+        if snapshot_id is None or not _COMMIT_SHA_PATTERN.fullmatch(request.source_sha):
+            raise ConflictError("pinned repair source snapshot is unavailable")
+        snapshot_build = (
+            build
+            if build is not None and build.id == snapshot_id
+            else await self._build_repository.find_by_deployment_request_id(
+                request.source_deployment_request_id or request.id
+            )
+        )
+        if snapshot_build is None or snapshot_build.source_sha != request.source_sha:
+            raise ConflictError("repair snapshot does not match deployment source")
+        source_identity = raw.get("source_analysis") or {}
+        if (
+            not isinstance(source_identity, dict)
+            or (
+                source_identity.get("commit_sha") is not None
+                and source_identity["commit_sha"].lower() != request.source_sha.lower()
+            )
+            or (
+                source_identity.get("root_directory") is not None
+                and source_identity["root_directory"] != (service.root_directory or ".")
+            )
+        ):
+            raise ConflictError("diagnosis source does not match deployment source")
+        # Close the read transaction before creating the transient signed URL.
+        await self._session.commit()
+        source = await self._build_source(service, request, snapshot_id)
+        assert source is not None
+        return {
+            "serviceId": service.id,
+            "deploymentId": request.id,
+            "diagnosisId": diagnosis.id,
+            "repositoryUrl": service.source_repository_url,
+            "branch": service.source_branch,
+            "autoDeploy": service.is_auto_deploy,
+            "source": source.model_dump(mode="json", by_alias=True),
+            "diagnosisResult": raw,
+        }
 
     async def _run(
         self,
@@ -395,7 +524,10 @@ class DiagnosisService:
             commit_sha=request.source_sha
             if _COMMIT_SHA_PATTERN.match(request.source_sha)
             else None,
-            root_directory=service.root_directory or ".",
+            # 업로드 스냅샷은 올린 폴더가 루트라서 서비스의 root_directory 를 적용하지 않는다.
+            root_directory="."
+            if is_upload_source_sha(request.source_sha)
+            else service.root_directory or ".",
         )
 
     async def _get_owned_service(self, owner_id: int, service_id: int) -> Service:

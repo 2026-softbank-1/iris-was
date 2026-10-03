@@ -254,3 +254,56 @@ async def test_get_diagnosis_of_other_users_service_returns_not_found(
 
     assert response.status_code == 404
     assert response.json()["code"] == "SERVICE_NOT_FOUND"
+
+
+async def test_repair_context_pins_diagnosis_and_disables_caching(client: DiagnosisClient) -> None:
+    request = client.setup.add_request()
+    build = client.setup.add_build(request)
+    build.source_sha = request.source_sha
+    diagnosis = client.setup.diagnoses.seed(
+        request.id, DiagnosisStatus.SUCCEEDED, result=valid_agent_result()
+    )
+    client.setup.diagnoses.seed(request.id, DiagnosisStatus.RUNNING)
+    app.dependency_overrides[get_diagnosis_service] = lambda: client.setup.diagnosis_service(
+        snapshots=True
+    )
+    response = await client.get(
+        client.url(request.id, "repair-context"), params={"diagnosisId": diagnosis.id}
+    )
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    data = response.json()["data"]
+    assert data["diagnosisId"] == diagnosis.id
+    assert data["diagnosisResult"]["schema_version"] == "diagnosis-result.v3"
+    assert data["source"]["commitSha"] == request.source_sha
+    client.current["user"] = _user(OWNER + 1)
+    denied = await client.get(
+        client.url(request.id, "repair-context"), params={"diagnosisId": diagnosis.id}
+    )
+    assert denied.status_code == 404
+    assert "downloadUrl" not in denied.text
+
+
+async def test_repair_context_validates_id_and_missing_configuration(
+    client: DiagnosisClient,
+) -> None:
+    request = client.setup.add_request()
+    diagnosis = client.setup.diagnoses.seed(
+        request.id, DiagnosisStatus.SUCCEEDED, result=valid_agent_result()
+    )
+    invalid = await client.get(client.url(request.id, "repair-context"), params={"diagnosisId": 0})
+    assert invalid.status_code == 422
+    missing = await client.get(
+        client.url(request.id, "repair-context"), params={"diagnosisId": diagnosis.id}
+    )
+    assert missing.status_code == 503
+
+
+async def test_repair_context_requires_authentication(client: DiagnosisClient) -> None:
+    from app.dependencies import get_session_service
+
+    app.dependency_overrides.pop(get_current_user)
+    app.dependency_overrides[get_session_service] = lambda: object()
+    response = await client.get(client.url(999, "repair-context"))
+    assert response.status_code == 401
+    assert "downloadUrl" not in response.text

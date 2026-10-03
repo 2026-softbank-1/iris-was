@@ -46,9 +46,11 @@ from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
 from app.schemas.diagnosis import DiagnosisResponse
+from app.services.auto_diagnosis import AutoDiagnosisRunner
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.diagnosis_service import (
+    DIAGNOSABLE_STATUSES,
     DiagnosisService,
     DiagnosisServiceOpener,
     run_diagnosis_in_background,
@@ -651,6 +653,126 @@ async def _diagnosis_wiring(
             yield build_diagnosis_service(new_session, settings, http)
 
     return opener, request, user, service, agent_requests
+
+
+async def test_find_service_owner_id_ignores_deleted_service_and_project(
+    session: AsyncSession,
+) -> None:
+    user, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    service = await services.save(_service(project, installation, "web"))
+    other_project = await ProjectRepository(session).save(Project(name="q", owner_id=user.id))
+    in_other_project = await services.save(_service(other_project, installation, "api"))
+
+    assert await services.find_owner_id_by_id(service.id) == user.id
+    assert await services.find_owner_id_by_id(service.id + 1000) is None
+    service.mark_as_deleted()
+    other_project.mark_as_deleted()
+    await session.flush()
+    assert await services.find_owner_id_by_id(service.id) is None
+    assert await services.find_owner_id_by_id(in_other_project.id) is None
+
+
+async def test_diagnosis_find_next_auto_start_candidate_applies_every_filter_on_real_database(
+    session: AsyncSession,
+) -> None:
+    _, project, installation = await _seed(session)
+    services = ServiceRepository(session)
+    service = await services.save(_service(project, installation, "web"))
+    deleted_service = await services.save(_service(project, installation, "gone"))
+    repository = DeploymentDiagnosisRepository(session)
+    now = datetime.now(UTC)
+    failed_after = now - timedelta(minutes=10)
+    stale_before = now - timedelta(minutes=4)
+
+    async def update_request(request: DeploymentRequest, assignment: str) -> None:
+        await session.execute(
+            text(f"UPDATE deployment_requests SET {assignment} WHERE id = :id"),
+            {"id": request.id},
+        )
+
+    async def record(request: DeploymentRequest, status: DiagnosisStatus | None) -> None:
+        diagnosis = await repository.add_running_if_absent(request.id, None)
+        assert diagnosis is not None
+        if status == DiagnosisStatus.SUCCEEDED:
+            diagnosis.succeed({})
+        elif status == DiagnosisStatus.FAILED:
+            diagnosis.fail("MODEL_TIMEOUT")
+        await session.flush()
+
+    # 고르지 않는 요청: 이미 진단됨(성공·실패), 막 시작한 진행 중, 제거 요청, 실패하지 않음,
+    # 기간을 넘김, 삭제된 서비스.
+    for key, status in (
+        ("c-succeeded-diagnosis", DiagnosisStatus.SUCCEEDED),
+        ("c-failed-diagnosis", DiagnosisStatus.FAILED),
+        ("c-running-diagnosis", None),
+    ):
+        await record(await _failed_request(session, service, key), status)
+    await update_request(
+        await _failed_request(session, service, "c-remove"), "trigger_type = 'REMOVE'"
+    )
+    await update_request(
+        await _failed_request(session, service, "c-succeeded"), "status = 'SUCCEEDED'"
+    )
+    await update_request(
+        await _failed_request(session, service, "c-too-old"),
+        "updated_at = now() - interval '30 minutes'",
+    )
+    await _failed_request(session, deleted_service, "c-deleted-service")
+    deleted_service.mark_as_deleted()
+    await session.flush()
+    assert await repository.count_running_since(stale_before) == 1
+    assert (
+        await repository.find_next_auto_start_candidate(
+            failed_after, stale_before, DIAGNOSABLE_STATUSES
+        )
+        is None
+    )
+
+    # 고르는 요청: 진단 기록이 없는 것, 서버가 죽어 낡은 진행 중 행만 남은 것(더 오래 기다림).
+    fresh = await _failed_request(session, service, "c-fresh")
+    stale = await _failed_request(session, service, "c-stale-running")
+    await record(stale, None)
+    await update_request(stale, "updated_at = now() - interval '5 minutes'")
+    await session.execute(
+        text(
+            "UPDATE deployment_diagnoses SET created_at = now() - interval '30 minutes' "
+            "WHERE deployment_request_id = :id"
+        ),
+        {"id": stale.id},
+    )
+    assert await repository.count_running_since(stale_before) == 1
+
+    picked: list[int] = []
+    for _ in range(5):
+        candidate = await repository.find_next_auto_start_candidate(
+            failed_after, stale_before, DIAGNOSABLE_STATUSES
+        )
+        if candidate is None:
+            break
+        picked.append(candidate.id)
+        await repository.fail_stale_running(candidate.id, stale_before, "DIAGNOSIS_ABANDONED")
+        await record(candidate, DiagnosisStatus.SUCCEEDED)
+
+    assert picked == [stale.id, fresh.id]
+
+
+async def test_automatic_diagnosis_runs_end_to_end_on_real_database(session: AsyncSession) -> None:
+    opener, request, user, service, agent_requests = await _diagnosis_wiring(
+        session, ["boot", "ERROR Missing required configuration: DATABASE_URL"]
+    )
+    runner = AutoDiagnosisRunner(opener, 0.01)
+
+    assert await runner.run_once() is True
+
+    async with opener() as reader:
+        saved = await reader.get_diagnosis(user.id, service.id, request.id)
+    assert saved.status == DiagnosisStatus.SUCCEEDED
+    assert saved.requested_by is None
+    sent = json.loads(agent_requests[0].content)
+    assert sent["serviceId"] == service.id and sent["deploymentId"] == request.id
+    assert await runner.run_once() is False
+    assert len(agent_requests) == 1
 
 
 async def test_diagnosis_flow_runs_end_to_end_on_real_database(session: AsyncSession) -> None:

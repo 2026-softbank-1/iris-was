@@ -16,6 +16,7 @@ from app.clients.aws_clients import ArtifactStore, BuildLogReader, CloudWatchBui
 from app.clients.diagnosis_agent_client import HttpDiagnosisAgentClient
 from app.clients.oauth_client import GithubOAuthClient
 from app.clients.observability_client import LokiPrometheusObservabilityClient
+from app.clients.repair_agent_client import HttpRepairAgentClient, HttpRepairSourceClient
 from app.clients.source_repository_client import GithubSourceRepositoryClient
 from app.core.config import Settings, get_settings
 from app.core.crypto import VariableCipher
@@ -25,6 +26,7 @@ from app.models.user import User
 from app.repositories.build_repository import BuildRepository
 from app.repositories.cli_login_session_repository import CliLoginSessionRepository
 from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
+from app.repositories.deployment_repair_repository import DeploymentRepairRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -34,10 +36,12 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_upload_repository import ServiceUploadRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.automatic_repair_service import AutomaticRepairOpener, AutomaticRepairService
 from app.services.cli_login_service import CliLoginService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_log_service import DeploymentLogService
@@ -48,12 +52,17 @@ from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
+from app.services.repair_github_auth_service import RepairGithubAuthService
+from app.services.repair_handoff_service import RepairHandoffService
+from app.services.repair_publication_service import RepairPublicationService
+from app.services.repair_service import RepairService, RepairServiceOpener
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
 from app.services.service_teardown_service import ServiceTeardownService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
 from app.services.target_service import TargetService
+from app.services.upload_service import UploadService
 from app.services.variable_service import VariableService
 from app.services.webhook_service import WebhookService
 
@@ -311,12 +320,30 @@ def get_manual_deployment_service(
         BuildRepository(session),
         deployment_request_service,
         source_repository_service,
+        ServiceUploadRepository(session),
     )
 
 
 ManualDeploymentServiceDep = Annotated[
     ManualDeploymentService, Depends(get_manual_deployment_service)
 ]
+
+
+def get_upload_service(session: SessionDep, settings: SettingsDep) -> UploadService:
+    if not settings.aws_region or not settings.artifact_bucket:
+        raise NotConfiguredError(
+            "upload storage is not configured", setting="AWS_REGION, ARTIFACT_BUCKET"
+        )
+    return UploadService(
+        session,
+        ServiceRepository(session),
+        ServiceUploadRepository(session),
+        _get_artifact_store(settings.aws_region, settings.artifact_bucket),
+        settings.upload_max_bytes,
+    )
+
+
+UploadServiceDep = Annotated[UploadService, Depends(get_upload_service)]
 
 
 def get_deployment_history_service(session: SessionDep) -> DeploymentHistoryService:
@@ -444,12 +471,13 @@ def get_diagnosis_service(
     return build_diagnosis_service(session, settings, http_client)
 
 
-def get_diagnosis_service_opener(
-    settings: SettingsDep, http_client: HttpClientDep
+def build_diagnosis_service_opener(
+    settings: Settings, http_client: httpx.AsyncClient
 ) -> DiagnosisServiceOpener:
-    """요청이 끝난 뒤에도 진단을 이어 갈 수 있게, 새 DB 세션으로 서비스를 여는 함수를 준다.
+    """요청이 끝난 뒤에도 진단을 이어 갈 수 있게, 새 DB 세션으로 서비스를 여는 함수를 만든다.
 
-    요청 범위의 세션은 응답과 함께 닫히므로 백그라운드 작업이 그것을 쓰면 안 된다.
+    요청 범위의 세션은 응답과 함께 닫히므로 백그라운드 작업이 그것을 쓰면 안 된다. 요청 없이
+    도는 자동 진단도 이 함수로 서비스를 연다.
     """
 
     @asynccontextmanager
@@ -458,6 +486,12 @@ def get_diagnosis_service_opener(
             yield build_diagnosis_service(session, settings, http_client)
 
     return open_service
+
+
+def get_diagnosis_service_opener(
+    settings: SettingsDep, http_client: HttpClientDep
+) -> DiagnosisServiceOpener:
+    return build_diagnosis_service_opener(settings, http_client)
 
 
 DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
@@ -494,3 +528,139 @@ def get_deployment_log_service(
 
 
 DeploymentLogServiceDep = Annotated[DeploymentLogService, Depends(get_deployment_log_service)]
+
+
+def build_repair_service(
+    session: AsyncSession, settings: Settings, http_client: httpx.AsyncClient
+) -> RepairService:
+    hosts = tuple(
+        host.strip().lower()
+        for host in settings.repair_agent_source_hosts.split(",")
+        if host.strip()
+    )
+    agent = (
+        HttpRepairAgentClient(
+            http_client,
+            str(settings.repair_agent_url),
+            settings.repair_agent_api_key.get_secret_value(),
+            settings.repair_agent_timeout_seconds,
+        )
+        if settings.repair_agent_url is not None and settings.repair_agent_api_key is not None
+        else None
+    )
+    handoff = (
+        RepairHandoffService(agent, HttpRepairSourceClient(http_client, hosts))
+        if agent is not None and hosts
+        else None
+    )
+    snapshots = (
+        _get_artifact_store(settings.aws_region, settings.artifact_bucket)
+        if settings.aws_region and settings.artifact_bucket
+        else None
+    )
+    return RepairService(
+        session,
+        ServiceRepository(session),
+        DeploymentRequestRepository(session),
+        BuildRepository(session),
+        DeploymentDiagnosisRepository(session),
+        DeploymentRepairRepository(session),
+        agent,
+        handoff,
+        snapshots,
+        max_cost_usd=settings.repair_agent_max_cost_usd,
+        deadline_seconds=settings.repair_agent_deadline_seconds,
+    )
+
+
+def get_repair_service(
+    session: SessionDep, settings: SettingsDep, http_client: HttpClientDep
+) -> RepairService:
+    return build_repair_service(session, settings, http_client)
+
+
+def get_repair_service_opener(
+    settings: SettingsDep, http_client: HttpClientDep
+) -> RepairServiceOpener:
+    @asynccontextmanager
+    async def open_service() -> AsyncIterator[RepairService]:
+        async with get_session_factory()() as session:
+            yield build_repair_service(session, settings, http_client)
+
+    return open_service
+
+
+RepairServiceDep = Annotated[RepairService, Depends(get_repair_service)]
+RepairServiceOpenerDep = Annotated[RepairServiceOpener, Depends(get_repair_service_opener)]
+
+
+def get_repair_github_auth_service(
+    session: SessionDep, repositories: SourceRepositoryServiceDep
+) -> RepairGithubAuthService:
+    return RepairGithubAuthService(ServiceRepository(session), repositories)
+
+
+RepairGithubAuthServiceDep = Annotated[
+    RepairGithubAuthService, Depends(get_repair_github_auth_service)
+]
+
+
+def get_repair_publication_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    candidates: RepairServiceDep,
+    auth: RepairGithubAuthServiceDep,
+) -> RepairPublicationService:
+    return RepairPublicationService(
+        session,
+        DeploymentRepairRepository(session),
+        ServiceRepository(session),
+        candidates,
+        auth,
+        settings.github_api_base_url,
+    )
+
+
+RepairPublicationServiceDep = Annotated[
+    RepairPublicationService, Depends(get_repair_publication_service)
+]
+
+
+def build_automatic_repair_service(
+    session: AsyncSession, settings: Settings, http_client: httpx.AsyncClient
+) -> AutomaticRepairService:
+    credentials = get_github_app_credentials(settings)
+    repositories = get_source_repository_service(session, settings, credentials, http_client)
+    candidates = build_repair_service(session, settings, http_client)
+    auth = RepairGithubAuthService(ServiceRepository(session), repositories)
+    publication = RepairPublicationService(
+        session,
+        DeploymentRepairRepository(session),
+        ServiceRepository(session),
+        candidates,
+        auth,
+        settings.github_api_base_url,
+    )
+    return AutomaticRepairService(
+        session, DeploymentRepairRepository(session), candidates, publication
+    )
+
+
+def get_automatic_repair_service(
+    session: SessionDep, settings: SettingsDep, http_client: HttpClientDep
+) -> AutomaticRepairService:
+    return build_automatic_repair_service(session, settings, http_client)
+
+
+def build_automatic_repair_opener(
+    settings: Settings, http_client: httpx.AsyncClient
+) -> AutomaticRepairOpener:
+    @asynccontextmanager
+    async def open_service() -> AsyncIterator[AutomaticRepairService]:
+        async with get_session_factory()() as session:
+            yield build_automatic_repair_service(session, settings, http_client)
+
+    return open_service
+
+
+AutomaticRepairServiceDep = Annotated[AutomaticRepairService, Depends(get_automatic_repair_service)]

@@ -55,3 +55,7 @@
 | [0019](0019-job-wakeup-listen-notify.md) | Worker 는 5초 polling 대신 jobs 트리거의 LISTEN/NOTIFY 로 깨운다 | 제안됨 |
 | [0020](0020-ai-error-diagnosis-via-agent-server.md) | 실패한 배포의 AI 진단은 Control API 가 에이전트 서버를 호출하고 결과를 DB 에 저장한다 | 제안됨 (에이전트 서버 배포 대기) |
 | [0022](0022-delete-service-also-removes-app.md) | 서비스·프로젝트를 지우면 떠 있는 앱도 함께 내린다 | 수락됨 |
+| [0023](0023-cli-source-upload-storage-and-archive-defense.md) | `likelion up` 업로드는 Control API 가 받아 S3 에 두고, Build Worker 가 검사하며 스냅샷으로 다시 묶는다 | 제안됨 (iris-infra IAM·CLI E2E 대기) |
+| [0024](0024-durable-code-repair-candidate-api.md) | 실패 진단과 고정 소스로 코드 수정 후보를 생성하고 영속 상태·artifact를 제공한다 | 제안됨 |
+| [0025](0025-web-code-repair-publication.md) | 웹 AI 수정은 후보 검토 후 WAS에서 핫픽스 PR 게시와 main 머지를 별도 실행한다 | 제안됨 |
+| [0026](0026-one-click-automatic-repair.md) | AI 수정 클릭은 후보 생성부터 핫픽스 PR과 main 자동 머지까지 승인한다 | 제안됨 |

@@ -1,13 +1,13 @@
 import time
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib.parse import quote
 
 import httpx
 import jwt
 
-from app.core.exceptions import ExternalError, UnauthorizedError
+from app.core.exceptions import ExternalError, ForbiddenError, UnauthorizedError
 
 _APP_JWT_BACKDATE_SECONDS = 60
 _APP_JWT_TTL_SECONDS = 540  # GitHub 상한은 10분이다.
@@ -35,14 +35,18 @@ class CommitInfo:
 
 @dataclass(frozen=True)
 class InstallationToken:
-    """저장소 clone·조회용 단기 토큰. 로그와 응답에 남기지 않는다."""
+    """저장소용 단기 설치 토큰. 로그에 남기지 않고 신뢰된 호출자에게만 전달한다."""
 
-    token: str
+    token: str = field(repr=False)
     expires_at: datetime
 
 
 class SourceRepositoryClient(Protocol):
     async def create_installation_token(self, installation_id: int) -> InstallationToken: ...
+
+    async def create_repair_token(
+        self, installation_id: int, full_name: str
+    ) -> InstallationToken: ...
 
     async def fetch_repositories(self, installation_id: int) -> list[RepositoryInfo]:
         """설치에 권한이 있는 저장소 전체."""
@@ -86,6 +90,39 @@ class GithubSourceRepositoryClient:
             token=str(body["token"]),
             expires_at=datetime.fromisoformat(str(body["expires_at"])),
         )
+
+    async def create_repair_token(self, installation_id: int, full_name: str) -> InstallationToken:
+        """서비스 소스 저장소 하나에 Contents·PR write 만 부여한다."""
+        response = await self._send(
+            "POST",
+            f"/app/installations/{installation_id}/access_tokens",
+            token=self._create_app_jwt(),
+            params=None,
+            json={
+                "repositories": [full_name.split("/", 1)[1]],
+                "permissions": {"contents": "write", "pull_requests": "write"},
+            },
+        )
+        if (
+            response.status_code in {403, 422}
+            and response.headers.get("x-ratelimit-remaining") != "0"
+        ):
+            raise ForbiddenError("github app requires Contents and Pull requests write")
+        self._raise_for_status(response)
+        body = response.json()
+        try:
+            permissions = body.get("permissions", {})
+            if any(permissions.get(p) != "write" for p in ("contents", "pull_requests")):
+                raise ForbiddenError("github app requires Contents and Pull requests write")
+            value = body["token"]
+            expires = datetime.fromisoformat(body["expires_at"])
+            if not isinstance(value, str) or not value or expires.tzinfo is None:
+                raise ValueError
+            if expires <= datetime.now(UTC):
+                raise ValueError
+            return InstallationToken(value, expires)
+        except (KeyError, ValueError, TypeError):
+            raise ExternalError("invalid github repair token response") from None
 
     async def fetch_repositories(self, installation_id: int) -> list[RepositoryInfo]:
         token = (await self.create_installation_token(installation_id)).token
@@ -186,7 +223,13 @@ class GithubSourceRepositoryClient:
         return items
 
     async def _send(
-        self, method: str, path: str, token: str, params: dict[str, int] | None
+        self,
+        method: str,
+        path: str,
+        token: str,
+        params: dict[str, int] | None,
+        *,
+        json: object | None = None,
     ) -> httpx.Response:
         try:
             return await self._http.request(
@@ -198,6 +241,7 @@ class GithubSourceRepositoryClient:
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
                 params=params,
+                json=json,
             )
         except httpx.HTTPError as exc:
             raise ExternalError("github request failed", reason=type(exc).__name__) from exc

@@ -111,6 +111,38 @@ def test_render_service_values_default_has_deploy_specific_fields_only() -> None
     }
 
 
+@pytest.mark.parametrize(
+    "source_sha",
+    [
+        "upload-55f60ed8e30b",  # CLI 업로드
+        "abcdef1",  # 짧은 해시
+        "F" * 40,  # 대문자는 chart 스키마가 거절한다
+        "f" * 41,
+        "",
+    ],
+)
+def test_render_service_values_omits_source_sha_the_chart_schema_would_reject(
+    source_sha: str,
+) -> None:
+    # Argo CD 가 values 검증에서 실패하면 release 가 PENDING 에서 멈춘다. 필드를 생략해 막는다.
+    content = render_service_values(
+        host_label="my-app",
+        release_id=345,
+        image_repository="123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/12",
+        image_digest="sha256:abc",
+        source_sha=source_sha,
+        builder=Builder.DOCKERFILE,
+        deploy=DeployConfig(),
+        base_domain="example.app",
+    )
+
+    assert json.loads(content)["release"] == {"id": 345}
+
+
+def test_render_service_values_keeps_full_lowercase_git_sha() -> None:
+    assert _render(DeployConfig())["release"] == {"id": 345, "sourceSha": "f" * 40}
+
+
 def test_render_service_values_iris_is_written_as_given() -> None:
     iris = {"serviceName": "my-app", "targetName": "aws", "deploymentId": 6789012}
 
