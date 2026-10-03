@@ -152,6 +152,7 @@ CREATE TABLE builds (
     deploy_config JSONB,
     failure_code VARCHAR(32),
     log_url TEXT,
+    log_tail JSONB,
     started_at TIMESTAMP WITH TIME ZONE,
     finished_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,

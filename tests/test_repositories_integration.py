@@ -20,6 +20,7 @@ from app.core.config import Settings
 from app.core.exceptions import InvalidStatusTransitionError
 from app.dependencies import build_diagnosis_service
 from app.enums import (
+    BuildStatus,
     DeploymentStatus,
     DeploymentTrigger,
     DiagnosisStatus,
@@ -695,3 +696,79 @@ async def test_diagnosis_flow_without_logs_ends_failed_on_real_database(
         "DIAGNOSIS_LOGS_UNAVAILABLE",
     )
     assert agent_requests == []
+
+
+async def test_diagnosis_flow_for_build_failure_uses_stored_build_logs_on_real_database(
+    session: AsyncSession,
+) -> None:
+    opener, request, user, service, agent_requests = await _diagnosis_wiring(
+        session, ["runtime line that must not be sent"]
+    )
+    request.failure_code = FailureCode.BUILD_FAILED
+    await add_build_with_log_tail(
+        session,
+        request,
+        {
+            "entries": [
+                {"timestamp": "2026-10-03T02:00:00Z", "message": "npm ERR! missing script: build"},
+                {"timestamp": "2026-10-03T02:00:01Z", "message": "error Command failed"},
+            ],
+            "is_truncated": True,
+        },
+    )
+
+    async with opener() as starter:
+        started = await starter.start_diagnosis(user.id, service.id, request.id)
+    await run_diagnosis_in_background(opener, user.id, service.id, request.id, started.diagnosis.id)
+
+    async with opener() as reader:
+        saved = await reader.get_diagnosis(user.id, service.id, request.id)
+    assert saved.status == DiagnosisStatus.SUCCEEDED
+    sent = json.loads(agent_requests[0].content)
+    assert sent["failedStage"] == "build"
+    assert [(log["stage"], log["sourceId"], log["stream"]) for log in sent["logs"]] == [
+        ("build", "codebuild", "combined")
+    ] * 2
+    assert [log["text"] for log in sent["logs"]] == [
+        "npm ERR! missing script: build",
+        "error Command failed",
+    ]
+    assert sent["logRange"] == {
+        "from": "2026-10-03T02:00:00Z",
+        "to": "2026-10-03T02:00:01Z",
+        "isComplete": False,
+    }
+
+
+async def test_diagnosis_flow_for_build_failure_without_stored_logs_ends_failed(
+    session: AsyncSession,
+) -> None:
+    opener, request, user, service, agent_requests = await _diagnosis_wiring(session, ["x"])
+    request.failure_code = FailureCode.BUILD_FAILED
+    await add_build_with_log_tail(session, request, None)
+
+    async with opener() as starter:
+        started = await starter.start_diagnosis(user.id, service.id, request.id)
+    await run_diagnosis_in_background(opener, user.id, service.id, request.id, started.diagnosis.id)
+
+    async with opener() as reader:
+        saved = await reader.get_diagnosis(user.id, service.id, request.id)
+    assert (saved.status, saved.error_code) == (
+        DiagnosisStatus.FAILED,
+        "DIAGNOSIS_LOGS_UNAVAILABLE",
+    )
+    assert agent_requests == []
+
+
+async def add_build_with_log_tail(
+    session: AsyncSession, request: DeploymentRequest, log_tail: dict[str, object] | None
+) -> Build:
+    build = Build(
+        deployment_request_id=request.id,
+        status=BuildStatus.FAILED,
+        codebuild_build_id=f"cb-{request.id}",
+        log_tail=log_tail,
+    )
+    session.add(build)
+    await session.flush()
+    return build

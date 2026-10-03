@@ -147,6 +147,21 @@ def make_log(index: int, message: str | None = None, pod: str = "app-0") -> LogE
     return LogEntry(str(_LOG_BASE_NS + index * 10**9), message or f"line {index}", pod, "app")
 
 
+def make_log_tail(messages: list[str], *, is_truncated: bool = False) -> dict[str, Any]:
+    """Build Worker 가 `builds.log_tail` 에 남기는 모양. 8분 전부터 1초 간격으로 찍힌 로그다."""
+    base = now_utc() - timedelta(minutes=8)
+    return {
+        "entries": [
+            {
+                "timestamp": (base + timedelta(seconds=i)).isoformat().replace("+00:00", "Z"),
+                "message": message,
+            }
+            for i, message in enumerate(messages)
+        ],
+        "is_truncated": is_truncated,
+    }
+
+
 def valid_agent_result() -> dict[str, Any]:
     """diagnosis-result.v3 중 이 서버가 읽는 부분의 실제 모양."""
     return {
@@ -296,11 +311,13 @@ class DiagnosisSetup(DeploymentSetup):
         *,
         codebuild_build_id: str | None = "cb-1",
         attempt: int = 2,
+        log_tail: dict[str, Any] | None = None,
     ) -> Build:
         build = Build(
             deployment_request_id=request.id,
             codebuild_build_id=codebuild_build_id,
             attempt=attempt,
+            log_tail=log_tail,
             created_at=now_utc() - timedelta(minutes=10),
             updated_at=now_utc() - timedelta(minutes=10),
         )
@@ -338,4 +355,4 @@ class DiagnosisSetup(DeploymentSetup):
         return open_service
 
 
-__all__ = ["OWNER", "DiagnosisSetup", "make_log", "valid_agent_result"]
+__all__ = ["OWNER", "DiagnosisSetup", "make_log", "make_log_tail", "valid_agent_result"]

@@ -72,6 +72,9 @@ class CodeBuildResult:
     status: str  # IN_PROGRESS · SUCCEEDED · FAILED · FAULT · TIMED_OUT · STOPPED
     failed_phase: str | None
     log_url: str | None
+    # CloudWatch Logs 에서 이 빌드의 로그를 찾는 위치. 아직 로그를 쓰기 전이면 없다.
+    log_group: str | None = None
+    log_stream: str | None = None
 
 
 class CodeBuildClient:
@@ -107,14 +110,59 @@ class CodeBuildClient:
             ),
             None,
         )
+        logs = build.get("logs", {})
         return CodeBuildResult(
             status=build["buildStatus"],
             failed_phase=failed_phase,
-            log_url=build.get("logs", {}).get("deepLink"),
+            log_url=logs.get("deepLink"),
+            log_group=logs.get("groupName"),
+            log_stream=logs.get("streamName"),
         )
 
     async def stop_build(self, build_id: str) -> None:
         await _call(self._client.stop_build, id=build_id)
+
+
+@dataclass(frozen=True)
+class LogLine:
+    timestamp_ms: int
+    message: str
+
+
+@dataclass(frozen=True)
+class BuildLogTail:
+    """빌드 로그의 끝부분. 오래된 줄부터 순서대로이고, 앞부분이 잘렸으면 is_truncated 다."""
+
+    lines: list[LogLine]
+    is_truncated: bool
+
+
+class BuildLogClient(Protocol):
+    async def fetch_tail(self, log_group: str, log_stream: str, max_lines: int) -> BuildLogTail:
+        """빌드 로그의 마지막 max_lines 줄. 읽지 못하면 ExternalError 다."""
+        ...
+
+
+class CloudWatchBuildLogClient:
+    """CodeBuild 가 CloudWatch Logs 에 쓴 빌드 로그를 읽는다(`logs:GetLogEvents` 권한 필요)."""
+
+    def __init__(self, region: str, client: Any | None = None) -> None:
+        self._client = client or boto3.client("logs", region_name=region, config=_BOTO_CONFIG)
+
+    async def fetch_tail(self, log_group: str, log_stream: str, max_lines: int) -> BuildLogTail:
+        response = await _call(
+            self._client.get_log_events,
+            logGroupName=log_group,
+            logStreamName=log_stream,
+            limit=max_lines,
+            startFromHead=False,
+        )
+        lines = [
+            LogLine(timestamp_ms=int(event["timestamp"]), message=str(event["message"]))
+            for event in response.get("events", [])
+        ]
+        # 가져온 줄이 한도와 같으면 앞에 더 있을 수 있다.
+        return BuildLogTail(lines=lines, is_truncated=len(lines) >= max_lines)
 
 
 class EcrClient:

@@ -19,7 +19,7 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.clients.aws_clients import CodeBuildResult
+from app.clients.aws_clients import BuildLogTail, CodeBuildResult, LogLine
 from app.core.config import BuildWorkerSettings
 from app.core.exceptions import BuildFailedError, ExternalError
 from app.enums import (
@@ -106,6 +106,25 @@ class FakeCodeBuild:
         self.stopped.append(build_id)
 
 
+class FakeBuildLogs:
+    def __init__(self, tail: BuildLogTail | None = None, error: Exception | None = None) -> None:
+        self.tail = tail or BuildLogTail(
+            [
+                LogLine(1_790_000_000_000, "npm ERR! missing script: build\n"),
+                LogLine(1_790_000_001_000, "Authorization: Bearer abc.def\n"),
+            ],
+            is_truncated=False,
+        )
+        self.error = error
+        self.calls: list[tuple[str, str, int]] = []
+
+    async def fetch_tail(self, log_group: str, log_stream: str, max_lines: int) -> BuildLogTail:
+        self.calls.append((log_group, log_stream, max_lines))
+        if self.error is not None:
+            raise self.error
+        return self.tail
+
+
 class FakeEcr:
     async def ensure_repository(self, service_id: int) -> str:
         return REPOSITORY_URI
@@ -168,6 +187,7 @@ def _service(
     codebuild: FakeCodeBuild,
     files: dict[str, bytes] | None = None,
     worker_id: str = "worker-1",
+    build_logs: FakeBuildLogs | None = None,
 ) -> BuildService:
     return BuildService(
         session_factory,
@@ -175,6 +195,7 @@ def _service(
         codebuild,  # type: ignore[arg-type]
         FakeEcr(),  # type: ignore[arg-type]
         FakeArtifacts(),  # type: ignore[arg-type]
+        build_logs or FakeBuildLogs(),  # type: ignore[arg-type]
         SETTINGS,
         worker_id,
     )
@@ -440,3 +461,90 @@ async def test_run_stop_signal_releases_job(session_factory: Any) -> None:
     build, _, jobs = await _load(session_factory, job)
     assert build.status == BuildStatus.BUILDING
     assert (jobs[0].status, jobs[0].attempts, jobs[0].locked_by) == (JobStatus.QUEUED, 0, None)
+
+
+LOGGED_FAILURE = CodeBuildResult(
+    "FAILED", "BUILD", "https://logs.example", "/aws/codebuild/iris-test-build", "stream-1"
+)
+
+
+async def test_run_build_failure_records_redacted_log_tail(session_factory: Any) -> None:
+    await _seed(session_factory)
+    build_logs = FakeBuildLogs()
+    service = _service(session_factory, FakeCodeBuild(LOGGED_FAILURE), build_logs=build_logs)
+    job = await _claim(service)
+
+    with pytest.raises(BuildFailedError):
+        await service.run(job, asyncio.Event())
+
+    build, _, _ = await _load(session_factory, job)
+    assert build_logs.calls == [("/aws/codebuild/iris-test-build", "stream-1", 300)]
+    assert build.log_tail is not None
+    assert [e["message"] for e in build.log_tail["entries"]] == [
+        "npm ERR! missing script: build",
+        "Authorization: Bearer [REDACTED]",
+    ]
+    assert build.log_tail["entries"][0]["timestamp"] == "2026-09-21T14:13:20Z"
+    assert build.log_tail["is_truncated"] is False
+
+
+async def test_run_build_timeout_records_log_tail(session_factory: Any) -> None:
+    await _seed(session_factory)
+    timed_out = CodeBuildResult("TIMED_OUT", None, None, "/aws/codebuild/g", "s")
+    service = _service(session_factory, FakeCodeBuild(timed_out))
+    job = await _claim(service)
+
+    with pytest.raises(BuildFailedError) as exc_info:
+        await service.run(job, asyncio.Event())
+
+    build, _, _ = await _load(session_factory, job)
+    assert exc_info.value.failure_code == FailureCode.BUILD_TIMED_OUT
+    assert build.log_tail is not None
+
+
+async def test_run_build_failure_still_fails_when_log_tail_cannot_be_read(
+    session_factory: Any,
+) -> None:
+    await _seed(session_factory)
+    build_logs = FakeBuildLogs(error=ExternalError("aws request failed"))
+    service = _service(session_factory, FakeCodeBuild(LOGGED_FAILURE), build_logs=build_logs)
+    job = await _claim(service)
+
+    with pytest.raises(BuildFailedError) as exc_info:
+        await service.run(job, asyncio.Event())
+    await service.fail(job, exc_info.value)
+
+    build, request, _ = await _load(session_factory, job)
+    assert exc_info.value.failure_code == FailureCode.BUILD_FAILED
+    assert build.log_tail is None
+    assert (build.status, request.status) == (BuildStatus.FAILED, DeploymentStatus.FAILED)
+
+
+async def test_run_build_failure_without_log_location_does_not_fetch(
+    session_factory: Any,
+) -> None:
+    await _seed(session_factory)
+    build_logs = FakeBuildLogs()
+    service = _service(
+        session_factory,
+        FakeCodeBuild(CodeBuildResult("FAILED", "BUILD", None)),
+        build_logs=build_logs,
+    )
+    job = await _claim(service)
+
+    with pytest.raises(BuildFailedError):
+        await service.run(job, asyncio.Event())
+
+    assert build_logs.calls == []
+
+
+async def test_run_codebuild_fault_and_success_do_not_fetch_log_tail(session_factory: Any) -> None:
+    fault_logs = FakeBuildLogs()
+    await _seed(session_factory)
+    fault = CodeBuildResult("FAULT", None, None, "/aws/codebuild/g", "s")
+    service = _service(session_factory, FakeCodeBuild(fault), build_logs=fault_logs)
+    job = await _claim(service)
+    with pytest.raises(ExternalError):
+        await service.run(job, asyncio.Event())
+
+    assert fault_logs.calls == []
