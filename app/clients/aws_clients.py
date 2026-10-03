@@ -8,7 +8,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import boto3
 from boto3.exceptions import S3UploadFailedError
@@ -180,6 +180,12 @@ class EcrClient:
             raise ExternalError("aws request failed", operation="put_image") from exc
 
 
+class SnapshotUrlClient(Protocol):
+    async def presign_snapshot(self, build_id: int) -> str:
+        """빌드의 소스 스냅샷을 내려받는 단기 URL."""
+        ...
+
+
 class ArtifactStore:
     """빌드 입력(소스 스냅샷)을 S3 에 둔다.
 
@@ -196,10 +202,18 @@ class ArtifactStore:
         )
         self._bucket = bucket
 
+    @staticmethod
+    def snapshot_key(build_id: int) -> str:
+        return f"snapshots/{build_id}.tar.gz"
+
     async def put_snapshot(self, build_id: int, path: Path) -> str:
-        key = f"snapshots/{build_id}.tar.gz"
+        key = self.snapshot_key(build_id)
         await _call(self._client.upload_file, Filename=str(path), Bucket=self._bucket, Key=key)
         return key
+
+    async def presign_snapshot(self, build_id: int) -> str:
+        """빌드가 올린 소스 스냅샷을 내려받는 단기 URL. 읽기 권한만 쓴다."""
+        return await self.presign(self.snapshot_key(build_id))
 
     async def presign(self, key: str) -> str:
         url: str = await _call(
