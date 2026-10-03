@@ -21,8 +21,10 @@ router = APIRouter(prefix="/api/v1/services/{service_id}/deployments", tags=["di
         "답하고**, 진단은 서버가 이어서 실행한다. 결과는 `GET .../diagnosis` 를 `status` 가 "
         "`SUCCEEDED`·`FAILED` 가 될 때까지 폴링해 받는다. "
         "성공한 진단이 이미 있으면 모델을 다시 부르지 않고 `200` 으로 그 결과를 돌려주며, "
-        "refresh=true 로 다시 진단한다. 해결책은 제안일 뿐 서버가 실행하지 않고, 배포 요청의 "
-        "상태도 바꾸지 않는다."
+        "refresh=true 로 다시 진단한다. 실패가 확정된 배포는 서버가 자동으로 진단을 시작하므로 "
+        "이 API 는 다시 시도·다시 진단·자동 진단 범위(끝난 지 10분)를 넘긴 옛 실패에 쓴다. "
+        "자동 진단이 도는 중이면 `409 DIAGNOSIS_IN_PROGRESS` 다. 해결책은 제안일 뿐 서버가 "
+        "실행하지 않고, 배포 요청의 상태도 바꾸지 않는다."
     ),
     responses={
         **error_responses(401, 404, 409, 422, 503),
@@ -63,7 +65,11 @@ async def diagnose_deployment_request(
     response_model=ApiResponse[DiagnosisResponse],
     response_model_exclude_none=True,
     summary="배포의 가장 최근 AI 진단 조회",
-    description="진단 상태(RUNNING·SUCCEEDED·FAILED)와 결과를 돌려준다. 진단 시작 뒤 폴링에 쓴다.",
+    description=(
+        "진단 상태(RUNNING·SUCCEEDED·FAILED)와 결과를 돌려준다. 폴링에 쓴다. 배포가 실패로 "
+        "확정되면 서버가 자동으로 진단을 시작하므로(보통 5초 안, 끝난 지 10분 안의 실패만) "
+        "그 사이에는 `404 DIAGNOSIS_NOT_FOUND` 일 수 있다."
+    ),
     responses=error_responses(401, 404, 422),
 )
 async def get_deployment_diagnosis(
