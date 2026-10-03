@@ -135,7 +135,6 @@ argocd proj role create-token iris-services deploy-reader      # 출력 토큰�
 
 ```dotenv
 AWS_REGION=ap-northeast-2
-BASE_DOMAIN=localhost
 GITOPS_REPOSITORY=<ORG>/iris-gitops-sandbox
 GITOPS_APP_ID=<APP_ID>
 GITOPS_INSTALLATION_ID=<INSTALLATION_ID>

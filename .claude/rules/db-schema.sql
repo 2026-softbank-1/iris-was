@@ -22,7 +22,7 @@ CREATE TABLE targets (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_targets PRIMARY KEY (id),
-    CONSTRAINT ck_targets_target_kind CHECK (kind IN ('AWS', 'LOCAL')),
+    CONSTRAINT ck_targets_target_kind CHECK (kind IN ('AWS', 'ONPREM')),
     CONSTRAINT uq_targets_name UNIQUE (name)
 );
 

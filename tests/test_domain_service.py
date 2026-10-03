@@ -16,7 +16,7 @@ class Setup:
         self.projects = FakeProjectRepository()
         self.services = FakeServiceRepository(self.projects)
         self.targets = FakeTargetRepository()
-        self.targets.targets[0].domain_suffix = "likelion.uk"  # local 은 규칙이 아직 없다
+        self.targets.targets[0].domain_suffix = "likelion.uk"  # onprem 은 접미사가 없다고 둔다
         self.releases = FakeReleaseRepository()
         self.service = DomainService(
             self.services,  # type: ignore[arg-type]
@@ -76,7 +76,7 @@ async def test_search_domains_returns_host_per_linked_target(setup: Setup) -> No
 
     assert [(d.target.name, d.host, d.is_connected) for d in details] == [
         ("aws", f"my-app-{service.id}.likelion.uk", False),
-        ("local", None, False),
+        ("onprem", None, False),
     ]
 
 

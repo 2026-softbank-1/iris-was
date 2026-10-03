@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 import pytest
 
 from app.clients.source_repository_client import BranchInfo
 from app.core.exceptions import (
+    ConflictError,
     DeploymentInProgressError,
     InvalidInputError,
     ProjectNotFoundError,
@@ -113,7 +116,7 @@ def test_normalize_root_directory_rejects_parent_traversal() -> None:
         normalize_root_directory("../secrets")
 
 
-async def test_create_service_uses_repo_defaults_and_all_targets(setup) -> None:
+async def test_create_service_uses_repo_defaults_and_aws_target(setup) -> None:
     s, service = setup
 
     detail = await _create(service, s)
@@ -122,7 +125,7 @@ async def test_create_service_uses_repo_defaults_and_all_targets(setup) -> None:
     assert detail.service.source_branch == "main"
     assert detail.service.source_repository_url == "https://github.com/iris-org/My_Web.App"
     assert detail.service.github_installation_id == 5
-    assert detail.target_ids == [1, 2]
+    assert detail.target_ids == [1]
     assert s.session.commit_count == 1
 
 
@@ -210,7 +213,7 @@ async def test_search_services_returns_targets(setup) -> None:
 
     details = await service.search_services(OWNER, s.project_id)
 
-    assert [(d.service.name, d.target_ids) for d in details] == [("a", [1, 2]), ("b", [1])]
+    assert [(d.service.name, d.target_ids) for d in details] == [("a", [1]), ("b", [1])]
 
 
 async def test_update_service_changes_build_settings_and_clears_nulls(setup) -> None:
@@ -231,7 +234,7 @@ async def test_update_service_changes_build_settings_and_clears_nulls(setup) -> 
     assert updated.service.builder is Builder.DOCKERFILE
     assert (updated.service.dockerfile_path, updated.service.port) == ("Dockerfile", 8080)
     assert updated.service.root_directory is None
-    assert updated.target_ids == [1, 2]
+    assert updated.target_ids == [1]
 
 
 async def test_update_service_replaces_targets(setup) -> None:
@@ -242,6 +245,28 @@ async def test_update_service_replaces_targets(setup) -> None:
 
     assert updated.target_ids == [2]
     assert s.services.targets[detail.service.id] == {2}
+
+
+async def test_create_service_with_two_targets_raises_invalid_input(setup) -> None:
+    s, service = setup
+    with pytest.raises(InvalidInputError):
+        await _create(service, s, target_ids=[1, 2])
+
+
+async def test_update_service_rejects_target_change_after_deployment(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+    s.deployments.requests.append(SimpleNamespace(id=1, service_id=detail.service.id))  # type: ignore[arg-type]
+    with pytest.raises(ConflictError):
+        await service.update_service(OWNER, detail.service.id, {"target_ids": [2]})
+
+
+async def test_update_service_keeps_same_target_after_deployment(setup) -> None:
+    s, service = setup
+    detail = await _create(service, s)
+    s.deployments.requests.append(SimpleNamespace(id=1, service_id=detail.service.id))  # type: ignore[arg-type]
+    updated = await service.update_service(OWNER, detail.service.id, {"target_ids": [1]})
+    assert updated.target_ids == [1]
 
 
 @pytest.mark.parametrize("field", ["name", "source_branch", "is_auto_deploy", "target_ids"])

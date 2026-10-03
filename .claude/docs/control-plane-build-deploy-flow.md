@@ -168,7 +168,7 @@ RETURNING jobs.*;
 ### 배포
 
 1. Build 성공 후 `image digest`와 SBOM·스캔 결과를 저장한다.
-2. Deploy Worker가 GitOps의 `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart `iris-service`의 values, 이미지는 digest)을 렌더링한다. manifest는 Argo CD가 chart로 만든다.
+2. Deploy Worker가 GitOps의 `services/{service_id}/{prod|타깃 이름}/values.yaml`(`aws` 타깃은 `prod`, 그 외는 타깃 이름. 플랫폼 Helm chart `iris-service`의 values, 이미지는 digest)을 렌더링한다. manifest는 Argo CD가 chart로 만든다.
 3. PR 없이 Bot(`iris-gitops` App)이 `main`에 fast-forward 커밋한다. `platform/**`은 ruleset으로 Bot 쓰기를 막는다.
 4. Argo CD의 `Sync`, `Health`를 확인한다. Argo Rollouts·smoke test 대신 rolling update(`maxUnavailable: 0`)와 readiness probe를 쓴다.
 5. 모두 성공했을 때만 해당 release를 `SUCCEEDED`로 기록한다. 이것이 `lastKnownGood`이다.

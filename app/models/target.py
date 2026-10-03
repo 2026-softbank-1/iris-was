@@ -4,6 +4,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.enums import TargetKind
 from app.models.base import Base, BigIntPk, TimestampMixin, enum_column
 
+# 서비스 기본 배포 타깃의 이름.
+AWS_TARGET_NAME = "aws"
+
 
 class Target(TimestampMixin, Base):
     """같은 이미지를 배포할 대상. 빌드는 한 번, 배포는 타깃마다 한 번이다."""

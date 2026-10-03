@@ -89,7 +89,7 @@ async def _seed(session: AsyncSession) -> tuple[User, Project, GithubInstallatio
 async def test_seeded_targets_exist(session: AsyncSession) -> None:
     names = [t.name for t in await TargetRepository(session).search_all()]
 
-    assert names == ["aws", "local"]
+    assert names == ["aws", "onprem"]
 
 
 async def test_project_name_is_unique_per_owner_until_deleted(session: AsyncSession) -> None:

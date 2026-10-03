@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
+    ConflictError,
     InvalidInputError,
     ProjectNotFoundError,
     ServiceNameConflictError,
@@ -15,6 +16,7 @@ from app.core.exceptions import (
 from app.enums import Builder
 from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
+from app.models.target import AWS_TARGET_NAME
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.project_repository import ProjectRepository
@@ -170,6 +172,7 @@ class ServiceRegistryService:
 
         if "target_ids" in changes:
             target_ids = await self._resolve_target_ids(changes["target_ids"])
+            await self._ensure_target_kept_after_deploy(service.id, target_ids)
             await self._service_repository.replace_targets(service.id, set(target_ids))
         await self._session.commit()
         return (await self._detail([service]))[0]
@@ -202,17 +205,28 @@ class ServiceRegistryService:
             raise InvalidInputError("branch not found in repository", field="branch", branch=branch)
 
     async def _resolve_target_ids(self, target_ids: list[int] | None) -> list[int]:
-        """지정이 없으면 등록된 모든 타깃에 배포한다. 존재하지 않는 타깃은 거부한다."""
+        """서비스는 타깃 하나에만 배포한다. 지정이 없으면 `aws` 타깃이다."""
         if target_ids is None:
             targets = await self._target_repository.search_all()
-            return [t.id for t in targets]
+            return [t.id for t in targets if t.name == AWS_TARGET_NAME]
         wanted = sorted(set(target_ids))
-        if not wanted:
-            raise InvalidInputError("at least one target is required", field="targetIds")
-        found = {t.id for t in await self._target_repository.search_by_ids(wanted)}
-        if missing := [t for t in wanted if t not in found]:
-            raise InvalidInputError("unknown target", field="targetIds", target_ids=missing)
+        if len(wanted) != 1:
+            raise InvalidInputError("exactly one target is required", field="targetIds")
+        if not await self._target_repository.search_by_ids(wanted):
+            raise InvalidInputError("unknown target", field="targetIds", target_ids=wanted)
         return wanted
+
+    async def _ensure_target_kept_after_deploy(
+        self, service_id: int, target_ids: list[int]
+    ) -> None:
+        """배포한 뒤 타깃을 바꾸면 두 ApplicationSet 이 같은 svc-{id} 를 만든다."""
+        current = (await self._service_repository.search_target_ids_by_service_ids([service_id]))[
+            service_id
+        ]
+        if current == target_ids:
+            return
+        if await self._deployment_request_repository.count_by_service_id(service_id):
+            raise ConflictError("target cannot change after deployment", field="targetIds")
 
     async def _detail(self, services: list[Service]) -> list[ServiceDetail]:
         target_ids = await self._service_repository.search_target_ids_by_service_ids(
