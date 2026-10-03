@@ -2,7 +2,8 @@
 
 > **2026-10-03 구현 상태**: 아래 설계는 Helm 전환에 맞춰 구현됐다. 남은 것은 클러스터 쪽뿐이다.
 > - 완료: 변수 저장·스냅샷 API(ADR 0017), iris-infra `iris-service` 0.6.0 과 Sealed Secrets addon(코드·tag), Deploy Worker 봉인(`app/clients/secret_sealer.py`, `DeployService._seal_variables`)
-> - 남음: `make bootstrap` 으로 클러스터에 반영 → controller 키 백업 → 공개 인증서를 Deploy Worker 설정(`SEALED_SECRETS_CERT`, iris-platform chart 값)으로 전달 → 변수가 있는 서비스로 end-to-end 확인(롤백·빈 값 포함)
+> - 운영 반영 완료(2026-10-03): Argo root 를 iris-infra main 으로 옮겨 chart 0.6.0·controller 반영, 키 백업(Secrets Manager `iris/dev/sealed-secrets-key`), 공개 인증서를 Secret `iris-platform-was-env` 의 `SEALED_SECRETS_CERT` 로 추가. 클러스터에서 봉인·복호화·`envFrom`·빈 값·namespace 거절을 확인했다
+> - end-to-end 확인 완료(2026-10-03, 시험 서비스): API 변수 등록 → 배포 → Pod 환경변수 일치, 수정 후 RESTART 반영, ROLLBACK 시 이전 값 복원, REMOVE 정리. 자동 rollback(revert commit) 경로는 아직 확인하지 않았다
 > - 이 문서의 `SecretSealer.seal`·`kubeseal` subprocess 안은 `cryptography` 직접 봉인으로 대체됐다. `vars-v{version}` 대신 release 마다 `vars-r{release_id}` 이름을 쓴다.
 
 > [Deploy Worker 계획](deploy-worker-plan.md) MVP 에서 뺀 기능. 원본 계획의 설계를 보존한다.
@@ -15,7 +16,7 @@
 ## 선행 조건
 
 - ~~Build 계획 Task 7: `VariableService`, `service_variable_versions`, `builds.variables_version`~~ — **구현됨(2026-10-02, [ADR 0017](../../docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md))**. 버전 테이블 대신 `service_variables`(키별 Fernet 암호문)와 `deployment_requests.variables_snapshot`(`{key: 암호문}`)을 쓴다. 이 문서의 `variables_version` 은 "snapshot 의 내용 해시" 같은 값이 필요해지면 그때 정한다. 아래 설계의 `VariableService.load(service_id, version)` 은 "요청의 스냅샷을 복호화한다"로 바뀐다.
-- Prod 에 Sealed Secrets controller 설치, 키를 Secrets Manager 에 백업(관리자만 읽기) — 코드는 iris-infra PR #43 으로 merge 됐고 bootstrap 이 남았다
+- ~~Prod 에 Sealed Secrets controller 설치, 키를 Secrets Manager 에 백업~~ — 2026-10-03 완료
 - ~~chart 가 사용자 변수를 받는 값을 추가~~ — iris-infra `iris-service` 0.6.0 으로 완료
 - Deploy Worker 가 스냅샷을 복호화할 키를 받는 방식 — 지금은 공유 `.env` Secret 으로 받는다. 키를 나누는 것은 후속(ADR 0017)
 
