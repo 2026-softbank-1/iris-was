@@ -47,7 +47,7 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
 from app.services.deployment_status_service import DeploymentStatusService
-from app.services.deployment_strategy import strategy_extra_wait
+from app.services.deployment_strategy import PROGRESSIVE_TARGET_KINDS, strategy_extra_wait
 from app.services.domain_service import service_host_label
 from app.services.scaling_config import ScalingConfig
 
@@ -366,12 +366,16 @@ class DeployService:
         }
 
     def _deployment_strategy(self, release: Release) -> DeploymentStrategy | None:
-        """요청에 적용한 배포 방식. 기능을 켠 Worker 만 values 에 쓴다.
+        """요청에 적용한 배포 방식. 기능을 켠 Worker 가 AWS 타깃 release 에만 values 에 쓴다.
 
         이전 chart(0.7.0 미만)의 schema 는 모르는 키를 거절하므로 켜지 않은 Worker 는 키를 쓰지
-        않는다. 기능 도입 전 요청은 방식이 없어 ROLLING 이다.
+        않는다. on-prem 타깃은 chart 0.6.0 에 남아 있어 기능을 켜도 쓰지 않는다. 기능 도입 전
+        요청은 방식이 없어 ROLLING 이다.
         """
-        if not self._settings.deployment_strategy_enabled:
+        if (
+            not self._settings.deployment_strategy_enabled
+            or release.target.kind not in PROGRESSIVE_TARGET_KINDS
+        ):
             return None
         return release.deployment_request.deployment_strategy or DeploymentStrategy.ROLLING
 

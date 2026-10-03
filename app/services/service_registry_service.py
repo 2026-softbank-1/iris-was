@@ -14,7 +14,7 @@ from app.core.exceptions import (
     ServiceNameConflictError,
     ServiceNotFoundError,
 )
-from app.enums import Builder, DeploymentStrategy
+from app.enums import Builder, DeploymentStrategy, TargetKind
 from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
 from app.models.target import AWS_TARGET_NAME
@@ -23,7 +23,11 @@ from app.repositories.github_installation_repository import GithubInstallationRe
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
-from app.services.deployment_strategy import MIN_PROGRESSIVE_REPLICAS, PROGRESSIVE_STRATEGIES
+from app.services.deployment_strategy import (
+    MIN_PROGRESSIVE_REPLICAS,
+    PROGRESSIVE_STRATEGIES,
+    PROGRESSIVE_TARGET_KINDS,
+)
 from app.services.scaling_config import ScalingConfig
 from app.services.service_teardown_service import ServiceTeardownService
 from app.services.source_repository_service import SourceRepositoryService
@@ -177,7 +181,7 @@ class ServiceRegistryService:
         if "deployment_strategy" in changes:
             strategy = DeploymentStrategy(changes["deployment_strategy"])
             if strategy != service.deployment_strategy:
-                self._check_deployment_strategy(service, strategy)
+                await self._check_deployment_strategy(service, strategy, changes.get("target_ids"))
 
         for field, value in changes.items():
             if field == "target_ids":
@@ -215,12 +219,20 @@ class ServiceRegistryService:
             raise ServiceNotFoundError("service not found", service_id=service_id)
         return service
 
-    def _check_deployment_strategy(self, service: Service, strategy: DeploymentStrategy) -> None:
-        """카나리·블루그린은 기능이 켜져 있고 저장된 Pod 수(없으면 1)가 2 이상일 때만 저장한다."""
+    async def _check_deployment_strategy(
+        self, service: Service, strategy: DeploymentStrategy, target_ids: list[int] | None
+    ) -> None:
+        """카나리·블루그린은 기능이 켜져 있고 AWS 타깃이고 Pod 수가 2 이상일 때만 저장한다.
+
+        Pod 수는 저장된 값(없으면 1)이다. on-prem 타깃은 chart 0.6.0 에 남아 롤링만 쓴다.
+        같은 요청이 타깃을 바꾸면 바뀐 타깃으로 본다.
+        """
         if strategy not in PROGRESSIVE_STRATEGIES:
             return
         if not self._deployment_strategy_enabled:
             reason = "deployment_strategy_disabled"
+        elif await self._find_target_kind(service.id, target_ids) not in PROGRESSIVE_TARGET_KINDS:
+            reason = "deployment_strategy_unsupported_target"
         elif _desired_replicas(service) < MIN_PROGRESSIVE_REPLICAS:
             reason = "at_least_two_replicas_required"
         else:
@@ -231,6 +243,19 @@ class ServiceRegistryService:
             field="deploymentStrategy",
             service_id=service.id,
         )
+
+    async def _find_target_kind(
+        self, service_id: int, target_ids: list[int] | None
+    ) -> TargetKind | None:
+        """서비스가 배포될 타깃의 종류. 타깃이 없는 서비스는 `aws` 에 배포하므로 AWS 다."""
+        if target_ids is None:
+            target_ids = (
+                await self._service_repository.search_target_ids_by_service_ids([service_id])
+            )[service_id]
+        if not target_ids:
+            return TargetKind.AWS
+        targets = await self._target_repository.search_by_ids(target_ids)
+        return targets[0].kind if targets else None
 
     async def _ensure_name_available(self, project_id: int, name: str) -> None:
         if not SERVICE_NAME_PATTERN.match(name):

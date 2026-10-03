@@ -5,9 +5,10 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.enums import DeploymentStrategy, JobKind
+from app.enums import DeploymentStrategy, DeploymentTrigger, JobKind
 from app.models import DeploymentRequest, Service
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -20,7 +21,7 @@ from app.services.deploy_service import DEADLINE_MARGIN
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.scaling_config import ScalingConfig
 from app.services.service_scaling_service import ServiceScalingService
-from tests.test_deploy_flow import SETTINGS, Harness
+from tests.test_deploy_flow import SETTINGS, Harness, _use_target
 from tests.test_scaling_integration import _owner
 from tests.worker_support import requires_database, session_factory_with_clean_data
 
@@ -35,8 +36,8 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
         yield factory
 
 
-def _scaling(session: AsyncSession) -> ServiceScalingService:
-    requests = DeploymentRequestService(
+def _requests(session: AsyncSession) -> DeploymentRequestService:
+    return DeploymentRequestService(
         DeploymentRequestRepository(session),
         JobRepository(session),
         DeploymentStatusHistoryRepository(session),
@@ -45,12 +46,15 @@ def _scaling(session: AsyncSession) -> ServiceScalingService:
         ServiceRepository(session),
         deployment_strategy_enabled=True,
     )
+
+
+def _scaling(session: AsyncSession) -> ServiceScalingService:
     return ServiceScalingService(
         session,
         ServiceRepository(session),
         DeploymentRequestRepository(session),
         BuildRepository(session),
-        requests,
+        _requests(session),
     )
 
 
@@ -117,4 +121,59 @@ async def test_scale_down_below_two_pods_records_rolling_fallback(
         assert request.deployment_strategy == DeploymentStrategy.ROLLING
     tree = h.gitops.commits[h.gitops.head][1][f"services/{h.service_id}/prod"]
     # 기능을 켜지 않은 Worker 는 이전 chart 가 모르는 키를 쓰지 않는다.
+    assert "deploymentStrategy" not in json.loads(h.gitops.trees[tree]["values.yaml"])
+
+
+@pytest.mark.parametrize(
+    ("target_name", "expected"),
+    [("aws", DeploymentStrategy.CANARY), ("onprem", DeploymentStrategy.ROLLING)],
+)
+async def test_request_on_target_applies_strategy_by_target_kind(
+    session_factory: async_sessionmaker[AsyncSession],
+    target_name: str,
+    expected: DeploymentStrategy,
+) -> None:
+    h = Harness(session_factory)
+    await h.deploy_successfully()
+    assert h.service_id is not None
+    await _use_target(h, target_name)
+    async with session_factory.begin() as session:
+        service = await session.get_one(Service, h.service_id)
+        service.deployment_strategy = DeploymentStrategy.CANARY
+        service.scaling_config = TWO_PODS.model_dump(mode="json")
+
+    async with session_factory.begin() as session:
+        service = await session.get_one(Service, h.service_id)
+        request = await _requests(session).create_deployment_request(
+            service,
+            source_sha="b" * 40,
+            source_commit_message=None,
+            trigger_type=DeploymentTrigger.PUSH,
+            idempotency_key=f"target-{target_name}",
+        )
+
+    assert request is not None
+    assert request.requested_deployment_strategy == DeploymentStrategy.CANARY
+    assert request.deployment_strategy == expected
+
+
+async def test_worker_with_flag_on_omits_strategy_key_for_onprem_target(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    h = Harness(
+        session_factory, settings=SETTINGS.model_copy(update={"deployment_strategy_enabled": True})
+    )
+    request_id = await h.request_deploy()
+    await _use_target(h, "onprem")
+    async with session_factory.begin() as session:
+        # 플래그를 켠 Worker 가 받는 요청이라도 on-prem release 에는 키를 쓰지 않는다.
+        await session.execute(
+            update(DeploymentRequest)
+            .where(DeploymentRequest.id == request_id)
+            .values(deployment_strategy=DeploymentStrategy.CANARY)
+        )
+
+    await h.run_next(JobKind.DEPLOY)
+
+    tree = h.gitops.commits[h.gitops.head][1][f"services/{h.service_id}/onprem"]
     assert "deploymentStrategy" not in json.loads(h.gitops.trees[tree]["values.yaml"])

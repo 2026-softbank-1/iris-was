@@ -1,14 +1,22 @@
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DeploymentStrategy
+from app.enums import DeploymentStrategy, TargetKind
 from app.models.base import now_utc
 from app.models.project import Project
 from app.models.service import Service
-from app.models.target import ServiceTarget
+from app.models.target import ServiceTarget, Target
+
+
+class DeploymentSettings(NamedTuple):
+    """배포 요청이 고정하는 서비스 설정. 요청 시점의 최신 값이다."""
+
+    scaling_config: dict[str, Any] | None
+    deployment_strategy: DeploymentStrategy
+    target_kind: TargetKind
 
 
 class ServiceRepository:
@@ -46,19 +54,28 @@ class ServiceRepository:
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
-    async def get_deployment_settings_for_update(
-        self, service_id: int
-    ) -> tuple[dict[str, Any] | None, DeploymentStrategy]:
-        """원하는 Pod 설정과 배포 방식의 최신 값을 읽고 배포 요청이 커밋될 때까지 행을 잠근다."""
+    async def get_deployment_settings_for_update(self, service_id: int) -> DeploymentSettings:
+        """원하는 Pod 설정·배포 방식·배포 타깃 종류를 읽고 배포 요청이 커밋될 때까지 행을 잠근다.
+
+        타깃이 없는 서비스는 `aws` 타깃에 배포하므로 AWS 다.
+        """
         # PUT이 같은 트랜잭션에서 바꾼 값도 DB에서 읽을 수 있도록 먼저 반영한다.
         await self._session.flush()
+        target_kind = (
+            select(Target.kind)
+            .join(ServiceTarget, ServiceTarget.target_id == Target.id)
+            .where(ServiceTarget.service_id == Service.id)
+            .order_by(Target.id)
+            .limit(1)
+            .scalar_subquery()
+        )
         stmt = (
-            select(Service.scaling_config, Service.deployment_strategy)
+            select(Service.scaling_config, Service.deployment_strategy, target_kind)
             .where(Service.id == service_id)
             .with_for_update(of=Service)
         )
-        scaling_config, deployment_strategy = (await self._session.execute(stmt)).one()
-        return scaling_config, deployment_strategy
+        scaling_config, deployment_strategy, kind = (await self._session.execute(stmt)).one()
+        return DeploymentSettings(scaling_config, deployment_strategy, kind or TargetKind.AWS)
 
     async def find_by_project_id_and_name(self, project_id: int, name: str) -> Service | None:
         stmt = select(Service).where(

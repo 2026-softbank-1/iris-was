@@ -1,7 +1,6 @@
 """웹훅·배포 요청 테스트용 가짜 Repository."""
 
 from itertools import count
-from typing import Any
 
 from app.core.exceptions import DeploymentRequestNotFoundError
 from app.enums import (
@@ -10,6 +9,7 @@ from app.enums import (
     DeploymentStatus,
     DeploymentStrategy,
     Environment,
+    TargetKind,
 )
 from app.models.base import now_utc
 from app.models.build import Build
@@ -18,17 +18,20 @@ from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
 from app.models.release import Release
 from app.models.service import Service
+from app.repositories.service_repository import DeploymentSettings
 
 
 class FakeWebhookServiceRepository:
     def __init__(self, services: list[Service]) -> None:
         self.services = services
 
-    async def get_deployment_settings_for_update(
-        self, service_id: int
-    ) -> tuple[dict[str, Any] | None, DeploymentStrategy]:
+    async def get_deployment_settings_for_update(self, service_id: int) -> DeploymentSettings:
         service = next(service for service in self.services if service.id == service_id)
-        return service.scaling_config, service.deployment_strategy or DeploymentStrategy.ROLLING
+        return DeploymentSettings(
+            service.scaling_config,
+            service.deployment_strategy or DeploymentStrategy.ROLLING,
+            TargetKind.AWS,
+        )
 
     async def search_auto_deploy_by_repository_url_and_branch(
         self, repository_url: str, branch: str

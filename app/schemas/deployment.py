@@ -137,8 +137,9 @@ class DeploymentResponse(ApiModel):
     deployment_strategy: DeploymentStrategy | None = Field(
         default=None,
         description=(
-            "실제로 적용한 배포 방식. Pod 가 2개 미만이거나 기능이 꺼져 있으면 요청 방식과 달리"
-            " ROLLING 이다(화면의 롤링 대체 안내). REMOVE 와 기능 도입 전 요청은 없다."
+            "실제로 적용한 배포 방식. Pod 가 2개 미만이거나 타깃이 on-prem 이거나 기능이 꺼져"
+            " 있으면 요청 방식과 달리 ROLLING 이다(화면의 롤링 대체 안내). REMOVE 와 기능 도입 전"
+            " 요청은 없다."
         ),
         examples=["ROLLING"],
     )
