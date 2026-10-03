@@ -37,7 +37,8 @@ from app.services.onprem_server_service import onprem_target_name
 
 logger = logging.getLogger(__name__)
 
-SERVER_LEASE = timedelta(minutes=2)
+# 기록할 때마다(커밋 SHA·기한) 갱신한다. 커밋 한 번(GitHub 호출 몇 번)보다 넉넉히 둔다.
+SERVER_LEASE = timedelta(minutes=5)
 CONNECT_TIMEOUT = timedelta(minutes=15)
 PROBE_INTERVAL = timedelta(seconds=10)
 # probe 를 읽을 토큰이 없을 때 다시 볼 간격. 그동안 기한은 미룬다.
@@ -170,11 +171,16 @@ class OnpremServerSyncService:
             await self._release(claim)
 
     async def retry_later(self, server: OnpremServer, error: Exception) -> None:
-        """예상하지 못한 실패. 다음 확인을 미루고 lease 를 놓는다."""
+        """GitOps 커밋 밖의 실패(설정·복호화 등). 오류를 남기고 다음 확인을 미루며 lease 를 놓는다.
+
+        커밋 재시도 횟수는 쓰지 않는다. 설정을 고치면 그대로 이어서 처리한다.
+        """
         claim = _Claim.of(server)
+        description = _describe(error)
         try:
             await self._update(
-                claim, lambda s: s.schedule_check(datetime.now(UTC) + RETRY_BASE_DELAY)
+                claim,
+                lambda s: s.record_error(description, datetime.now(UTC) + RETRY_BASE_DELAY),
             )
         except _StaleClaimError:
             await self._release(claim)
@@ -183,8 +189,10 @@ class OnpremServerSyncService:
 
     async def _register(self, claim: _Claim, server: OnpremServer) -> None:
         if server.connect_deadline_at is None:
+            # 봉인·복호화 실패는 커밋 실패가 아니다. Worker 루프의 retry_later 로 넘긴다.
+            values = await self._render_values(server)
             try:
-                await self._push_values(claim, server)
+                await self._push_values(claim, server, values)
             except _StaleClaimError:
                 raise
             except Exception as exc:
@@ -201,8 +209,7 @@ class OnpremServerSyncService:
         assert server.connect_deadline_at is not None
         await self._check_probe(claim, server.connect_deadline_at)
 
-    async def _push_values(self, claim: _Claim, server: OnpremServer) -> None:
-        values = await self._render_values(server)
+    async def _push_values(self, claim: _Claim, server: OnpremServer, values: str) -> None:
         token = await self._gitops.token()
         repository = self._gitops.repository
         path = server_directory(claim.server_key)
@@ -396,14 +403,19 @@ class OnpremServerSyncService:
         *,
         release: bool = True,
     ) -> None:
-        """행을 잠가 선점할 때와 같은지 확인하고 바꾼다. release 면 lease 도 놓는다."""
+        """행을 잠가 선점할 때와 같은지 확인하고 바꾼다. release 면 lease 를 놓고, 아니면 갱신한다.
+
+        lease 를 다른 Worker 가 가져갔거나(만료) 토큰 재발급으로 비워졌으면 결과를 쓰지 않는다.
+        """
         async with self._session_factory.begin() as session:
             server = await OnpremServerRepository(session).get_by_id_for_update(claim.server_id)
-            if not claim.matches(server):
+            if not claim.matches(server) or server.locked_by != self._worker_id:
                 raise _StaleClaimError
             change(server)
             if release:
-                _release_own_lease(server, self._worker_id)
+                server.release_lease()
+            else:
+                server.renew_lease(datetime.now(UTC) + SERVER_LEASE)
 
     async def _release(self, claim: _Claim) -> None:
         """결과를 쓰지 않고 lease 만 놓는다. 다음 확인 시각은 바꾼 쪽이 정했다."""

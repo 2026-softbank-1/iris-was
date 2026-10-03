@@ -164,7 +164,8 @@ async def main() -> None:
             )
             probe_argocd = ArgoCdClient(probe_http, settings.gitops_repository)
         servers = None
-        if settings.platform_sealed_secrets_cert:
+        # 서버 SA 토큰(암호문)을 풀어 봉인하므로 봉인 인증서와 복호화 키가 모두 있어야 켠다.
+        if settings.platform_sealed_secrets_cert and cipher is not None:
             if probe_argocd is None:
                 logger.warning(
                     "onprem server connection check is off",
@@ -184,7 +185,10 @@ async def main() -> None:
         else:
             logger.warning(
                 "onprem server sync is off",
-                extra={"action": "main", "setting": "PLATFORM_SEALED_SECRETS_CERT"},
+                extra={
+                    "action": "main",
+                    "setting": "PLATFORM_SEALED_SECRETS_CERT, VARIABLES_ENCRYPTION_KEY",
+                },
             )
 
         async def seconds_until_next() -> float | None:

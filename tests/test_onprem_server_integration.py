@@ -16,8 +16,23 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.clients.argocd_client import ArgoAppStatus
 from app.clients.secret_sealer import SecretSealer
 from app.core.crypto import VariableCipher
-from app.enums import JobKind, OnpremServerFailureCode, OnpremServerStatus
-from app.models import OnpremServer, Project, Service, ServiceTarget, Target, User
+from app.enums import (
+    DeploymentStatus,
+    DeploymentTrigger,
+    Environment,
+    JobKind,
+    OnpremServerFailureCode,
+    OnpremServerStatus,
+)
+from app.models import (
+    DeploymentRequest,
+    OnpremServer,
+    Project,
+    Service,
+    ServiceTarget,
+    Target,
+    User,
+)
 from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
@@ -58,7 +73,9 @@ class World:
         self.argo = FakeArgo()
         self.sync = self.make_sync("worker-1")
 
-    def make_sync(self, worker_id: str, *, has_probe: bool = True) -> OnpremServerSyncService:
+    def make_sync(
+        self, worker_id: str, *, has_probe: bool = True, cipher: VariableCipher = CIPHER
+    ) -> OnpremServerSyncService:
         return OnpremServerSyncService(
             self.session_factory,
             self.gitops,  # type: ignore[arg-type]
@@ -66,7 +83,7 @@ class World:
             self.argo if has_probe else None,  # type: ignore[arg-type]
             worker_id,
             platform_sealer=SecretSealer(PLATFORM_CERT),
-            cipher=CIPHER,
+            cipher=cipher,
         )
 
     async def call[T](self, action: Any) -> T:
@@ -395,3 +412,112 @@ async def test_deploy_to_server_target_uses_server_host_and_server_sealing_key(
     async with session_factory() as session:
         target = await session.get_one(Target, registration.server.target_id)
     assert target.owner_id == owner_id
+
+    # 서비스를 지워도 GitOps 에 커밋한 release 가 있으면 서버는 아직 쓰는 중이다.
+    target_id = registration.server.target_id
+    async with session_factory.begin() as session:
+        await session.execute(update(DeploymentRequest).values(status=DeploymentStatus.SUCCEEDED))
+        await session.execute(
+            update(Service).where(Service.id == h.service_id).values(is_deleted=True)
+        )
+    async with session_factory() as session:
+        assert await ServiceRepository(session).is_target_in_use(target_id)
+
+    async with session_factory.begin() as session:
+        session.add(
+            DeploymentRequest(
+                service_id=h.service_id,
+                environment=Environment.PROD,
+                source_sha="a" * 40,
+                trigger_type=DeploymentTrigger.REMOVE,
+                idempotency_key="remove-1",
+                status=DeploymentStatus.SUCCEEDED,
+            )
+        )
+    async with session_factory() as session:
+        assert not await ServiceRepository(session).is_target_in_use(target_id)
+
+
+async def test_render_failure_records_error_without_using_commit_attempts(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    w.sync = w.make_sync("worker-1", cipher=VariableCipher(Fernet.generate_key().decode()))
+    registration = await w.register(await w.owner())
+
+    await w.run_next()
+
+    server = await w.load(registration.server.id)
+    assert server.status == OnpremServerStatus.REGISTERING
+    assert server.gitops_attempts == 0
+    assert server.last_error is not None and "Decryption" in server.last_error
+    assert server.next_check_at is not None and server.next_check_at > datetime.now(UTC)
+    assert server.locked_by is None
+    assert w.gitops.head == "c0"
+
+
+async def test_lease_is_renewed_when_commit_is_recorded(session_factory: Any) -> None:
+    w = World(session_factory)
+    registration = await w.register(await w.owner())
+    seen: list[datetime | None] = []
+    original = w.gitops.update_branch
+
+    async def update_branch(token: str, full_name: str, branch: str, commit_sha: str) -> None:
+        seen.append((await w.load(registration.server.id)).locked_until)
+        await original(token, full_name, branch, commit_sha)
+
+    w.gitops.update_branch = update_branch  # type: ignore[method-assign]
+    async with session_factory.begin() as session:
+        await session.execute(update(OnpremServer).values(next_check_at=datetime.now(UTC)))
+    claimed = await w.sync.claim_next_server()
+    assert claimed is not None
+    async with session_factory.begin() as session:
+        await session.execute(
+            update(OnpremServer).values(locked_until=datetime.now(UTC) + timedelta(seconds=5))
+        )
+
+    await w.sync.run(claimed)
+
+    assert seen and seen[0] is not None
+    assert seen[0] > datetime.now(UTC) + timedelta(minutes=4)
+
+
+async def test_reissue_while_syncing_drops_the_worker_result(session_factory: Any) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    registration = await w.register(owner_id)
+    async with session_factory.begin() as session:
+        await session.execute(update(OnpremServer).values(next_check_at=datetime.now(UTC)))
+    claimed = await w.sync.claim_next_server()
+    assert claimed is not None
+
+    await w.call(lambda s: s.reissue_registration_token(owner_id, registration.server.id))
+    await w.sync.run(claimed)
+
+    server = await w.load(registration.server.id)
+    assert server.status == OnpremServerStatus.PENDING
+    assert server.gitops_commit_sha is None
+    assert w.gitops.head == "c0"
+    assert await w.sync.claim_next_server() is None
+
+
+async def test_worker_whose_lease_was_taken_over_writes_nothing(session_factory: Any) -> None:
+    w = World(session_factory)
+    registration = await w.register(await w.owner())
+    async with session_factory.begin() as session:
+        await session.execute(update(OnpremServer).values(next_check_at=datetime.now(UTC)))
+    slow = await w.sync.claim_next_server()
+    assert slow is not None
+    async with session_factory.begin() as session:
+        await session.execute(
+            update(OnpremServer).values(locked_until=datetime.now(UTC) - timedelta(seconds=1))
+        )
+    other = w.make_sync("worker-2")
+    assert await other.claim_next_server() is not None
+
+    await w.sync.run(slow)
+
+    server = await w.load(registration.server.id)
+    assert w.gitops.head == "c0"
+    assert server.gitops_commit_sha is None
+    assert server.locked_by == "worker-2"
