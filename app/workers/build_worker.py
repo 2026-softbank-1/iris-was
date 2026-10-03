@@ -11,7 +11,12 @@ from typing import Any
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.clients.aws_clients import ArtifactStore, CodeBuildClient, EcrClient
+from app.clients.aws_clients import (
+    ArtifactStore,
+    CloudWatchBuildLogClient,
+    CodeBuildClient,
+    EcrClient,
+)
 from app.clients.github_client import GITHUB_API_URL, GitHubClient
 from app.core.config import get_build_worker_settings, get_settings
 from app.core.database import get_session_factory
@@ -97,6 +102,7 @@ async def main() -> None:
             codebuild=CodeBuildClient(settings.aws_region, settings.codebuild_project),
             ecr=EcrClient(settings.aws_region),
             artifacts=ArtifactStore(settings.aws_region, settings.artifact_bucket),
+            build_logs=CloudWatchBuildLogClient(settings.aws_region),
             settings=settings,
             # Pod 이름(hostname)으로 lease 소유자를 구분한다.
             worker_id=f"{socket.gethostname()}:{os.getpid()}",

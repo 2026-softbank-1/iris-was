@@ -229,6 +229,63 @@
         "title": "ApiResponse[DeploymentResponse]",
         "type": "object"
       },
+      "ApiResponse_DiagnosisResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagnosisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[DiagnosisResponse]",
+        "type": "object"
+      },
       "ApiResponse_LogsResponse_": {
         "properties": {
           "code": {
@@ -1819,6 +1876,327 @@
         "title": "DeploymentTrigger",
         "type": "string"
       },
+      "DiagnosisAnalysis": {
+        "description": "진단 내용. 원인은 hypotheses, 해결책은 remediation.plans 다.",
+        "properties": {
+          "analysisStatus": {
+            "enum": [
+              "diagnosed",
+              "insufficient_evidence",
+              "no_failure_evidence"
+            ],
+            "title": "Analysisstatus",
+            "type": "string"
+          },
+          "hypotheses": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisHypothesis"
+            },
+            "title": "Hypotheses",
+            "type": "array"
+          },
+          "limitations": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "missingInformation": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisMissingInformation"
+            },
+            "title": "Missinginformation",
+            "type": "array"
+          },
+          "nextChecks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisCheck"
+            },
+            "title": "Nextchecks",
+            "type": "array"
+          },
+          "observations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisObservation"
+            },
+            "title": "Observations",
+            "type": "array"
+          },
+          "remediation": {
+            "$ref": "#/components/schemas/Remediation"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "analysisStatus",
+          "summary",
+          "remediation"
+        ],
+        "title": "DiagnosisAnalysis",
+        "type": "object"
+      },
+      "DiagnosisCheck": {
+        "properties": {
+          "hypothesisIds": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Hypothesisids",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "target",
+          "method",
+          "purpose"
+        ],
+        "title": "DiagnosisCheck",
+        "type": "object"
+      },
+      "DiagnosisHypothesis": {
+        "description": "원인 후보. 근거 로그(evidence_ids)와 반대 근거, 불확실한 점을 함께 준다.",
+        "properties": {
+          "category": {
+            "description": "configuration · dependency · build_compile · start_command · port_binding · external_connection · access_permission · resource · health_check · release_migration · other",
+            "title": "Category",
+            "type": "string"
+          },
+          "counterEvidenceIds": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Counterevidenceids",
+            "type": "array"
+          },
+          "evidenceIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidenceids",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "observationIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Observationids",
+            "type": "array"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "supportLevel": {
+            "enum": [
+              "direct",
+              "supported"
+            ],
+            "title": "Supportlevel",
+            "type": "string"
+          },
+          "uncertainty": {
+            "title": "Uncertainty",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "supportLevel",
+          "statement",
+          "observationIds",
+          "evidenceIds",
+          "uncertainty"
+        ],
+        "title": "DiagnosisHypothesis",
+        "type": "object"
+      },
+      "DiagnosisMissingInformation": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requestedData": {
+            "title": "Requesteddata",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestedData",
+          "reason"
+        ],
+        "title": "DiagnosisMissingInformation",
+        "type": "object"
+      },
+      "DiagnosisObservation": {
+        "properties": {
+          "evidenceIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidenceids",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "failure",
+              "context"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "text",
+          "evidenceIds"
+        ],
+        "title": "DiagnosisObservation",
+        "type": "object"
+      },
+      "DiagnosisResponse": {
+        "description": "AI 진단 1회. 배포 요청의 상태는 진단으로 바뀌지 않는다.",
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiagnosisAnalysis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SUCCEEDED 일 때만 있다. 원인(hypotheses)과 해결책(remediation)"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "deploymentId": {
+            "title": "Deploymentid",
+            "type": "integer"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FAILED 일 때만 있다. 이 서버의 코드(DIAGNOSIS_LOGS_UNAVAILABLE 등)이거나 에이전트의 코드(MODEL_TIMEOUT 등)다.",
+            "title": "Errorcode"
+          },
+          "evidence": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLine"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inputLimitations": {
+            "default": [],
+            "description": "로그 누락·마스킹·잘림 등 진단 입력의 한계",
+            "items": {
+              "type": "string"
+            },
+            "title": "Inputlimitations",
+            "type": "array"
+          },
+          "sourceAnalysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceAnalysis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/DiagnosisStatus",
+            "description": "RUNNING 이면 진단 중, FAILED 면 errorCode 를 본다."
+          }
+        },
+        "required": [
+          "id",
+          "deploymentId",
+          "status",
+          "createdAt"
+        ],
+        "title": "DiagnosisResponse",
+        "type": "object"
+      },
+      "DiagnosisStatus": {
+        "enum": [
+          "RUNNING",
+          "SUCCEEDED",
+          "FAILED"
+        ],
+        "title": "DiagnosisStatus",
+        "type": "string"
+      },
       "ErrorDetail": {
         "description": "필드별 검증 실패 사유. field 는 camelCase 필드 경로다.",
         "properties": {
@@ -1836,6 +2214,68 @@
           "reason"
         ],
         "title": "ErrorDetail",
+        "type": "object"
+      },
+      "EvidenceLine": {
+        "description": "진단이 근거로 쓴 로그 한 줄(마스킹됨). 원인·해결안의 evidence_ids 가 가리킨다.",
+        "properties": {
+          "eventLine": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventline"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "sourceId": {
+            "title": "Sourceid",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stream": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "sourceId",
+          "stage",
+          "text"
+        ],
+        "title": "EvidenceLine",
         "type": "object"
       },
       "FailureCode": {
@@ -2262,6 +2702,206 @@
           }
         },
         "title": "ProjectUpdateRequest",
+        "type": "object"
+      },
+      "Remediation": {
+        "properties": {
+          "plans": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RemediationPlan"
+            },
+            "title": "Plans",
+            "type": "array"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "proposed",
+              "needs_more_evidence",
+              "not_needed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "Remediation",
+        "type": "object"
+      },
+      "RemediationChange": {
+        "properties": {
+          "instruction": {
+            "title": "Instruction",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "code",
+              "configuration",
+              "command"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "placeholders": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RemediationPlaceholder"
+            },
+            "title": "Placeholders",
+            "type": "array"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "snippetKind": {
+            "description": "항상 template. 자리표시자를 채워 써야 한다.",
+            "title": "Snippetkind",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "targetKnown": {
+            "description": "수정 대상 문자열이 로그에 있었는지. 맞다는 보장은 아니다.",
+            "title": "Targetknown",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "target",
+          "targetKnown",
+          "instruction",
+          "language",
+          "snippetKind",
+          "snippet"
+        ],
+        "title": "RemediationChange",
+        "type": "object"
+      },
+      "RemediationPlaceholder": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "RemediationPlaceholder",
+        "type": "object"
+      },
+      "RemediationPlan": {
+        "description": "해결안. 제안일 뿐 서버가 실행하지 않는다.",
+        "properties": {
+          "applyWhen": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Applywhen",
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/RemediationChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "evidenceIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidenceids",
+            "type": "array"
+          },
+          "hypothesisIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hypothesisids",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "risks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Risks",
+            "type": "array"
+          },
+          "rollback": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rollback",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "verification": {
+            "items": {
+              "$ref": "#/components/schemas/RemediationVerification"
+            },
+            "title": "Verification",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "hypothesisIds",
+          "evidenceIds",
+          "applyWhen",
+          "changes",
+          "verification",
+          "rollback",
+          "risks"
+        ],
+        "title": "RemediationPlan",
+        "type": "object"
+      },
+      "RemediationVerification": {
+        "properties": {
+          "expectedResult": {
+            "title": "Expectedresult",
+            "type": "string"
+          },
+          "instruction": {
+            "title": "Instruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instruction",
+          "expectedResult"
+        ],
+        "title": "RemediationVerification",
         "type": "object"
       },
       "RepositoryResponse": {
@@ -2801,6 +3441,132 @@
         "title": "ServiceVariablesResponse",
         "type": "object"
       },
+      "SourceAnalysis": {
+        "description": "소스 코드까지 본 결과. 소스가 없거나 읽지 못해도 로그 진단은 유지된다.",
+        "properties": {
+          "commitSha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commitsha"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "evidence": {
+            "default": [],
+            "description": "findings 의 sourceEvidenceIds 가 가리키는 코드 조각",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "findings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SourceFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "limitations": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "not_needed",
+              "unavailable",
+              "analyzed",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      },
+      "SourceFinding": {
+        "properties": {
+          "endLine": {
+            "title": "Endline",
+            "type": "integer"
+          },
+          "evidenceIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidenceids",
+            "type": "array"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "hypothesisIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hypothesisids",
+            "type": "array"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sourceEvidenceIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sourceevidenceids",
+            "type": "array"
+          },
+          "startLine": {
+            "title": "Startline",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "startLine",
+          "endLine",
+          "explanation",
+          "evidenceIds",
+          "sourceEvidenceIds",
+          "hypothesisIds"
+        ],
+        "title": "SourceFinding",
+        "type": "object"
+      },
       "SystemVariableResponse": {
         "description": "플랫폼이 배포할 때 앱에 주입하는 변수. 사용자가 바꿀 수 없다.",
         "properties": {
@@ -3145,7 +3911,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3228,7 +3994,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3383,7 +4149,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3403,7 +4169,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3615,7 +4381,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3708,7 +4474,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3807,7 +4573,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -3987,7 +4753,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -4050,7 +4816,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4118,7 +4884,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4196,7 +4962,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -4206,7 +4972,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -4276,7 +5042,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4374,7 +5140,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -4384,7 +5150,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -4404,7 +5170,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -4467,7 +5233,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4545,7 +5311,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4633,7 +5399,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -4643,7 +5409,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -4663,7 +5429,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -4758,7 +5524,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4855,7 +5621,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -4865,7 +5631,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -4885,7 +5651,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -4964,7 +5730,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4988,6 +5754,208 @@
         "summary": "배포 요청 상세 (상태 이력·단계별 소요 시간)",
         "tags": [
           "deployments"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/diagnose": {
+      "post": {
+        "description": "실패한 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 원인과 해결책을 받아 저장한다. 모델을 부르는 데 최대 2분 남짓 걸려 **바로 `202` 와 `status=RUNNING` 으로 답하고**, 진단은 서버가 이어서 실행한다. 결과는 `GET .../diagnosis` 를 `status` 가 `SUCCEEDED`·`FAILED` 가 될 때까지 폴링해 받는다. 성공한 진단이 이미 있으면 모델을 다시 부르지 않고 `200` 으로 그 결과를 돌려주며, refresh=true 로 다시 진단한다. 해결책은 제안일 뿐 서버가 실행하지 않고, 배포 요청의 상태도 바꾸지 않는다.",
+        "operationId": "diagnose_deployment_request_api_v1_services__service_id__deployments__deployment_id__diagnose_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "true 면 성공한 진단이 있어도 새로 진단한다(모델 비용이 든다).",
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "true 면 성공한 진단이 있어도 새로 진단한다(모델 비용이 든다).",
+              "title": "Refresh",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_DiagnosisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_DiagnosisResponse_"
+                }
+              }
+            },
+            "description": "진단을 시작했다(status=RUNNING). GET 으로 결과를 폴링한다"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "실패한 배포를 AI 로 진단 시작",
+        "tags": [
+          "diagnosis"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/deployments/{deployment_id}/diagnosis": {
+      "get": {
+        "description": "진단 상태(RUNNING·SUCCEEDED·FAILED)와 결과를 돌려준다. 진단 시작 뒤 폴링에 쓴다.",
+        "operationId": "get_deployment_diagnosis_api_v1_services__service_id__deployments__deployment_id__diagnosis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "title": "Deployment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_DiagnosisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포의 가장 최근 AI 진단 조회",
+        "tags": [
+          "diagnosis"
         ]
       }
     },
@@ -5034,7 +6002,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5157,7 +6125,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5177,7 +6145,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -5303,7 +6271,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5323,7 +6291,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -5451,7 +6419,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5471,7 +6439,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -5541,7 +6509,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5650,7 +6618,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -5660,7 +6628,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -5740,7 +6708,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5828,7 +6796,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -5838,7 +6806,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -5926,7 +6894,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6008,7 +6976,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6105,7 +7073,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6337,6 +7305,10 @@
     {
       "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)",
       "name": "deployments"
+    },
+    {
+      "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",
+      "name": "diagnosis"
     },
     {
       "description": "배포 타깃(aws · local)",
