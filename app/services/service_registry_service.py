@@ -20,6 +20,7 @@ from app.repositories.github_installation_repository import GithubInstallationRe
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
+from app.services.service_teardown_service import ServiceTeardownService
 from app.services.source_repository_service import SourceRepositoryService
 
 logger = logging.getLogger(__name__)
@@ -69,10 +70,12 @@ class ServiceRegistryService:
         installation_repository: GithubInstallationRepository,
         source_repository_service: SourceRepositoryService,
         deployment_request_repository: DeploymentRequestRepository,
+        service_teardown_service: ServiceTeardownService,
     ) -> None:
         self._session = session
         self._project_repository = project_repository
         self._service_repository = service_repository
+        self._service_teardown_service = service_teardown_service
         self._target_repository = target_repository
         self._installation_repository = installation_repository
         self._source_repository_service = source_repository_service
@@ -172,8 +175,9 @@ class ServiceRegistryService:
         return (await self._detail([service]))[0]
 
     async def delete_service(self, owner_id: int, service_id: int) -> None:
-        """소프트 삭제한다. 실행 중인 리소스 정리는 후속 단계(엔진 작업)에서 이어진다."""
+        """소프트 삭제하고 떠 있는 앱도 내린다(REMOVE 요청). 진행 중인 배포가 있으면 안 지운다."""
         service = await self._get_owned(owner_id, service_id)
+        await self._service_teardown_service.request_teardown([service], owner_id)
         service.mark_as_deleted()
         await self._session.commit()
         logger.info("service deleted", extra={"action": "delete_service", "service_id": service_id})
