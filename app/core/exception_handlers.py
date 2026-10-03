@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.exceptions import AppError, TooManyRequestsError
+from app.core.exceptions import AppError, InvalidInputError, TooManyRequestsError
 from app.schemas.response import ApiResponse, ErrorDetail
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,12 @@ async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
         if isinstance(exc, TooManyRequestsError)
         else None
     )
-    return error_response(exc.status_code, exc.code, exc.message, headers=headers)
+    details = (
+        [ErrorDetail(field=issue.field, reason=issue.reason) for issue in exc.issues]
+        if isinstance(exc, InvalidInputError) and exc.issues
+        else None
+    )
+    return error_response(exc.status_code, exc.code, exc.message, details, headers)
 
 
 async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

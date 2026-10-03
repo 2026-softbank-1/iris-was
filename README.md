@@ -135,7 +135,7 @@ App 설정에서 맞춰야 할 값:
 | `GET /targets` | 배포 타깃(aws·local) 목록 |
 | `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
 | `GET·POST /services/{id}/variables` | 환경변수 목록(`variables` + 자동 주입 `systemVariables`)·추가 |
-| `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 변수 전체를 교체한다(없는 키는 삭제) |
+| `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 변수 전체를 교체한다(없는 키는 삭제). 따옴표 값은 여러 줄에 걸칠 수 있고, 거부하면 422 `details` 에 줄 번호와 사유를 싣는다 |
 | `PUT·DELETE /services/{id}/variables/{key}` | 환경변수 값 수정·삭제 |
 
 - 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제이고, 떠 있는 앱도 함께 내린다(`REMOVE` 요청을 같이 만든다). 진행 중인 배포가 있으면 아무것도 지우지 않고 `409 DEPLOYMENT_IN_PROGRESS` 다([ADR 0022](docs/adr/0022-delete-service-also-removes-app.md)).

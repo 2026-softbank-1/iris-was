@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import VariableCipher
 from app.core.exceptions import (
+    FieldIssue,
     InvalidInputError,
     ServiceNotFoundError,
     VariableConflictError,
@@ -16,7 +17,7 @@ from app.enums import APP_PORT
 from app.models.service import Service
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
-from app.services.raw_variables import parse_raw_variables
+from app.services.raw_variables import RawVariable, parse_raw_entries
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ MAX_VARIABLES = 100
 # 플랫폼이 주입하는 이름. chart 의 env 가 사용자 변수보다 우선해 덮어쓸 수 없으므로 저장도 막는다.
 RESERVED_KEYS = frozenset({"PORT"})
 RESERVED_PREFIX = "IRIS_"
+# Raw 저장이 거부될 때 응답 details 에 싣는 줄 수. 큰 파일에서 응답이 커지지 않게 막는다.
+MAX_RAW_ISSUES = 20
 
 
 @dataclass(frozen=True)
@@ -62,18 +65,49 @@ def build_system_variables(service: Service) -> list[SystemVariable]:
     ]
 
 
-def validate_variable(key: str, value: str) -> None:
-    """키·값이 저장할 수 있는 형태인지 검사한다. 값은 비어 있어도 된다."""
+@dataclass(frozen=True)
+class VariableProblem:
+    """저장할 수 없는 변수 하나. message 는 응답 message(계약), reason 은 사람이 읽는 사유다."""
+
+    message: str
+    reason: str
+    field: str
+    key: str
+
+
+def check_variable(key: str, value: str) -> VariableProblem | None:
+    """키·값이 저장할 수 있는 형태인지 본다. 값은 비어 있어도 된다."""
+    shown = key[:MAX_KEY_LENGTH]
     if not KEY_PATTERN.match(key) or len(key) > MAX_KEY_LENGTH:
-        raise InvalidInputError(
+        reason = (
+            f"key {key[:32]}... is longer than {MAX_KEY_LENGTH} characters"
+            if len(key) > MAX_KEY_LENGTH
+            else f"key {key} must be letters, digits and underscores, not starting with a digit"
+        )
+        return VariableProblem(
             "variable key must be letters, digits and underscores, not starting with a digit",
-            field="key",
-            key=key[:MAX_KEY_LENGTH],
+            reason,
+            "key",
+            shown,
         )
     if key in RESERVED_KEYS or key.startswith(RESERVED_PREFIX):
-        raise InvalidInputError("variable key is reserved by the platform", field="key", key=key)
+        return VariableProblem(
+            "variable key is reserved by the platform", f"reserved key {key}", "key", key
+        )
     if len(value) > MAX_VALUE_LENGTH:
-        raise InvalidInputError("variable value is too long", field="value", key=key)
+        return VariableProblem(
+            "variable value is too long",
+            f"value of {key} is longer than {MAX_VALUE_LENGTH} characters",
+            "value",
+            key,
+        )
+    return None
+
+
+def validate_variable(key: str, value: str) -> None:
+    problem = check_variable(key, value)
+    if problem is not None:
+        raise InvalidInputError(problem.message, field=problem.field, key=problem.key)
 
 
 class VariableService:
@@ -149,25 +183,52 @@ class VariableService:
     async def replace_variables(self, owner_id: int, service_id: int, raw: str) -> ServiceVariables:
         """Raw 텍스트가 가리키는 집합으로 서비스의 변수를 통째로 바꾼다. 빠진 키는 지워진다."""
         service = await self._get_owned(owner_id, service_id)
-        parsed = parse_raw_variables(raw)
+        parsed = parse_raw_entries(raw)
         self._validate_all(service.id, parsed)
         await self._service_variable_repository.replace_all(
-            service.id, {key: self._cipher.encrypt(value) for key, value in parsed.items()}
+            service.id,
+            {key: self._cipher.encrypt(entry.value) for key, entry in parsed.items()},
         )
         await self._session.commit()
         self._log_changed("replace_variables", service.id, len(parsed))
         return ServiceVariables(
-            [VariableEntry(key, parsed[key]) for key in sorted(parsed)],
+            [VariableEntry(key, parsed[key].value) for key in sorted(parsed)],
             build_system_variables(service),
         )
 
-    def _validate_all(self, service_id: int, variables: Mapping[str, str]) -> None:
+    def _validate_all(self, service_id: int, variables: Mapping[str, RawVariable]) -> None:
+        """하나라도 저장할 수 없으면 거부하고, 틀린 줄을 모두 details 로 알린다."""
         if len(variables) > MAX_VARIABLES:
             raise InvalidInputError(
-                "too many variables", field="raw", service_id=service_id, limit=MAX_VARIABLES
+                "too many variables",
+                issues=[
+                    FieldIssue(
+                        "raw", f"{len(variables)} variables, at most {MAX_VARIABLES} allowed"
+                    )
+                ],
+                field="raw",
+                service_id=service_id,
+                limit=MAX_VARIABLES,
             )
-        for key, value in variables.items():
-            validate_variable(key, value)
+        problems = [
+            (variable.line, problem)
+            for key, variable in variables.items()
+            if (problem := check_variable(key, variable.value)) is not None
+        ]
+        if not problems:
+            return
+        problems.sort(key=lambda found: found[0])
+        first = problems[0][1]
+        raise InvalidInputError(
+            first.message,
+            issues=[
+                FieldIssue("raw", f"line {line}: {problem.reason}")
+                for line, problem in problems[:MAX_RAW_ISSUES]
+            ],
+            field=first.field,
+            key=first.key,
+            problem_count=len(problems),
+        )
 
     async def _get_owned(self, owner_id: int, service_id: int) -> Service:
         service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)

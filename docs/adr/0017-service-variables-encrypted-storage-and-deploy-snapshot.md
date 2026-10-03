@@ -35,7 +35,7 @@ Notion task "[API] 환경변수 API"는 변수 CRUD, Raw(`.env`) 일괄 저장, 
 
 - 테이블 `service_variables(service_id, key, encrypted_value)`, `(service_id, key)` 유일. 값은 Fernet 암호문이다. 응답은 소유자에게 복호화한 값을 준다(웹이 값 보기·복사를 한다). 로그에는 키·값을 남기지 않고 변경 건수만 남긴다.
 - 키는 영문·숫자·밑줄(숫자로 시작 금지, 128자 이하). 플랫폼이 쓰는 `PORT`·`IRIS_*` 는 만들 수 없다(chart 의 env 가 우선해 덮어쓸 수 없는데 저장만 되면 혼동된다). 서비스당 100개, 값 32KiB 가 상한이다.
-- API: 목록(`GET`, 자동 주입 변수 포함)·추가(`POST`)·값 수정(`PUT /{key}`)·삭제(`DELETE /{key}`)·Raw 일괄 저장(`PUT`, 서비스의 변수 전체를 텍스트로 교체). Raw 는 큰따옴표 값을 JSON 이스케이프로 읽고 형식이 틀린 줄은 줄 번호와 함께 거부한다(전부 반영하거나 하나도 반영하지 않는다).
+- API: 목록(`GET`, 자동 주입 변수 포함)·추가(`POST`)·값 수정(`PUT /{key}`)·삭제(`DELETE /{key}`)·Raw 일괄 저장(`PUT`, 서비스의 변수 전체를 텍스트로 교체). Raw 는 큰따옴표 값을 JSON 이스케이프로 읽고 따옴표 값은 닫는 따옴표까지 여러 줄에 걸칠 수 있다. 받을 수 없는 줄은 422 `INVALID_INPUT` 의 `details`(`field=raw`, `reason="line 7: reserved key PORT"`)로 줄 번호와 사유를 알리며 거부한다(전부 반영하거나 하나도 반영하지 않는다). 키 규칙 위반은 틀린 줄을 모두 싣고(최대 20개), 따옴표가 닫히지 않으면 어디까지가 그 값인지 알 수 없어 첫 오류에서 멈춘다.
 - 자동 주입 변수 `PORT`·`IRIS_SERVICE_NAME`·`IRIS_TARGET_NAME`·`IRIS_DEPLOYMENT_ID`·`IRIS_PUBLIC_DOMAIN`·`IRIS_GIT_COMMIT_SHA` 는 저장하지 않고 이름·설명(과 서비스만으로 정해지는 값)을 계산해 돌려준다.
 - 배포 요청을 만들 때(`DeploymentRequestService`) `variables_snapshot` 에 암호문을 복사한다. 웹훅·수동 경로가 같은 로직을 쓴다. `ROLLBACK` 은 원본 요청의 스냅샷을 쓰고(없던 옛 요청이면 지금 변수), 나머지(`MANUAL`·`PUSH`·`REDEPLOY`·`RESTART`)는 그 시점의 변수를 쓴다. `REMOVE` 는 원본의 스냅샷을 그대로 둔다(내리는 요청이라 쓰이지 않는다).
 - 키는 설정 `VARIABLES_ENCRYPTION_KEY`(SecretStr)로 주입한다. 없으면 변수 API 만 `503 NOT_CONFIGURED` 다.
