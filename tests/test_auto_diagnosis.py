@@ -16,7 +16,7 @@ from app.services.diagnosis_service import (
     AutomaticDiagnosis,
     DiagnosisService,
 )
-from tests.fakes_diagnosis import OWNER, DiagnosisSetup
+from tests.fakes_diagnosis import OWNER, DiagnosisSetup, valid_agent_result
 
 
 @pytest.fixture
@@ -317,6 +317,31 @@ async def test_runner_stop_cancels_a_diagnosis_that_outlasts_the_grace_period(
     # 끝나지 못한 진행 중 행은 남고, 다른 서버가 낡은 행으로 보고 다시 시작한다.
     (row,) = setup.diagnoses.rows
     assert row.status == DiagnosisStatus.RUNNING
+
+
+async def test_runner_stop_lets_a_diagnosis_finish_within_the_grace_period(
+    setup: DiagnosisSetup,
+) -> None:
+    setup.add_request()
+    started = asyncio.Event()
+
+    class SlowAgent:
+        async def diagnose(self, data: dict[str, Any]) -> dict[str, Any]:
+            started.set()
+            await asyncio.sleep(0.2)
+            return valid_agent_result()
+
+    setup.agent = SlowAgent()  # type: ignore[assignment]
+    runner = AutoDiagnosisRunner(setup.diagnosis_service_opener(), 0.01)
+    runner.start()
+    async with asyncio.timeout(2):
+        await started.wait()
+
+    async with asyncio.timeout(2):
+        await runner.stop(grace_seconds=1.5)
+
+    (row,) = setup.diagnoses.rows
+    assert row.status == DiagnosisStatus.SUCCEEDED
 
 
 def _all_finished(setup: DiagnosisSetup) -> bool:

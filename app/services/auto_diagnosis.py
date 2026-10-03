@@ -15,8 +15,10 @@ from app.services.diagnosis_service import DiagnosisServiceOpener, run_diagnosis
 logger = logging.getLogger(__name__)
 
 # 종료 신호를 받은 뒤 진행 중인 진단을 기다려 주는 시간. 넘기면 취소하고, 남은 진행 중 행은
-# 다른 Pod 가 낡은 행으로 보고 다시 시작한다. Pod 의 종료 유예(기본 30초)보다 짧게 둔다.
-SHUTDOWN_GRACE_SECONDS = 20.0
+# 다른 Pod 가 낡은 행으로 보고 4분 뒤 다시 시작한다. 진단은 보통 30~65초 걸려서, 롤아웃과 겹친
+# 진단을 대부분 끝낼 수 있게 60초로 둔다. Pod 의 종료 유예(iris-infra 의
+# `api.terminationGracePeriodSeconds`, 90초)보다 짧아야 취소·정리할 시간이 남는다.
+SHUTDOWN_GRACE_SECONDS = 60.0
 
 
 class AutoDiagnosisRunner:
