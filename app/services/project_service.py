@@ -13,6 +13,7 @@ from app.core.exceptions import (
 from app.models.project import Project
 from app.repositories.project_repository import ProjectRepository, ServiceCounts
 from app.repositories.service_repository import ServiceRepository
+from app.services.service_teardown_service import ServiceTeardownService
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,12 @@ class ProjectService:
         session: AsyncSession,
         project_repository: ProjectRepository,
         service_repository: ServiceRepository,
+        service_teardown_service: ServiceTeardownService,
     ) -> None:
         self._session = session
         self._project_repository = project_repository
         self._service_repository = service_repository
+        self._service_teardown_service = service_teardown_service
 
     async def create_project(
         self, owner_id: int, name: str, description: str | None
@@ -75,8 +78,13 @@ class ProjectService:
         return (await self._summarize([project]))[0]
 
     async def delete_project(self, owner_id: int, project_id: int) -> None:
-        """프로젝트와 소속 서비스를 소프트 삭제한다. 실행 중인 리소스 정리는 후속 단계의 일이다."""
+        """프로젝트와 소속 서비스를 소프트 삭제하고 떠 있는 앱도 내린다(서비스마다 REMOVE 요청).
+
+        소속 서비스 중 진행 중인 배포가 있으면 아무것도 지우지 않는다.
+        """
         project = await self._get_owned(owner_id, project_id)
+        services = await self._service_repository.search_by_project_id(project.id)
+        await self._service_teardown_service.request_teardown(services, owner_id)
         project.mark_as_deleted()
         await self._service_repository.mark_as_deleted_by_project_id(project.id)
         await self._session.commit()

@@ -24,7 +24,12 @@ from tests.fakes import (
     make_repository,
 )
 from tests.fakes_domain import FakeReleaseRepository
-from tests.fakes_project import FakeProjectRepository, FakeServiceRepository, FakeTargetRepository
+from tests.fakes_project import (
+    FakeProjectRepository,
+    FakeServiceRepository,
+    FakeTargetRepository,
+    FakeTeardownService,
+)
 from tests.fakes_webhook import FakeDeploymentRequestRepository
 
 
@@ -50,10 +55,12 @@ async def client() -> AsyncIterator[AsyncClient]:
 
     current = {"user": _user(1)}
     app.dependency_overrides[get_current_user] = lambda: current["user"]
+    teardown = FakeTeardownService()
     app.dependency_overrides[get_project_service] = lambda: ProjectService(
         session,  # type: ignore[arg-type]
         projects,  # type: ignore[arg-type]
         services,  # type: ignore[arg-type]
+        teardown,  # type: ignore[arg-type]
     )
     app.dependency_overrides[get_service_registry_service] = lambda: ServiceRegistryService(
         session,  # type: ignore[arg-type]
@@ -63,6 +70,7 @@ async def client() -> AsyncIterator[AsyncClient]:
         installations,  # type: ignore[arg-type]
         SourceRepositoryService(installations, github),  # type: ignore[arg-type]
         FakeDeploymentRequestRepository(),  # type: ignore[arg-type]
+        teardown,  # type: ignore[arg-type]
     )
     app.dependency_overrides[get_domain_service] = lambda: DomainService(
         services,  # type: ignore[arg-type]

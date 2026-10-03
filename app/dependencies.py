@@ -49,6 +49,7 @@ from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
+from app.services.service_teardown_service import ServiceTeardownService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
 from app.services.target_service import TargetService
@@ -181,8 +182,37 @@ SourceRepositoryServiceDep = Annotated[
 ]
 
 
-def get_project_service(session: SessionDep) -> ProjectService:
-    return ProjectService(session, ProjectRepository(session), ServiceRepository(session))
+def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:
+    return DeploymentRequestService(
+        DeploymentRequestRepository(session),
+        JobRepository(session),
+        DeploymentStatusHistoryRepository(session),
+        BuildRepository(session),
+        ServiceVariableRepository(session),
+        ServiceRepository(session),
+    )
+
+
+DeploymentRequestServiceDep = Annotated[
+    DeploymentRequestService, Depends(get_deployment_request_service)
+]
+
+
+def get_service_teardown_service(
+    session: SessionDep, deployment_request_service: DeploymentRequestServiceDep
+) -> ServiceTeardownService:
+    return ServiceTeardownService(DeploymentRequestRepository(session), deployment_request_service)
+
+
+ServiceTeardownServiceDep = Annotated[ServiceTeardownService, Depends(get_service_teardown_service)]
+
+
+def get_project_service(
+    session: SessionDep, service_teardown_service: ServiceTeardownServiceDep
+) -> ProjectService:
+    return ProjectService(
+        session, ProjectRepository(session), ServiceRepository(session), service_teardown_service
+    )
 
 
 ProjectServiceDep = Annotated[ProjectService, Depends(get_project_service)]
@@ -196,7 +226,9 @@ TargetServiceDep = Annotated[TargetService, Depends(get_target_service)]
 
 
 def get_service_registry_service(
-    session: SessionDep, source_repository_service: SourceRepositoryServiceDep
+    session: SessionDep,
+    source_repository_service: SourceRepositoryServiceDep,
+    service_teardown_service: ServiceTeardownServiceDep,
 ) -> ServiceRegistryService:
     # 저장소 연결·브랜치 확인에 GitHub App 설정이 필요하므로 이 서비스를 쓰는 API 는 모두 요구한다.
     return ServiceRegistryService(
@@ -207,6 +239,7 @@ def get_service_registry_service(
         GithubInstallationRepository(session),
         source_repository_service,
         DeploymentRequestRepository(session),
+        service_teardown_service,
     )
 
 
@@ -236,22 +269,6 @@ def get_variable_service(session: SessionDep, settings: SettingsDep) -> Variable
 
 
 VariableServiceDep = Annotated[VariableService, Depends(get_variable_service)]
-
-
-def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:
-    return DeploymentRequestService(
-        DeploymentRequestRepository(session),
-        JobRepository(session),
-        DeploymentStatusHistoryRepository(session),
-        BuildRepository(session),
-        ServiceVariableRepository(session),
-        ServiceRepository(session),
-    )
-
-
-DeploymentRequestServiceDep = Annotated[
-    DeploymentRequestService, Depends(get_deployment_request_service)
-]
 
 
 def get_service_scaling_service(

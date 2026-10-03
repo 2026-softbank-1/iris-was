@@ -82,8 +82,8 @@ async def update_service(
 @router.delete(
     "/services/{service_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="서비스 삭제",
-    responses=error_responses(401, 404, 422, 503),
+    summary="서비스 삭제 (떠 있는 앱도 함께 내린다)",
+    responses=error_responses(401, 404, 409, 422, 503),
 )
 async def delete_service(
     service_id: int, user: CurrentUserDep, service: ServiceRegistryServiceDep

@@ -1,19 +1,31 @@
 import pytest
 
-from app.core.exceptions import InvalidInputError, ProjectNameConflictError, ProjectNotFoundError
+from app.core.exceptions import (
+    DeploymentInProgressError,
+    InvalidInputError,
+    ProjectNameConflictError,
+    ProjectNotFoundError,
+)
 from app.models.service import Service
 from app.repositories.project_repository import ServiceCounts
 from app.services.project_service import ProjectService
 from tests.fakes import FakeSession
-from tests.fakes_project import FakeProjectRepository, FakeServiceRepository
+from tests.fakes_project import FakeProjectRepository, FakeServiceRepository, FakeTeardownService
 
 
 @pytest.fixture
-def parts() -> tuple[ProjectService, FakeProjectRepository, FakeServiceRepository, FakeSession]:
+def teardown() -> FakeTeardownService:
+    return FakeTeardownService()
+
+
+@pytest.fixture
+def parts(
+    teardown: FakeTeardownService,
+) -> tuple[ProjectService, FakeProjectRepository, FakeServiceRepository, FakeSession]:
     session = FakeSession()
     projects = FakeProjectRepository()
     services = FakeServiceRepository(projects)
-    service = ProjectService(session, projects, services)  # type: ignore[arg-type]
+    service = ProjectService(session, projects, services, teardown)  # type: ignore[arg-type]
     return service, projects, services, session
 
 
@@ -102,7 +114,7 @@ async def test_update_project_with_null_name_raises_invalid_input(parts) -> None
         await service.update_project(1, created.project.id, {"name": None})
 
 
-async def test_delete_project_soft_deletes_project_and_services(parts) -> None:
+async def test_delete_project_soft_deletes_project_and_services(parts, teardown) -> None:
     service, projects, services, session = parts
     created = await service.create_project(1, "shop", None)
     child = await services.save(Service(project_id=created.project.id, name="web"))
@@ -111,8 +123,25 @@ async def test_delete_project_soft_deletes_project_and_services(parts) -> None:
 
     assert projects.projects[created.project.id].is_deleted is True
     assert child.is_deleted is True
+    # 떠 있는 앱도 함께 내리도록 소속 서비스를 넘긴다.
+    assert teardown.calls == [([child.id], 1)]
     assert session.commit_count == 2
     with pytest.raises(ProjectNotFoundError):
         await service.get_project(1, created.project.id)
     # 삭제한 이름은 다시 쓸 수 있다.
     assert (await service.create_project(1, "shop", None)).project.name == "shop"
+
+
+async def test_delete_project_with_deployment_in_progress_deletes_nothing(parts, teardown) -> None:
+    service, projects, services, session = parts
+    created = await service.create_project(1, "shop", None)
+    child = await services.save(Service(project_id=created.project.id, name="web"))
+    teardown.error = DeploymentInProgressError("a deployment is in progress", service_id=child.id)
+    commits_before = session.commit_count
+
+    with pytest.raises(DeploymentInProgressError):
+        await service.delete_project(1, created.project.id)
+
+    assert projects.projects[created.project.id].is_deleted is False
+    assert child.is_deleted is False
+    assert session.commit_count == commits_before
