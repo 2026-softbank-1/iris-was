@@ -93,3 +93,11 @@ class FailureCode(StrEnum):
 class TargetKind(StrEnum):
     AWS = "AWS"
     LOCAL = "LOCAL"
+
+
+class CliLoginSessionStatus(StrEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    DENIED = "DENIED"
+    # 만료됐거나 토큰을 이미 내줬다. 토큰을 내준 세션은 consumed_at 이 채워진다.
+    EXPIRED = "EXPIRED"
