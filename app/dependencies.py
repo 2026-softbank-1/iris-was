@@ -34,6 +34,7 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_upload_repository import ServiceUploadRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
@@ -54,6 +55,7 @@ from app.services.service_teardown_service import ServiceTeardownService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
 from app.services.target_service import TargetService
+from app.services.upload_service import UploadService
 from app.services.variable_service import VariableService
 from app.services.webhook_service import WebhookService
 
@@ -311,12 +313,30 @@ def get_manual_deployment_service(
         BuildRepository(session),
         deployment_request_service,
         source_repository_service,
+        ServiceUploadRepository(session),
     )
 
 
 ManualDeploymentServiceDep = Annotated[
     ManualDeploymentService, Depends(get_manual_deployment_service)
 ]
+
+
+def get_upload_service(session: SessionDep, settings: SettingsDep) -> UploadService:
+    if not settings.aws_region or not settings.artifact_bucket:
+        raise NotConfiguredError(
+            "upload storage is not configured", setting="AWS_REGION, ARTIFACT_BUCKET"
+        )
+    return UploadService(
+        session,
+        ServiceRepository(session),
+        ServiceUploadRepository(session),
+        _get_artifact_store(settings.aws_region, settings.artifact_bucket),
+        settings.upload_max_bytes,
+    )
+
+
+UploadServiceDep = Annotated[UploadService, Depends(get_upload_service)]
 
 
 def get_deployment_history_service(session: SessionDep) -> DeploymentHistoryService:

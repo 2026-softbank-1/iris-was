@@ -1,5 +1,6 @@
 """단위 테스트용 가짜 Repository·Client. DB·네트워크 없이 Service 를 검증한다."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from itertools import count
 
@@ -18,12 +19,21 @@ class FakeSession:
     def __init__(self) -> None:
         self.commit_count = 0
         self.rollback_count = 0
+        self._undo_actions: list[Callable[[], None]] = []
+
+    def on_rollback(self, undo: Callable[[], None]) -> None:
+        """아직 커밋하지 않은 변경을 롤백 때 되돌리는 동작. 커밋하면 버려진다."""
+        self._undo_actions.append(undo)
 
     async def commit(self) -> None:
         self.commit_count += 1
+        self._undo_actions.clear()
 
     async def rollback(self) -> None:
         self.rollback_count += 1
+        for undo in reversed(self._undo_actions):
+            undo()
+        self._undo_actions.clear()
 
 
 class FakeUserRepository:

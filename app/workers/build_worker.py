@@ -94,6 +94,7 @@ async def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
     async with httpx.AsyncClient(base_url=GITHUB_API_URL, timeout=30.0) as http:
+        artifacts = ArtifactStore(settings.aws_region, settings.artifact_bucket)
         service = BuildService(
             session_factory=get_session_factory(),
             github=GitHubClient(
@@ -101,7 +102,8 @@ async def main() -> None:
             ),
             codebuild=CodeBuildClient(settings.aws_region, settings.codebuild_project),
             ecr=EcrClient(settings.aws_region),
-            artifacts=ArtifactStore(settings.aws_region, settings.artifact_bucket),
+            artifacts=artifacts,
+            uploads=artifacts,
             build_logs=CloudWatchBuildLogClient(settings.aws_region),
             settings=settings,
             # Pod 이름(hostname)으로 lease 소유자를 구분한다.

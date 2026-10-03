@@ -60,10 +60,13 @@ class DeploymentRequestService:
         idempotency_key: str,
         requested_by: int | None = None,
         source_deployment_request: DeploymentRequest | None = None,
+        service_upload_id: int | None = None,
     ) -> DeploymentRequest | None:
         """멱등성 키가 겹치거나 이 서비스에 진행 중인 배포가 있으면 만들지 않고 None 이다.
 
-        `source_deployment_request` 는 같은 소스로 다시 배포하는 요청(REDEPLOY)의 원본이다.
+        `source_deployment_request` 는 같은 소스로 다시 배포하는 요청(REDEPLOY)의 원본이고,
+        `service_upload_id` 는 GitHub 대신 소스로 쓰는 업로드(CLI)다. 업로드를 가져가는 일은
+        호출하는 쪽이 같은 트랜잭션에서 먼저 한다.
         """
         request = await self._add_request(
             service,
@@ -74,6 +77,7 @@ class DeploymentRequestService:
             requested_by=requested_by,
             source_deployment_request=source_deployment_request,
             variables_snapshot=None,
+            service_upload_id=service_upload_id,
         )
         if request is None:
             return None
@@ -116,6 +120,7 @@ class DeploymentRequestService:
                 if trigger_type == DeploymentTrigger.ROLLBACK
                 else None
             ),
+            service_upload_id=None,
         )
         if request is None:
             return None
@@ -154,6 +159,7 @@ class DeploymentRequestService:
             requested_by=requested_by,
             source_deployment_request=source_deployment_request,
             variables_snapshot=source_deployment_request.variables_snapshot,
+            service_upload_id=None,
         )
         if request is None:
             return None
@@ -178,6 +184,7 @@ class DeploymentRequestService:
         requested_by: int | None,
         source_deployment_request: DeploymentRequest | None,
         variables_snapshot: dict[str, str] | None,
+        service_upload_id: int | None,
     ) -> DeploymentRequest | None:
         """`variables_snapshot` 가 None 이면 지금 서비스 변수를 스냅샷으로 저장한다."""
         if variables_snapshot is None:
@@ -201,6 +208,7 @@ class DeploymentRequestService:
                 source_deployment_request_id=(
                     source_deployment_request.id if source_deployment_request is not None else None
                 ),
+                service_upload_id=service_upload_id,
             )
         )
         if request is None:

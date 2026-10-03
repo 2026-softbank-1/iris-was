@@ -48,6 +48,7 @@ from app.schemas.diagnosis import (
     FailedStage,
 )
 from app.services.observability_service import ObservabilityService
+from app.services.upload_source import is_upload_source_sha
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ _FAILED_STAGE_BY_FAILURE_CODE: dict[FailureCode, FailedStage] = {
     FailureCode.SOURCE_NOT_ACCESSIBLE: "build",
     FailureCode.SOURCE_REF_NOT_FOUND: "build",
     FailureCode.SOURCE_TOO_LARGE: "build",
+    FailureCode.SOURCE_INVALID: "build",
     FailureCode.BUILD_CONFIG_REQUIRED: "build",
     FailureCode.BUILD_FAILED: "build",
     FailureCode.BUILD_TIMED_OUT: "build",
@@ -395,7 +397,10 @@ class DiagnosisService:
             commit_sha=request.source_sha
             if _COMMIT_SHA_PATTERN.match(request.source_sha)
             else None,
-            root_directory=service.root_directory or ".",
+            # 업로드 스냅샷은 올린 폴더가 루트라서 서비스의 root_directory 를 적용하지 않는다.
+            root_directory="."
+            if is_upload_source_sha(request.source_sha)
+            else service.root_directory or ".",
         )
 
     async def _get_owned_service(self, owner_id: int, service_id: int) -> Service:

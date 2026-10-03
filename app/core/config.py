@@ -4,6 +4,9 @@ from typing import Literal
 from pydantic import HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
+DEFAULT_SNAPSHOT_MAX_BYTES = 250 * 1024 * 1024
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -19,8 +22,11 @@ class Settings(BaseSettings):
     diagnosis_agent_api_key: SecretStr | None = None
     # 에이전트는 모델을 최대 2번 부른다(호출마다 60초). 그보다 길게 기다린다.
     diagnosis_agent_timeout_seconds: float = 150.0
-    # 진단에 소스를 함께 넘기려면 빌드가 스냅샷을 올린 버킷을 읽는 권한(S3 GetObject)이 필요하다.
-    # 둘 다 있어야 소스를 보내고, 없으면 로그만 진단한다.
+    # 빌드 입력(소스 스냅샷·업로드)을 두는 S3 버킷. 둘 다 있어야 쓴다.
+    # - 진단에 소스를 함께 넘기려면 스냅샷(`snapshots/`)을 읽는 권한(S3 GetObject)이 필요하다.
+    #   없으면 로그만 진단한다.
+    # - 소스 업로드 API(`likelion up`)는 `uploads/` 에 쓰는 권한(S3 PutObject)이 필요하다.
+    #   없으면 업로드 API 는 503 (NOT_CONFIGURED).
     aws_region: str | None = None
     artifact_bucket: str | None = None
     # 배포 상세의 빌드 로그 전체(CodeBuild → CloudWatch Logs) 읽기 전용 조회. AWS_REGION 과
@@ -28,6 +34,8 @@ class Settings(BaseSettings):
     # 보여 준다. 그룹은 iris-infra foundation 의 CodeBuild 로그 그룹이다(dev:
     # /aws/codebuild/iris-dev-build). Control API Role 에 그 그룹의 logs:GetLogEvents 가 필요하다.
     build_log_group: str | None = None
+    # 소스 업로드의 압축한 바이트 한도. Build Worker 의 snapshot_max_bytes 와 같게 둔다.
+    upload_max_bytes: int = DEFAULT_SNAPSHOT_MAX_BYTES
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -83,7 +91,10 @@ class BuildWorkerSettings(BaseSettings):
     concurrency: int = 4
     user_concurrent_build_limit: int = 2
     build_timeout_minutes: int = 15
-    snapshot_max_bytes: int = 250 * 1024 * 1024
+    snapshot_max_bytes: int = DEFAULT_SNAPSHOT_MAX_BYTES
+    # 업로드를 풀었을 때의 총 크기·항목 수 한도(압축 폭탄 방어). 압축 크기 한도와 따로 둔다.
+    upload_max_uncompressed_bytes: int = 2 * 1024 * 1024 * 1024
+    upload_max_entries: int = 100_000
     poll_interval_seconds: float = 10.0
 
 

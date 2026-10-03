@@ -37,10 +37,11 @@ CommitSha = Annotated[
 
 
 class CreateDeploymentRequest(ApiModel):
-    """배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백·재시작·삭제에 쓴다."""
+    """배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·CLI 업로드·재배포·롤백·재시작·삭제."""
 
     trigger_type: Literal[
         DeploymentTrigger.MANUAL,
+        DeploymentTrigger.CLI,
         DeploymentTrigger.REDEPLOY,
         DeploymentTrigger.ROLLBACK,
         DeploymentTrigger.RESTART,
@@ -48,12 +49,14 @@ class CreateDeploymentRequest(ApiModel):
     ] = Field(
         description=(
             "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 빌드해 배포한다. "
-            "REDEPLOY: sourceDeploymentId 의 커밋을 다시 빌드해 배포한다. "
+            "CLI: `POST /services/{serviceId}/uploads` 로 올린 소스(uploadId)를 빌드해 배포한다. "
+            "REDEPLOY: sourceDeploymentId 의 커밋을 다시 빌드해 배포한다(CLI 업로드로 만든 배포는 "
+            "소스가 남아 있지 않아 다시 빌드할 수 없다). "
             "ROLLBACK: 성공했던 sourceDeploymentId 가 만든 이미지를 빌드 없이 그대로 배포한다. "
             "RESTART: 지금 떠 있는(마지막으로 성공한) 배포의 이미지를 빌드 없이 다시 띄워 "
             "Pod 를 새로 시작한다. "
             "REMOVE: 지금 떠 있는 배포를 클러스터에서 내린다(서비스 정의는 남는다). "
-            "다시 배포하려면 MANUAL·REDEPLOY·ROLLBACK 을 쓴다."
+            "다시 배포하려면 MANUAL·CLI·REDEPLOY·ROLLBACK 을 쓴다."
         ),
         examples=["MANUAL"],
     )
@@ -70,6 +73,14 @@ class CreateDeploymentRequest(ApiModel):
         ),
         examples=[12],
     )
+    upload_id: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = Field(
+        default=None,
+        description=(
+            "CLI 에서 필수. 같은 서비스에 올린 업로드의 ID. 업로드 하나는 배포 요청 하나에만 쓸 수 "
+            "있다. 다른 트리거에서는 보내지 않는다."
+        ),
+        examples=["Zq3h8mP0xYkq2oVd1sT6uXn4wJc9bLrE5aGfHiK7yMA"],
+    )
 
     @model_validator(mode="after")
     def check_source_fields(self) -> Self:
@@ -83,6 +94,11 @@ class CreateDeploymentRequest(ApiModel):
             raise ValueError("sourceDeploymentId is only for REDEPLOY and ROLLBACK")
         if self.trigger_type != DeploymentTrigger.MANUAL and self.source_sha is not None:
             raise ValueError("sourceSha is only for MANUAL")
+        takes_upload = self.trigger_type == DeploymentTrigger.CLI
+        if takes_upload and self.upload_id is None:
+            raise ValueError("uploadId is required for CLI")
+        if not takes_upload and self.upload_id is not None:
+            raise ValueError("uploadId is only for CLI")
         return self
 
 

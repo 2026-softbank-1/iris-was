@@ -1021,6 +1021,63 @@
         "title": "ApiResponse[ServiceVariablesResponse]",
         "type": "object"
       },
+      "ApiResponse_UploadResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[UploadResponse]",
+        "type": "object"
+      },
       "ApiResponse_UserResponse_": {
         "properties": {
           "code": {
@@ -1771,7 +1828,7 @@
         "type": "object"
       },
       "CreateDeploymentRequest": {
-        "description": "배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백·재시작·삭제에 쓴다.",
+        "description": "배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·CLI 업로드·재배포·롤백·재시작·삭제.",
         "properties": {
           "sourceDeploymentId": {
             "anyOf": [
@@ -1807,9 +1864,10 @@
             "title": "Sourcesha"
           },
           "triggerType": {
-            "description": "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 빌드해 배포한다. REDEPLOY: sourceDeploymentId 의 커밋을 다시 빌드해 배포한다. ROLLBACK: 성공했던 sourceDeploymentId 가 만든 이미지를 빌드 없이 그대로 배포한다. RESTART: 지금 떠 있는(마지막으로 성공한) 배포의 이미지를 빌드 없이 다시 띄워 Pod 를 새로 시작한다. REMOVE: 지금 떠 있는 배포를 클러스터에서 내린다(서비스 정의는 남는다). 다시 배포하려면 MANUAL·REDEPLOY·ROLLBACK 을 쓴다.",
+            "description": "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 빌드해 배포한다. CLI: `POST /services/{serviceId}/uploads` 로 올린 소스(uploadId)를 빌드해 배포한다. REDEPLOY: sourceDeploymentId 의 커밋을 다시 빌드해 배포한다(CLI 업로드로 만든 배포는 소스가 남아 있지 않아 다시 빌드할 수 없다). ROLLBACK: 성공했던 sourceDeploymentId 가 만든 이미지를 빌드 없이 그대로 배포한다. RESTART: 지금 떠 있는(마지막으로 성공한) 배포의 이미지를 빌드 없이 다시 띄워 Pod 를 새로 시작한다. REMOVE: 지금 떠 있는 배포를 클러스터에서 내린다(서비스 정의는 남는다). 다시 배포하려면 MANUAL·CLI·REDEPLOY·ROLLBACK 을 쓴다.",
             "enum": [
               "MANUAL",
+              "CLI",
               "REDEPLOY",
               "ROLLBACK",
               "RESTART",
@@ -1820,6 +1878,23 @@
             ],
             "title": "Triggertype",
             "type": "string"
+          },
+          "uploadId": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CLI 에서 필수. 같은 서비스에 올린 업로드의 ID. 업로드 하나는 배포 요청 하나에만 쓸 수 있다. 다른 트리거에서는 보내지 않는다.",
+            "examples": [
+              "Zq3h8mP0xYkq2oVd1sT6uXn4wJc9bLrE5aGfHiK7yMA"
+            ],
+            "title": "Uploadid"
           }
         },
         "required": [
@@ -2965,6 +3040,7 @@
           "SOURCE_NOT_ACCESSIBLE",
           "SOURCE_REF_NOT_FOUND",
           "SOURCE_TOO_LARGE",
+          "SOURCE_INVALID",
           "BUILD_CONFIG_REQUIRED",
           "BUILD_FAILED",
           "BUILD_TIMED_OUT",
@@ -4481,6 +4557,49 @@
         "title": "UpdateServiceScalingRequest",
         "type": "object"
       },
+      "UploadResponse": {
+        "description": "올라온 소스 아카이브. `uploadId` 로 `CLI` 배포 요청을 만든다.",
+        "properties": {
+          "expiresAt": {
+            "description": "이 시각이 지나면 배포 요청에 쓸 수 없다.",
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "올라온 아카이브의 sha256(hex). 클라이언트가 보낸 값과 맞춰 볼 수 있다.",
+            "examples": [
+              "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+            ],
+            "title": "Sha256",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "description": "올라온 아카이브(gzip)의 바이트 수",
+            "examples": [
+              123456
+            ],
+            "title": "Sizebytes",
+            "type": "integer"
+          },
+          "uploadId": {
+            "description": "추측할 수 없는 업로드 ID. 배포 요청 하나에만 쓸 수 있다.",
+            "examples": [
+              "Zq3h8mP0xYkq2oVd1sT6uXn4wJc9bLrE5aGfHiK7yMA"
+            ],
+            "title": "Uploadid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uploadId",
+          "sizeBytes",
+          "sha256",
+          "expiresAt"
+        ],
+        "title": "UploadResponse",
+        "type": "object"
+      },
       "UserResponse": {
         "properties": {
           "avatarUrl": {
@@ -4714,7 +4833,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4797,7 +4916,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4952,7 +5071,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4972,7 +5091,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -5184,7 +5303,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -5277,7 +5396,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -5376,7 +5495,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -5556,7 +5675,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -5619,7 +5738,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -5629,7 +5748,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -5697,7 +5816,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5775,7 +5894,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -5785,7 +5904,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -5855,7 +5974,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -5953,7 +6072,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -5963,7 +6082,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -5983,7 +6102,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -6046,7 +6165,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6056,7 +6175,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -6134,7 +6253,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6222,7 +6341,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6232,7 +6351,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -6252,7 +6371,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -6347,7 +6466,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6444,7 +6563,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6454,7 +6573,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -6474,7 +6593,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -6495,7 +6614,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "배포 요청 생성 (수동·재배포·롤백·재시작·삭제)",
+        "summary": "배포 요청 생성 (수동·CLI 업로드·재배포·롤백·재시작·삭제)",
         "tags": [
           "deployments"
         ]
@@ -6553,7 +6672,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6666,7 +6785,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6686,7 +6805,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -6850,7 +6969,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6870,7 +6989,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -6972,7 +7091,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -6982,7 +7101,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -7072,7 +7191,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7247,7 +7366,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7267,7 +7386,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -7337,7 +7456,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7460,7 +7579,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7480,7 +7599,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -7606,7 +7725,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7626,7 +7745,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -7754,7 +7873,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7774,7 +7893,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
           },
           "503": {
             "content": {
@@ -7844,7 +7963,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7953,7 +8072,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7963,7 +8082,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -7997,6 +8116,147 @@
         "summary": "배포된 서비스의 Pod 수·CPU·메모리 사양 교체",
         "tags": [
           "services"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/uploads": {
+      "post": {
+        "description": "로컬 폴더를 묶은 tar.gz 를 올린다. 본문이 곧 아카이브다. 업로드는 24시간 안에 `POST /services/{serviceId}/deployments` 의 `CLI` 트리거로 배포 요청 하나에만 쓸 수 있다. 서비스 소유자만 올릴 수 있고, 아카이브의 루트는 서비스 `rootDirectory` 와 상관없이 서비스 소스의 루트로 본다. 아카이브 안의 경로·링크 검사는 빌드 때 한다.",
+        "operationId": "create_upload_api_v1_services__service_id__uploads_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "본문 바이트 수. 없으면 422, 한도를 넘으면 읽기 전에 413 으로 거절한다.",
+            "in": "header",
+            "name": "content-length",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "본문 바이트 수. 없으면 422, 한도를 넘으면 읽기 전에 413 으로 거절한다.",
+              "title": "Content-Length"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/gzip": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "`tar` 를 gzip 으로 압축한 아카이브 바이트 그대로(multipart 아님). 서비스 소스의 루트가 아카이브의 루트이고 최상위에 파일이 바로 있다.",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_UploadResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "업로드가 크기 한도를 넘는다. 본문을 읽기 전에 거절한다 (UPLOAD_TOO_LARGE)"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "업로드 본문이 gzip 이 아니다 (UPLOAD_NOT_GZIP)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "소스 아카이브 업로드 (likelion up)",
+        "tags": [
+          "uploads"
         ]
       }
     },
@@ -8043,7 +8303,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8131,7 +8391,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8141,7 +8401,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE)"
           },
           "422": {
             "content": {
@@ -8229,7 +8489,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8311,7 +8571,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8408,7 +8668,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8640,6 +8900,10 @@
     {
       "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)",
       "name": "deployments"
+    },
+    {
+      "description": "`likelion up` 이 올리는 로컬 소스 아카이브. `CLI` 배포 요청으로 배포한다",
+      "name": "uploads"
     },
     {
       "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",

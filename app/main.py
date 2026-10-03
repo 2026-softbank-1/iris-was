@@ -28,6 +28,7 @@ from app.routers import (
     scaling_router,
     service_router,
     target_router,
+    upload_router,
     user_router,
     variable_router,
     webhook_router,
@@ -58,6 +59,10 @@ OPENAPI_TAGS = [
     {"name": "projects", "description": "서비스를 묶는 프로젝트"},
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
+    {
+        "name": "uploads",
+        "description": "`likelion up` 이 올리는 로컬 소스 아카이브. `CLI` 배포 요청으로 배포한다",
+    },
     {
         "name": "diagnosis",
         "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",
@@ -100,6 +105,7 @@ app.include_router(github_router.router)
 app.include_router(project_router.router)
 app.include_router(service_router.router)
 app.include_router(deployment_router.router)
+app.include_router(upload_router.router)
 app.include_router(diagnosis_router.router)
 app.include_router(target_router.router)
 app.include_router(domain_router.router)
