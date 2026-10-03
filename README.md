@@ -132,7 +132,7 @@ App 설정에서 맞춰야 할 값:
 | `GET /github/repos/{owner}/{repo}/branches` | 브랜치 목록 |
 | `POST·GET /projects` · `GET·PATCH·DELETE /projects/{id}` | 프로젝트 (목록은 서비스 수·online 수 포함) |
 | `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록 |
-| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림). PATCH 의 `deploymentStrategy`(`ROLLING`·`CANARY`·`BLUE_GREEN`)는 다음 배포부터 적용하고, `CANARY`·`BLUE_GREEN` 은 replicas 2 이상·기능 플래그 켬일 때만 저장한다. [ADR 0028](docs/adr/0028-deployment-strategy-selection.md) |
+| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림). PATCH 의 `deploymentStrategy`(`ROLLING`·`CANARY`·`BLUE_GREEN`)는 다음 배포부터 적용하고, `CANARY`·`BLUE_GREEN` 은 AWS 타깃·replicas 2 이상·기능 플래그 켬일 때만 저장한다(on-prem 은 롤링만). [ADR 0028](docs/adr/0028-deployment-strategy-selection.md) |
 | `GET·PUT /services/{id}/scaling` | 원하는 Pod 수·Pod별 CPU·메모리 조회·교체. PUT은 현재 이미지를 빌드 없이 재배포한다. [계약](docs/service-scaling-api.md) |
 | `POST /services/{id}/uploads` | `likelion up` 소스 업로드. 본문이 곧 tar.gz(`Content-Type: application/gzip`, `Content-Length` 필수)이고 `201` 로 `uploadId`·`sizeBytes`·`sha256`·`expiresAt` 를 돌려준다. `uploadId` 는 24시간 안에 `CLI` 배포 요청 하나에만 쓴다. [계약](docs/upload-api.md) |
 | `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·CLI 업로드·재배포·롤백·재시작·삭제)·목록(최신순) |
@@ -179,7 +179,7 @@ Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub Ap
 | `ARGOCD_SERVER_URL` · `ARGOCD_TOKEN` | Argo CD API 주소, project role `deploy-reader` 토큰(applications get) |
 | `VARIABLES_ENCRYPTION_KEY` | Control API 와 같은 값. 배포 요청의 변수 스냅샷(암호문)을 풀 때 쓴다. 변수가 있는 배포에만 필요하고, 변수가 있는데 없으면 그 배포는 `DEPLOY_INFRA_ERROR` 로 실패한다 |
 | `SEALED_SECRETS_CERT` | workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다. `\n` 두 글자로 적어도 된다). [runbook](https://github.com/2026-softbank-1/iris-infra/blob/main/docs/runbooks/sealed-secrets.md) 에서 꺼낸다. **설정하면 사용자 변수 기능이 켜져** values 에 `iris`·`variables` 를 쓴다. `iris-service` chart 0.6.0 이상이 배포된 뒤에만 설정한다(이전 chart 는 모르는 키를 거절해 모든 배포가 실패한다). 비어 있으면 이전과 같은 values 를 쓴다. 운영은 Secret `iris-platform-was-env` 에 있다(2026-10-03 설정) |
-| `DEPLOYMENT_STRATEGY_ENABLED` | 켜면 values 에 배포 요청의 적용 방식 `deploymentStrategy` 를 쓴다(기본 `false`). `iris-service` chart 0.7.0(Argo Rollouts) 이상이 배포된 뒤에만 켠다(이전 chart 는 모르는 키를 거절해 모든 배포가 실패한다). Control API 와 같은 값으로 둔다 |
+| `DEPLOYMENT_STRATEGY_ENABLED` | 켜면 AWS 타깃 release 의 values 에 배포 요청의 적용 방식 `deploymentStrategy` 를 쓴다(기본 `false`). on-prem 타깃은 chart 0.6.0 에 남아 켜도 쓰지 않는다. `iris-service` chart 0.7.0(Argo Rollouts) 이상이 배포된 뒤에만 켠다(이전 chart 는 모르는 키를 거절해 모든 배포가 실패한다). Control API 와 같은 값으로 둔다 |
 
 ## 실행
 
