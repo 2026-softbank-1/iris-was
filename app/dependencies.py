@@ -19,6 +19,7 @@ from app.core.database import get_session_factory
 from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.build_repository import BuildRepository
+from app.repositories.cli_login_session_repository import CliLoginSessionRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
@@ -32,6 +33,7 @@ from app.repositories.service_variable_repository import ServiceVariableReposito
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.cli_login_service import CliLoginService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
@@ -99,10 +101,22 @@ def get_github_login_credentials(settings: SettingsDep) -> GithubLoginCredential
     )
 
 
+def get_cli_login_service(
+    session: SessionDep, session_service: SessionServiceDep
+) -> CliLoginService:
+    return CliLoginService(
+        session, CliLoginSessionRepository(session), UserRepository(session), session_service
+    )
+
+
+CliLoginServiceDep = Annotated[CliLoginService, Depends(get_cli_login_service)]
+
+
 def get_auth_service(
     session: SessionDep,
     settings: SettingsDep,
     session_service: SessionServiceDep,
+    cli_login_service: CliLoginServiceDep,
     credentials: Annotated[GithubLoginCredentials, Depends(get_github_login_credentials)],
     http_client: HttpClientDep,
 ) -> AuthService:
@@ -119,6 +133,7 @@ def get_auth_service(
         GithubInstallationRepository(session),
         oauth_client,
         session_service,
+        cli_login_service,
         _require_session_secret(settings),
     )
 

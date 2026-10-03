@@ -63,6 +63,7 @@ _ERROR_DESCRIPTIONS = {
         "DEPLOYMENT_IN_PROGRESS)"
     ),
     422: "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)",
+    429: "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS)",
     502: "외부 시스템(GitHub·Loki·Prometheus) 호출에 실패했다 (EXTERNAL_ERROR)",
     503: "필요한 설정이 없다 (NOT_CONFIGURED)",
 }
