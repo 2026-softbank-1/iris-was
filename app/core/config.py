@@ -86,6 +86,11 @@ class DeployWorkerSettings(BaseSettings):
     gitops_installation_id: int
     argocd_server_url: str
     argocd_token: SecretStr
+    # 서비스 환경변수 스냅샷(암호문)을 푸는 키. Control API 와 같은 값이다.
+    # 변수가 있는 배포를 GitOps 에 쓸 때만 필요하고, 변수가 있는데 없으면 그 배포는 실패한다.
+    variables_encryption_key: SecretStr | None = None
+    # workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다). 변수를 봉인할 때 쓴다.
+    sealed_secrets_cert: str | None = None
 
 
 @lru_cache

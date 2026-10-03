@@ -7,6 +7,7 @@ from app.enums import Environment, FailureCode, ReleaseStatus
 from app.models.base import Base, BigIntPk, TimestampMixin, enum_column, now_utc
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
+from app.models.target import Target
 
 
 class Release(TimestampMixin, Base):
@@ -58,6 +59,7 @@ class Release(TimestampMixin, Base):
 
     deployment_request: Mapped[DeploymentRequest] = relationship(lazy="raise")
     build: Mapped[Build] = relationship(lazy="raise")
+    target: Mapped[Target] = relationship(lazy="raise")
 
     @property
     def is_finished(self) -> bool:

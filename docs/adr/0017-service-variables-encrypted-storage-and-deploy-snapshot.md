@@ -43,6 +43,11 @@ Notion task "[API] 환경변수 API"는 변수 CRUD, Raw(`.env`) 일괄 저장, 
 ## 결과
 - 프런트는 localStorage 대신 이 API 로 변수를 저장·조회할 수 있다.
 - 변수를 고치는 것만으로는 앱이 바뀌지 않는다. 새 배포 요청(재배포·재시작 포함)의 스냅샷에 반영된다.
-- **아직 앱에 전달되지 않는다.** chart 가 사용자 변수를 받지 않고(값 스키마가 거절), Prod 에 Secret 을 만들 경로(Sealed Secrets controller)가 없다. 스냅샷을 읽어 전달하는 일은 후속이다 — Worker 가 암호문을 복호화해 `kubeseal` 로 봉인하고 chart 가 `SealedSecret`·`envFrom` 을 만드는 안이 `.claude/docs/todo-runtime-variables.md` 에 있다. 이 ADR 의 스냅샷(암호문)을 그 입력으로 쓴다. Deploy Worker 가 복호화하려면 같은 키를 받아야 하므로 "컴포넌트끼리 Secret 을 공유하지 않는다" 원칙과 맞추는 방식(예: Worker 전용 키·KMS)을 그때 정한다.
-- `IRIS_SERVICE_NAME`·`IRIS_TARGET_NAME`·`IRIS_DEPLOYMENT_ID` 는 chart 가 아직 넣지 않는다. 이름은 이 API 와 chart 의 계약이므로 iris-infra 쪽 반영이 필요하다.
+- **앱 전달 (2026-10-03)**: iris-infra 가 `iris-service` 0.6.0(`variables`·`iris` values, SealedSecret, `envFrom`)과 Sealed Secrets controller addon 을 만들었다([iris-infra ADR 0004](https://github.com/2026-softbank-1/iris-infra/blob/main/docs/decisions/0004-user-variables-sealed-secrets.md)). Deploy Worker 는 DEPLOY 때 스냅샷을 `VARIABLES_ENCRYPTION_KEY` 로 풀어 controller 공개 인증서(`SEALED_SECRETS_CERT`)로 다시 봉인한다. strict scope 로 namespace `svc-{service_id}`, Secret 이름 `vars-r{release_id}` 에 묶고, 결과를 `values.yaml` 의 `variables.name`·`variables.encryptedData` 로 커밋한다. 서비스·타깃 이름과 배포 요청 id 는 `iris` 로 넘겨 env `IRIS_SERVICE_NAME`·`IRIS_TARGET_NAME`·`IRIS_DEPLOYMENT_ID` 가 된다.
+- **켜는 조건**: `SEALED_SECRETS_CERT` 를 설정해야 Worker 가 `iris`·`variables` 를 values 에 쓴다. 이전 chart(0.5.0)의 schema 는 모르는 키를 거절하므로, 클러스터가 chart 0.6.0 으로 올라간 뒤에 설정한다. 설정 전에는 이전과 같은 values 를 쓰고, 변수가 있는 서비스의 배포만 실패한다(변수 없이 뜨지 않게).
+- 봉인은 `kubeseal` 실행 파일 없이 `cryptography` 로 직접 한다(`app/clients/secret_sealer.py`, RSA-OAEP SHA-256 + AES-256-GCM, label `{namespace}/{name}`). 실제 `kubeseal` 0.40.0 의 복호화로 값이 그대로 풀리고 다른 namespace·이름은 거절되는 것을 확인했다(일회성 검증, 테스트에는 같은 형식의 복호화 도우미를 쓴다).
+- 변수가 있는데 키나 인증서가 없거나 복호화가 안 되면, 변수 없이 배포하지 않고 그 배포를 실패시킨다(`DEPLOY_INFRA_ERROR`, GitOps 는 바뀌지 않는다).
+- 자동 롤백은 이전 commit 으로 되돌리는 방식이라 다시 봉인하지 않는다. 사용자가 시작하는 롤백·재시작·재배포는 새 release 라서 스냅샷에서 새로 봉인한다.
+- **Secret 공유**: Deploy Worker 가 복호화 키를 받는다. 지금은 모든 WAS 컴포넌트가 `.env` Secret 하나를 `envFrom` 으로 받아 별도 설정이 필요 없지만, "컴포넌트끼리 Secret 을 공유하지 않는다" 원칙과는 어긋난다. Worker 전용 키·KMS 로 나누는 것은 후속이다.
+- **남은 것**: controller 가 클러스터에 뜬 뒤에야 실제 동작을 확인할 수 있다(bootstrap, 키 백업, 공개 인증서를 Deploy Worker 설정으로 전달). 빈 값(`KEY=`)이 실제 controller 에서 빈 Secret 값으로 풀리는지도 그때 확인한다(`kubeseal` 의 JSON 출력은 빈 값을 `null` 로 낸다).
 - 암호화 키를 잃으면 저장된 값을 읽을 수 없다(서비스를 다시 입력해야 한다). 키 교체(rotation)는 지원하지 않는다. 필요해지면 `MultiFernet` 으로 확장한다.

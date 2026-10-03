@@ -78,6 +78,8 @@ def _render(
     builder: Builder = Builder.DOCKERFILE,
     *,
     scaling: ScalingConfig | None = None,
+    iris: dict[str, Any] | None = None,
+    variables: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     content = render_service_values(
         host_label="my-app",
@@ -88,6 +90,8 @@ def _render(
         builder=builder,
         deploy=deploy,
         base_domain="example.app",
+        iris=iris,
+        variables=variables,
         scaling=scaling,
     )
     values: dict[str, Any] = json.loads(content)
@@ -105,6 +109,29 @@ def test_render_service_values_default_has_deploy_specific_fields_only() -> None
         "health": {"timeoutSeconds": 300},
         "route": {"host": "my-app.example.app"},
     }
+
+
+def test_render_service_values_iris_is_written_as_given() -> None:
+    iris = {"serviceName": "my-app", "targetName": "aws", "deploymentId": 6789012}
+
+    assert _render(DeployConfig(), iris=iris)["iris"] == iris
+
+
+def test_render_service_values_without_iris_omits_the_key() -> None:
+    assert "iris" not in _render(DeployConfig())
+
+
+def test_render_service_values_variables_are_written_as_given() -> None:
+    sealed = {"name": "vars-r345", "encryptedData": {"DATABASE_URL": "AgBy3i4TQXw="}}
+
+    values = _render(DeployConfig(), variables=sealed)
+
+    assert values["variables"] == sealed
+    assert "plain" not in json.dumps(values)
+
+
+def test_render_service_values_without_variables_omits_the_key() -> None:
+    assert "variables" not in _render(DeployConfig())
 
 
 def test_render_service_values_healthcheck_path_sets_health_path() -> None:
