@@ -79,7 +79,7 @@ sequenceDiagram
 ### `GET /api/v1/onprem-servers` → `OnpremServer[]` (내 것, 최신순)
 ### `GET /api/v1/onprem-servers/{id}` → `OnpremServer`
 ### `POST /api/v1/onprem-servers/{id}/registration-token` → 200 `{server, registrationToken, installCommand}`
-`PENDING`·`REGISTERING`·`FAILED` 일 때만(`CONNECTED` 는 409 `INVALID_STATUS_TRANSITION`). 이전 토큰·serverSecret 은 무효, 상태는 `PENDING`. `REGISTERING` 이면 Worker 가 하던 반영·연결 확인을 버린다(잘못된 서버에서 실행했거나 연결이 멈췄을 때 처음부터 다시 한다).
+`PENDING`·`REGISTERING`·`FAILED` 일 때만(`CONNECTED` 는 409 `INVALID_STATUS_TRANSITION`). 이전 토큰·serverSecret 은 무효, 상태는 `PENDING`. `REGISTERING` 이면 Worker 가 하던 반영·연결 확인을 버린다(잘못된 서버에서 실행했거나 연결이 멈췄을 때 처음부터 다시 한다). 저장한 접속 정보(`tailnetFqdn`·CA·SA 토큰·봉인 인증서)도 지운다. 서버는 새 토큰으로 `connect` 를 다시 보내야 한다.
 ### `DELETE /api/v1/onprem-servers/{id}` → 204
 서비스가 붙어 있거나 붙었던 서비스를 내리는 중이면(진행 중 배포 요청) 409 `ONPREM_SERVER_IN_USE`. 소프트 삭제 + 타깃 소프트 삭제 + Worker 가 `platform/onprem-servers/{key}/` 를 지운다.
 
@@ -130,7 +130,7 @@ sequenceDiagram
 응답 `data`: `{ "registry": "<계정>.dkr.ecr.ap-northeast-2.amazonaws.com", "username": "AWS", "password": "<ECR 토큰>", "expiresAt": "...", "serviceIds": [12, 15] }`
 - `expiresAt` 은 ECR 토큰 만료와 임시 자격증명 만료 중 이른 쪽이다. Control API 자격 증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션이 1시간이고, ECR 토큰도 그 안에서 끝날 수 있다. CronJob 이 5분마다 갱신하므로 문제없다.
 - Control API 가 ECR pull 전용 Role 을 AssumeRole 하면서 세션 정책으로 이 서버 타깃에 붙은 서비스들의 저장소만 허용한다. 붙은 서비스가 없으면 `serviceIds: []`, password 없음.
-- `CONNECTED` 전에는 401 이 아니라 409 `ONPREM_SERVER_NOT_CONNECTED` 를 준다(CronJob 이 조용히 다음 회차를 기다린다).
+- 확인 순서는 401(서버 비밀이 틀리거나 재발급으로 무효) → 409 `ONPREM_SERVER_NOT_CONNECTED`(`CONNECTED` 전) → 503 `NOT_CONFIGURED`(WAS 에 ECR pull Role 설정이 없음)다. CronJob 은 409·503 을 실패로 남기지 않고 다음 회차를 기다린다.
 - 서버의 CronJob(설치 스크립트가 만든다)이 5분마다 불러 `svc-{id}/iris-ecr-pull` Secret 을 갱신하고 default SA 에 `imagePullSecrets` 로 붙인다.
 
 ## 6. 설치 스크립트 (`install.sh`, Ubuntu 22.04/24.04 x86_64·arm64)
@@ -139,12 +139,12 @@ sequenceDiagram
 
 1. root·OS 확인, `curl`·`jq` 설치
 2. `bootstrap` 호출
-3. Tailscale 설치 → `tailscale up --auth-key … --hostname iris-{key} --advertise-tags tag:iris-onprem` → FQDN 확인
+3. Tailscale 설치 → `tailscale up --auth-key … --hostname iris-{key} --advertise-tags tag:iris-onprem` → FQDN 확인. ufw 가 켜져 있으면 `tailscale0` 으로 들어오는 tcp 6443·80 만 허용한다(`ufw allow in on tailscale0 to any port … proto tcp`, 다시 실행해도 같다)
 4. K3s 설치(버전 고정, `--tls-san <tailnetFqdn>`, Traefik 유지)
-5. 배포 권한: namespace `iris-system`, SA `iris-argocd`, ClusterRole `iris-onprem-service-deployer`(iris-infra `clusters/onprem-workload/argocd-service-deployer.yaml` 과 같은 규칙) + `iris-system` 의 ConfigMap 쓰기 권한(probe 용), 만료 없는 토큰 Secret(`kubernetes.io/service-account-token`). 복사한 ClusterRole 은 Secret 을 포함해 클러스터 전체를 읽으므로 이 토큰을 쓰는 management Argo CD 는 `iris-system/iris-server-secret` 도 읽을 수 있다(알려진 위험, ADR 0029)
+5. 배포 권한: namespace `iris-system`, SA `iris-argocd`, ClusterRole `iris-onprem-service-deployer`(iris-infra `clusters/onprem-workload/argocd-service-deployer.yaml` 과 같은 규칙) + `iris-system` 의 ConfigMap 쓰기 권한(probe 용), 만료 없는 토큰 Secret(`kubernetes.io/service-account-token`). 복사한 ClusterRole 은 Secret 을 포함해 클러스터 전체를 읽으므로 이 토큰을 쓰는 management Argo CD 는 `iris-system/iris-server-secret` 도 읽을 수 있다(알려진 위험, ADR 0029). 토큰 교체: 이 legacy SA 토큰 Secret 은 `iat`·`jti` 가 없어 Secret 만 다시 만들면 같은 JWT 가 나온다. 바꾸려면 SA `iris-system/iris-argocd` 와 토큰 Secret `iris-argocd-token` 을 지우고, 등록 토큰을 재발급받아 `install.sh` 를 다시 실행한다
 6. Argo Rollouts·Sealed Secrets controller 설치(버전 고정)
 7. `connect` 호출 → `serverSecret` 을 `iris-system/iris-server-secret` 에 저장
-8. ECR 갱신 CronJob(`iris-system/iris-ecr-refresh`, 5분) 설치·1회 실행. 5분인 이유: 새 서비스의 `svc-{id}` namespace 가 생긴 뒤 첫 pull 까지 기다리는 시간을 줄인다. 첫 Pod 가 Secret 보다 먼저 뜨면 ImagePullBackOff 로 재시도하다 Secret 이 생기면 받아진다(§7.1)
+8. ECR 갱신 CronJob(`iris-system/iris-ecr-refresh`, 5분) 설치·1회 실행. `ONPREM_SERVER_NOT_CONNECTED`(409)·`NOT_CONFIGURED`(503) 응답은 로그 한 줄만 남기고 성공으로 끝낸다(실패한 Job 을 쌓지 않는다). 5분인 이유: 새 서비스의 `svc-{id}` namespace 가 생긴 뒤 첫 pull 까지 기다리는 시간을 줄인다. 첫 Pod 가 Secret 보다 먼저 뜨면 ImagePullBackOff 로 재시도하다 Secret 이 생기면 받아진다(§7.1)
 9. 상태를 `GET` 할 수단은 없으므로 "웹·CLI 에서 연결 상태를 확인하세요" 를 출력하고 끝
 
 다시 실행해도 같은 결과가 되어야 한다(이미 설치된 것은 건너뜀). 토큰·가입 키는 출력하지 않는다(`set +x`).

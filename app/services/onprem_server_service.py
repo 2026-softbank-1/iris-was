@@ -328,14 +328,9 @@ class OnpremServerService:
     async def issue_registry_credentials(self, server_secret: str) -> RegistryCredentials:
         """이 서버 타깃에 붙은 서비스들의 ECR 저장소만 받을 수 있는 pull 자격증명.
 
-        비밀이 틀리면 401, 맞지만 아직 CONNECTED 가 아니면 409 다(서버의 CronJob 이 다음 회차를
-        기다린다).
+        비밀이 틀리면 401, 맞지만 아직 CONNECTED 가 아니면 409(서버의 CronJob 이 다음 회차를
+        기다린다), 그다음 ECR pull Role 설정이 없으면 503 이다.
         """
-        if self._ecr_pull_client is None:
-            raise NotConfiguredError(
-                "ecr pull role is not configured",
-                setting="AWS_REGION, ONPREM_ECR_PULL_ROLE_ARN",
-            )
         server = await self._onprem_server_repository.find_by_server_secret_hash(
             hash_url_token(server_secret)
         )
@@ -350,6 +345,12 @@ class OnpremServerService:
                 "onprem server is not connected",
                 onprem_server_id=server.id,
                 onprem_server_status=server.status,
+            )
+        # 설정 확인은 인증 뒤에 한다. 틀리거나 무효가 된 비밀에는 설정 상태를 알리지 않는다.
+        if self._ecr_pull_client is None:
+            raise NotConfiguredError(
+                "ecr pull role is not configured",
+                setting="AWS_REGION, ONPREM_ECR_PULL_ROLE_ARN",
             )
 
         service_ids = await self._service_repository.search_ids_by_target_id(server.target_id)

@@ -79,8 +79,13 @@ class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
         """이전 토큰과 서버 비밀은 무효가 되고 등록을 처음부터 다시 한다.
 
         REGISTERING 중이면 세대를 올리고 lease 를 비워, 그 등록을 처리하던 Worker 가 결과를 버린다.
+        서버가 connect 를 다시 보내야 하므로 저장한 접속 정보(SA 토큰 암호문 포함)도 지운다.
         """
         self.connect_generation += 1
+        self.tailnet_fqdn = None
+        self.api_ca_cert = None
+        self.encrypted_service_account_token = None
+        self.sealed_secrets_cert = None
         self.release_lease()
         self.registration_token_hash = token_hash
         self.registration_expires_at = expires_at

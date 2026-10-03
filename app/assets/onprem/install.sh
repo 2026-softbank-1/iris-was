@@ -162,6 +162,7 @@ join_tailnet() {
   if is_dry; then
     plan "Tailscale 설치 → tailscale up --hostname $TAILSCALE_HOSTNAME --advertise-tags $TAILSCALE_TAGS"
     TAILNET_FQDN="$TAILSCALE_HOSTNAME.<tailnet>.ts.net"
+    allow_tailnet_in_firewall
     return
   fi
   if ! command -v tailscale >/dev/null; then
@@ -191,6 +192,23 @@ join_tailnet() {
   [[ $TAILNET_FQDN == "$TAILSCALE_HOSTNAME".* ]] ||
     die "Tailscale 주소($TAILNET_FQDN)가 $TAILSCALE_HOSTNAME 으로 시작하지 않습니다. 같은 이름의 기기가 tailnet 에 남아 있는지 확인하세요"
   log "Tailnet 주소: $TAILNET_FQDN"
+  allow_tailnet_in_firewall
+}
+
+# ufw 가 켜져 있으면 tailnet(tailscale0)으로 들어오는 K3s API(6443)·앱(80)만 연다. 다른 인터페이스는 그대로 둔다.
+allow_tailnet_in_firewall() {
+  if is_dry; then
+    plan "ufw 가 켜져 있으면 tailscale0 의 tcp 6443·80 만 허용"
+    return
+  fi
+  command -v ufw >/dev/null || return 0
+  ufw status 2>/dev/null | grep -q '^Status: active' || return 0
+  local port
+  for port in 6443 80; do
+    # 같은 규칙이 있으면 ufw 가 건너뛴다(다시 실행해도 같다).
+    ufw allow in on tailscale0 to any port "$port" proto tcp >/dev/null
+  done
+  log "방화벽(ufw): tailscale0 의 tcp 6443·80 허용"
 }
 
 node_ready() {
@@ -458,8 +476,9 @@ data:
       curl -sS -X POST --max-time 30 -H @- -H 'Accept: application/json' --data '' \
         "$API_URL/api/v1/onprem-servers/registry-credentials")
     code=$(printf '%s' "$response" | jq -r '.code // ""' 2>/dev/null || true)
-    # 연결 확인 전(409)이면 다음 실행에서 다시 받는다.
+    # 연결 확인 전(409)이나 플랫폼의 ECR 설정 전(503)이면 실패한 Job 을 남기지 않고 다음 실행에서 다시 받는다.
     if [ "$code" = "ONPREM_SERVER_NOT_CONNECTED" ]; then echo "서버 연결 확인 전, 다음 실행에서 다시 시도"; exit 0; fi
+    if [ "$code" = "NOT_CONFIGURED" ]; then echo "플랫폼의 ECR 자격증명 설정 전, 다음 실행에서 다시 시도"; exit 0; fi
     if [ "$(printf '%s' "$response" | jq -r '.success // false' 2>/dev/null)" != "true" ]; then
       printf '%s' "$response" | jq -r '"자격증명 요청 실패: \(.message // "unknown") (code: \(.code // "UNKNOWN"))"' 2>/dev/null ||
         echo "자격증명 요청 실패: 응답을 해석하지 못했습니다"

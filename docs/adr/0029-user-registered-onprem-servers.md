@@ -53,6 +53,7 @@ Deploy Worker 의 서버 작업 방식(`jobs.deployment_request_id` 가 NOT NULL
 - 토큰 재발급은 `REGISTERING` 에서도 된다. 잘못된 서버에서 실행했거나 연결이 멈췄을 때 처음부터 하도록, 세대를 올리고 lease 를 비워 Worker 가 하던 일을 버린다. 이미 main 에 올라간 이전 값은 다음 connect 의 커밋이 덮는다.
 - 운영자 Tailscale 가입 키 하나를 모든 사용자가 쓰므로, 키가 새면 누구나 `tag:iris-onprem` 으로 tailnet 에 들어올 수 있다. 태그를 목적지로만 쓰는 ACL 로 피해를 줄이고, 사용자마다 서버를 5대(`ONPREM_SERVER_LIMIT_EXCEEDED`)로 묶어 키 노출 횟수를 줄인다. 1회용 키 자동 발급(계약 §10)으로 없앤다.
 - 서버에 복사하는 ClusterRole 은 iris-infra 의 배포 권한과 같아 Secret 을 포함한 클러스터 전체 읽기를 준다. 그래서 그 SA 토큰을 쓰는 management Argo CD 는 서버의 `iris-system/iris-server-secret` 도 읽을 수 있다. 서버 비밀이 할 수 있는 일은 그 서버 서비스의 ECR pull 뿐이라 받아들이고, 읽기 범위를 좁히는 것은 iris-infra 규칙과 함께 바꾼다.
+- Argo CD 가 쓰는 SA 토큰은 만료 없는 legacy `kubernetes.io/service-account-token` Secret 이라 `iat`·`jti` 가 없다. Secret 만 지우고 다시 만들면 같은 JWT 가 나와 교체가 되지 않는다. 교체하려면 SA `iris-system/iris-argocd` 와 그 토큰 Secret 을 함께 지우고 등록 토큰을 재발급받아 `install.sh` 를 다시 실행한다(connect 가 새 토큰을 보내 GitOps 의 봉인 값을 바꾼다).
 - 설치 명령은 등록 토큰을 `--token` 인자로 받아, 실행하는 동안 같은 서버의 다른 사용자가 `ps` 로 볼 수 있다. 토큰은 24시간·1회 등록용이고 connect 뒤에는 재발급으로 무효화할 수 있다.
 - `installCommand` 의 주소는 요청의 Host 가 아니라 `API_BASE_URL` 설정에서만 만든다(Host 헤더를 바꾼 요청이 다른 서버를 가리키는 명령을 받지 않게). https 가 아니면(로컬 개발 제외) 등록을 503 으로 막는다.
 - 후속: Tailscale 1회용 키 자동 발급, `CONNECTED` 이후 연결 끊김 감지, 서버 쪽 로그·메트릭 수집, 기존 `onprem` 서버를 새 경로로 옮기기(계약 §9·§10).

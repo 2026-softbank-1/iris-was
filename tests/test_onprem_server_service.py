@@ -128,6 +128,11 @@ async def test_reissue_token_while_registering_stops_the_worker_and_returns_to_p
     assert server.locked_by is None and server.locked_until is None
     assert server.connect_deadline_at is None and server.next_check_at is None
     assert server.server_secret_hash is None
+    # 다시 connect 해야 하므로 저장한 접속 정보도 지운다.
+    assert server.tailnet_fqdn is None
+    assert server.api_ca_cert is None
+    assert server.encrypted_service_account_token is None
+    assert server.sealed_secrets_cert is None
 
 
 async def test_reissue_token_when_connected_is_invalid_transition() -> None:
@@ -407,11 +412,29 @@ async def test_registry_credentials_with_wrong_secret_is_unauthorized() -> None:
         await setup.service.issue_registry_credentials("wrong-secret")
 
 
-async def test_registry_credentials_without_role_is_not_configured() -> None:
+async def test_registry_credentials_without_role_checks_secret_then_status_first() -> None:
+    # 순서는 401(비밀) → 409(연결 전) → 503(설정 없음)이다.
     setup = OnpremSetup(has_ecr=False)
+    registration = await setup.service.create_server(OWNER, "home-lab")
+    secret = await setup.connect(registration.registration_token, registration.server)
 
+    with pytest.raises(UnauthorizedError):
+        await setup.service.issue_registry_credentials("wrong-secret")
+    with pytest.raises(OnpremServerNotConnectedError):
+        await setup.service.issue_registry_credentials(secret)
+    registration.server.mark_as_connected(datetime.now(UTC))
     with pytest.raises(NotConfiguredError):
-        await setup.service.issue_registry_credentials("anything")
+        await setup.service.issue_registry_credentials(secret)
+
+
+async def test_registry_credentials_with_revoked_secret_is_unauthorized_even_without_role() -> None:
+    setup = OnpremSetup(has_ecr=False)
+    registration = await setup.service.create_server(OWNER, "home-lab")
+    secret = await setup.connect(registration.registration_token, registration.server)
+    await setup.service.reissue_registration_token(OWNER, registration.server.id)
+
+    with pytest.raises(UnauthorizedError):
+        await setup.service.issue_registry_credentials(secret)
 
 
 async def test_registry_credentials_aws_failure_reports_service_count() -> None:
