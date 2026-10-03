@@ -208,6 +208,7 @@ flowchart LR
 - Argo CD 외부 클러스터 자격증명과 Git repository credential은 `argocd` namespace에만 보관하고 플랫폼 관리자만 접근한다.
 - Prod의 Argo CD ServiceAccount는 서비스 namespace의 앱 리소스만 수정한다. `ClusterRoleBinding`, `CRD`, `Node`, 다른 namespace 수정은 금지한다.
 - Build와 Deploy의 Secret·IAM Role은 공유하지 않는다.
+- Control API는 `likelion up` 소스 업로드를 받아 S3의 `uploads/` 접두어에만 쓴다(`s3:PutObject`·`s3:AbortMultipartUpload`). 빌드 입력인 `snapshots/`는 Build Worker만 쓰고, Build Worker는 `uploads/`를 읽기만 한다. 업로드는 사용자 입력이므로 Build Worker가 검사하며 스냅샷으로 다시 묶은 뒤에만 CodeBuild에 넘긴다(iris-was ADR 0023).
 
 ## 8. 모노레포 구조
 

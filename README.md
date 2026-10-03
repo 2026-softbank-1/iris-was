@@ -79,7 +79,11 @@ LOG_LEVEL=INFO
 | `TRAFFIC_CLUSTER` | 서비스 외부 트래픽 지표(요청 수·오류율·응답 시간·공용 네트워크)의 `cluster` 라벨 값. 기본 `iris-dev-workload` |
 | `DIAGNOSIS_AGENT_URL`, `DIAGNOSIS_AGENT_API_KEY` | 에러 진단 에이전트 서버(`iris-error-check-agent`) 주소와 `X-API-Key` 값. dev 클러스터 주소는 `http://iris-platform-error-agent.iris-platform.svc.cluster.local:8001`, 키는 Secret `iris-error-agent` 의 `AGENT_API_KEY` 와 같은 값. 둘 중 하나라도 없으면 진단 시작이 `503 NOT_CONFIGURED`(저장된 진단 조회는 가능). [AI 진단 API](docs/diagnosis-api.md) |
 | `DIAGNOSIS_AGENT_TIMEOUT_SECONDS` | 에이전트 응답을 기다리는 시간(초). 기본 150 (모델 호출 최대 2번 × 60초 + 여유) |
-| `AWS_REGION`, `ARTIFACT_BUCKET` | (선택) 둘 다 있으면 진단에 빌드의 소스 스냅샷을 함께 보낸다(`snapshots/*` 의 `s3:GetObject` 만 허용한 Role 필요). 없으면 로그만 진단한다 |
+| `REPAIR_AGENT_URL`, `REPAIR_AGENT_API_KEY`, `REPAIR_AGENT_SOURCE_HOSTS` | 수정 후보 에이전트 주소·인증 키·허용할 source snapshot 호스트. 특정 진단 원문과 고정 소스를 보내고 결과·검토용 파일을 저장한다. [연동 계약](docs/repair-agent-integration.md) |
+| `REPAIR_AGENT_TIMEOUT_SECONDS`, `REPAIR_AGENT_DEADLINE_SECONDS`, `REPAIR_AGENT_MAX_COST_USD` | 호출 대기 150초·작업 기한 240초·후보 생성 비용 상한 USD 1. 응답이 불확실하면 결과만 조회하며 모델을 자동 재호출하지 않는다 |
+| `DIAGNOSIS_AUTO_START_ENABLED`, `DIAGNOSIS_AUTO_START_INTERVAL_SECONDS` | 실패가 확정된 배포를 서버가 자동으로 진단한다(기본 켬, 에이전트 설정이 없으면 켜지 않는다). 모델 비용이 실패마다 들어 `false` 로 끌 수 있다(끄면 버튼으로 시작하는 진단만 남는다). 진단할 배포를 찾는 주기는 기본 5초다 |
+| `AWS_REGION`, `ARTIFACT_BUCKET` | (선택) 둘 다 있어야 켜진다(`AWS_REGION` 은 아래 `BUILD_LOG_GROUP` 도 함께 쓴다). ① 소스 업로드 API(`likelion up`): `uploads/*` 의 `s3:PutObject`·`s3:AbortMultipartUpload` 가 필요하고, 없으면 `POST /services/{id}/uploads` 가 `503 NOT_CONFIGURED`. ② 진단에 빌드의 소스 스냅샷을 함께 보낸다: `snapshots/*` 의 `s3:GetObject` 가 필요하고, 없으면 로그만 진단한다. 같은 두 변수가 둘을 함께 켜므로 Role 에 두 권한을 같이 주고, **권한을 먼저 적용한 뒤** 변수를 켠다. 운영은 chart 값이 아니라 Secret `iris-platform-was-env` 에 `ARTIFACT_BUCKET` 을 넣고 API 를 롤링 재시작한다([ADR 0023](docs/adr/0023-cli-source-upload-storage-and-archive-defense.md)) |
+| `UPLOAD_MAX_BYTES` | 소스 업로드의 압축한 바이트 한도. 기본 250MB(Build Worker 의 `SNAPSHOT_MAX_BYTES` 와 같게 둔다). 넘으면 본문을 읽기 전에 `413 UPLOAD_TOO_LARGE` |
 | `BUILD_LOG_GROUP` | (선택) `AWS_REGION` 과 함께 있으면 배포 상세의 빌드 로그 전체를 CloudWatch Logs 에서 읽는다(그룹 `/aws/codebuild/iris-dev-build` 의 `logs:GetLogEvents` 만 허용한 Role 필요). 없으면 Build Worker 가 남긴 실패한 빌드의 끝부분만 보여 주고, 그것도 없으면 빌드 로그 API 가 503 이다. [배포 상세 화면 API](docs/deployment-details-api.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
 | `WEB_BASE_URL` | 웹 프런트 주소. 로그인 후 이 주소로 돌려보낸다. 기본 `http://localhost:3000` |
@@ -110,7 +114,9 @@ App 설정에서 맞춰야 할 값:
 
 서비스 런타임 로그 조회(`GET /services/{id}/logs`), 로그 SSE(`/services/{id}/logs/stream`), CPU·메모리·네트워크 메트릭(`/services/{id}/metrics`)는 [관측 API 문서](docs/observability-api.md)를 따른다.
 
-서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 서버 없이 보려면 저장소의 [docs/openapi.json](docs/openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
+서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 운영 명세는 [Swagger](https://api.likelion.uk/docs), [ReDoc](https://api.likelion.uk/redoc), [OpenAPI JSON](https://api.likelion.uk/openapi.json) 에서 확인한다. 서버 없이 보려면 저장소의 [docs/openapi.json](docs/openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
+
+코드수정·GitHub 쓰기 인증의 운영 요청/응답·오류·권한 설정은 [코드수정 운영 API 명세](docs/repair-api.md)를 따른다.
 
 인증은 쿠키(`anydeploy_session`, 웹) 또는 `Authorization: Bearer <token>`(CLI). 응답은 `ApiResponse` 봉투, JSON 은 camelCase 다.
 
@@ -127,19 +133,23 @@ App 설정에서 맞춰야 할 값:
 | `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록 |
 | `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림) |
 | `GET·PUT /services/{id}/scaling` | 원하는 Pod 수·Pod별 CPU·메모리 조회·교체. PUT은 현재 이미지를 빌드 없이 재배포한다. [계약](docs/service-scaling-api.md) |
-| `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·재배포·롤백·재시작·삭제)·목록(최신순) |
+| `POST /services/{id}/uploads` | `likelion up` 소스 업로드. 본문이 곧 tar.gz(`Content-Type: application/gzip`, `Content-Length` 필수)이고 `201` 로 `uploadId`·`sizeBytes`·`sha256`·`expiresAt` 를 돌려준다. `uploadId` 는 24시간 안에 `CLI` 배포 요청 하나에만 쓴다. [계약](docs/upload-api.md) |
+| `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·CLI 업로드·재배포·롤백·재시작·삭제)·목록(최신순) |
 | `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
-| `POST /services/{id}/deployments/{deploymentId}/diagnose` | 실패한 배포의 AI 진단을 시작해 `202 RUNNING` 으로 답한다(진단은 서버가 이어서 실행, 최대 2분 남짓). 성공한 진단이 있으면 `200` 으로 그 결과를 돌려준다. `refresh=true` 면 다시 진단 |
-| `GET /services/{id}/deployments/{deploymentId}/diagnosis` | 배포의 가장 최근 AI 진단 조회(`RUNNING`·`SUCCEEDED`·`FAILED`). 시작 뒤 폴링에 쓴다 |
+| `POST /services/{id}/deployments/{deploymentId}/repairs` | 특정 `diagnosisId`·`planIds`로 코드 수정 후보 생성 접수. `Idempotency-Key` 필수, 신규 요청은 `202 RUNNING` |
+| `GET /services/{id}/repairs/{repairId}` · `GET /services/{id}/repairs/{repairId}/artifacts/{name}` | 수정 후보 진행 상태와 검토용 diff·변경 파일·manifest 조회. 소유권과 artifact 해시를 검사한다 |
+| `GET /services/{id}/deployments/{deploymentId}/repair-context` | 인증된 조정기에 특정 진단 원문·원본 소스 정보를 제공한다. 단기 소스 URL 응답은 캐시하지 않는다 |
+| `POST /services/{id}/repair-github-token` | 기존 WAS 세션과 App 설치로 해당 소스 저장소의 Contents·Pull requests write 단기 토큰 발급. 소유권·저장소 일치를 검사하고 응답은 no-store. [운영 명세](docs/repair-api.md) |
+| `GET /services/{id}/deployments/{deploymentId}/diagnosis` | 배포의 가장 최근 AI 진단 조회(`RUNNING`·`SUCCEEDED`·`FAILED`). 폴링에 쓴다. 방금 실패했으면 자동 시작 전 몇 초는 `404` |
 | `GET /targets` | 배포 타깃(aws·local) 목록 |
 | `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
 | `GET·POST /services/{id}/variables` | 환경변수 목록(`variables` + 자동 주입 `systemVariables`)·추가 |
-| `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 변수 전체를 교체한다(없는 키는 삭제) |
+| `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 변수 전체를 교체한다(없는 키는 삭제). 따옴표 값은 여러 줄에 걸칠 수 있고, 거부하면 422 `details` 에 줄 번호와 사유를 싣는다 |
 | `PUT·DELETE /services/{id}/variables/{key}` | 환경변수 값 수정·삭제 |
 
 - 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제이고, 떠 있는 앱도 함께 내린다(`REMOVE` 요청을 같이 만든다). 진행 중인 배포가 있으면 아무것도 지우지 않고 `409 DEPLOYMENT_IN_PROGRESS` 다([ADR 0022](docs/adr/0022-delete-service-also-removes-app.md)).
-- 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`REDEPLOY`(`sourceDeploymentId` 의 커밋을 다시 빌드)·`ROLLBACK`(성공한 `sourceDeploymentId` 가 만든 이미지를 빌드 없이 배포)·`RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작, 원본은 보내지 않는다)·`REMOVE`(지금 떠 있는 배포를 클러스터에서 내림, 원본은 보내지 않는다)이다. 롤백·재시작·삭제는 요청이 곧바로 `DEPLOYING` 이 되고 `QUEUED → BUILDING` 이 없다([ADR 0015](docs/adr/0015-rollback-and-restart-reuse-built-image.md)·[ADR 0016](docs/adr/0016-remove-service-deployment.md)). 삭제는 iris-infra ApplicationSet 이 디렉터리 삭제로 Application 을 정리하도록 설정돼 있어야 끝난다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](docs/adr/0010-deployment-status-transitions-and-history.md).
-- AI 진단은 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 결과(`analysis.hypotheses`=원인, `analysis.remediation.plans`=해결책, `evidence`=근거 로그)를 `deployment_diagnoses` 에 저장한다. 성공한 진단이 있으면 모델을 다시 부르지 않는다. 해결책은 제안일 뿐 실행하지 않고 배포 요청 상태도 바꾸지 않는다. 빌드 단계 실패는 Build Worker 가 남긴 빌드 로그(`builds.log_tail`)로 진단한다. Build Worker 역할에 CloudWatch `logs:GetLogEvents` 가 없으면 로그가 남지 않아 진단이 `FAILED`·`DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다. 설계와 한계는 [ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md).
+- 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`CLI`(`uploadId` 로 올린 로컬 폴더를 GitHub 대신 소스로 빌드, [ADR 0023](docs/adr/0023-cli-source-upload-storage-and-archive-defense.md))·`REDEPLOY`(`sourceDeploymentId` 의 커밋을 다시 빌드, `CLI` 로 만든 배포는 소스가 남지 않아 `422`)·`ROLLBACK`(성공한 `sourceDeploymentId` 가 만든 이미지를 빌드 없이 배포)·`RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작, 원본은 보내지 않는다)·`REMOVE`(지금 떠 있는 배포를 클러스터에서 내림, 원본은 보내지 않는다)이다. 롤백·재시작·삭제는 요청이 곧바로 `DEPLOYING` 이 되고 `QUEUED → BUILDING` 이 없다([ADR 0015](docs/adr/0015-rollback-and-restart-reuse-built-image.md)·[ADR 0016](docs/adr/0016-remove-service-deployment.md)). 삭제는 iris-infra ApplicationSet 이 디렉터리 삭제로 Application 을 정리하도록 설정돼 있어야 끝난다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](docs/adr/0010-deployment-status-transitions-and-history.md).
+- AI 진단은 배포가 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 으로 확정되면 서버가 자동으로 시작한다(Control API 가 5초마다 진단 기록이 없는 실패를 찾는다. `REMOVE` 제외, 끝난 지 10분 안의 실패만, 한 번에 하나). 그 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 결과(`analysis.hypotheses`=원인, `analysis.remediation.plans`=해결책, `evidence`=근거 로그)를 `deployment_diagnoses` 에 저장한다. 성공한 진단이 있으면 모델을 다시 부르지 않는다. 해결책은 제안일 뿐 실행하지 않고 배포 요청 상태도 바꾸지 않는다. 빌드 단계 실패는 Build Worker 가 남긴 빌드 로그(`builds.log_tail`)로 진단한다. Build Worker 역할에 CloudWatch `logs:GetLogEvents` 가 없으면 로그가 남지 않아 진단이 `FAILED`·`DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다. 설계와 한계는 [ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md).
 - 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.
 - 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
 - 환경변수 값은 `VARIABLES_ENCRYPTION_KEY` 로 암호화해 저장하고 소유자에게만 복호화해 돌려준다. 키는 영문·숫자·밑줄이고 `PORT`·`IRIS_*` 는 플랫폼 예약이다. 배포 요청을 만들 때 변수가 `variables_snapshot` 에 암호문으로 복사된다(롤백은 원본 요청의 변수, 재배포·재시작은 지금 변수). **아직 앱 컨테이너에 전달되지는 않는다** — chart·Prod Secret 경로가 필요하다. 설계는 [ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md).
@@ -154,8 +164,9 @@ Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 �
 | `CODEBUILD_PROJECT` · `ARTIFACT_BUCKET` | iris-infra `aws/dev/foundation` 출력값. dev: `iris-dev-build` · `iris-dev-build-artifacts-<ACCOUNT_ID>-ap-northeast-2` |
 | `CONCURRENCY` | Worker 1개가 동시에 처리할 BUILD job 수. 기본 4 |
 | `USER_CONCURRENT_BUILD_LIMIT` · `BUILD_TIMEOUT_MINUTES` · `SNAPSHOT_MAX_BYTES` | 사용자별 동시 빌드 2 · 빌드 15분 · 스냅샷 250MB |
+| `UPLOAD_MAX_UNCOMPRESSED_BYTES` · `UPLOAD_MAX_ENTRIES` | `CLI` 업로드 아카이브를 풀었을 때의 총 크기 2GiB · 항목 수 10만(압축 폭탄 방어). 넘으면 `SOURCE_TOO_LARGE` |
 
-Build Worker 역할(IAM)에는 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`(`/aws/codebuild/<프로젝트>:*`)가 있어야 한다. 없어도 빌드는 동작하고 AI 진단만 빌드 로그 없이 끝난다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
+Build Worker 역할(IAM)에는 `CLI` 업로드를 내려받는 `uploads/*` 의 `s3:GetObject` 가 있어야 한다(없으면 `CLI` 빌드가 `BUILD_INFRA_ERROR` 로 끝난다. 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용되므로 Worker 를 재시작하지 않는다). 또 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`(`/aws/codebuild/<프로젝트>:*`)가 있어야 한다. 없어도 빌드는 동작하고 AI 진단만 빌드 로그 없이 끝난다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
 
 Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub App·자격증명을 공유하지 않는다.
 
@@ -179,7 +190,7 @@ uv run python -m app.workers.deploy_worker    # Deploy Worker
 
 Worker 는 일이 없으면 `jobs` 트리거의 `NOTIFY jobs, <kind>`·가장 이른 미래 `run_after`·60초 중 먼저 오는 때까지 기다렸다가 선점을 다시 시도한다(ADR 0019). SIGTERM·SIGINT 를 받으면 루프를 끝내고 종료한다. Build Worker 는 CodeBuild 를 기다리던 job 을 반납하고, 다른 Worker 가 기록된 `codebuild_build_id` 로 이어서 처리한다. 스냅샷(최대 250MB 다운로드·업로드) 중에는 반납하지 않으므로 Pod `terminationGracePeriodSeconds` 를 120 이상으로 둔다.
 
-Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
+Build Worker 흐름: BUILD job 선점 → GitHub tarball(S3 스냅샷. `CLI` 요청은 올린 아카이브를 받아 검사하며 같은 모양으로 다시 묶는다, [ADR 0023](docs/adr/0023-cli-source-upload-storage-and-archive-defense.md)) → 빌더 결정(`iris.json` > 서비스 설정 > Dockerfile 유무) → CodeBuild(buildspec 은 iris-infra `terraform/environments/aws/dev/foundation/buildspec.yml`. 환경변수 이름이 계약이다) → ECR digest 조회 → 같은 트랜잭션에서 `builds=SUCCEEDED`·요청 `DEPLOYING`·DEPLOY job 생성.
 
 Deploy Worker 흐름: DEPLOY 선점 → release(PENDING) 생성(서비스·타깃마다 1개, 진행 중이면 snooze) → `services/{service_id}/prod/values.yaml`(플랫폼 Helm chart values) 렌더링(`SEALED_SECRETS_CERT` 가 있으면: 요청의 변수 스냅샷은 풀어 `svc-{service_id}` + `vars-r{release_id}` 용으로 다시 봉인해 `variables` 에 넣고, 서비스·타깃 이름과 배포 요청 id 는 `iris` 에 넣는다. [ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md)) → 커밋 SHA 기록 → `main` fast-forward → RECONCILE 이 10초마다 Argo CD 상태 확인(대기 중에는 job 을 잡지 않고 snooze) → 성공이면 ECR `r-{release_id}` 태그·`SUCCEEDED`, 실패면 이전 정상 release 의 디렉터리로 되돌리는 revert commit(ROLLBACK). 상세는 [.claude/docs/deploy-worker-plan.md](.claude/docs/deploy-worker-plan.md), 로컬 테스트는 [docs/deploy-worker-test-guide.md](docs/deploy-worker-test-guide.md).
 

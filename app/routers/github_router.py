@@ -27,7 +27,12 @@ router = APIRouter(prefix="/api/v1/github", tags=["github"])
     "/install",
     response_model=None,
     status_code=status.HTTP_302_FOUND,
-    summary="GitHub App 설치 시작",
+    summary="GitHub App 최초 설치·Contents/Pull requests 읽기쓰기 승인 시작",
+    description=(
+        "최초 설치 화면에서 App에 설정된 Contents: read/write와 Pull requests: read/write를 "
+        "함께 승인한다. 이후 AI 수정 클릭은 핫픽스 PR 생성과 main 자동 머지를 시작하며 "
+        "추가 확인을 묻지 않는다."
+    ),
     responses=error_responses(503),
 )
 async def start_github_app_installation(

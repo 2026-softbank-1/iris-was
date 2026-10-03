@@ -1,13 +1,17 @@
+from collections.abc import Collection
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import DiagnosisNotFoundError
-from app.enums import DiagnosisStatus
+from app.enums import DeploymentStatus, DeploymentTrigger, DiagnosisStatus
 from app.models.base import now_utc
 from app.models.deployment_diagnosis import DeploymentDiagnosis
+from app.models.deployment_request import DeploymentRequest
+from app.models.project import Project
+from app.models.service import Service
 
 
 class DeploymentDiagnosisRepository:
@@ -66,6 +70,55 @@ class DeploymentDiagnosisRepository:
                 DeploymentDiagnosis.status == DiagnosisStatus.SUCCEEDED,
             )
             .order_by(DeploymentDiagnosis.created_at.desc(), DeploymentDiagnosis.id.desc())
+            .limit(1)
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
+    async def count_running_since(self, started_after: datetime) -> int:
+        """`started_after` 이후에 시작해 아직 진행 중인 진단 수. 오래 남은 행은 세지 않는다."""
+        stmt = select(func.count()).where(
+            DeploymentDiagnosis.status == DiagnosisStatus.RUNNING,
+            DeploymentDiagnosis.created_at >= started_after,
+        )
+        return (await self._session.scalar(stmt)) or 0
+
+    async def find_next_auto_start_candidate(
+        self,
+        failed_after: datetime,
+        stale_before: datetime,
+        statuses: Collection[DeploymentStatus],
+    ) -> DeploymentRequest | None:
+        """서버가 자동으로 진단할 다음 배포 요청. 가장 오래 기다린 것부터다.
+
+        `failed_after` 이후에 끝난 `statuses` 의 요청 중 진단 기록이 없는 것이다. 이미 끝난
+        진단(성공·실패)이나 막 시작한 진행 중 진단이 있으면 고르지 않는다. `stale_before`
+        이전에 시작하고 끝나지 않은 진행 중 행만 있으면(서버가 죽어 남은 것) 다시 고른다.
+        `REMOVE` 요청과 삭제된 서비스·프로젝트의 요청은 진단하지 않는다.
+        """
+        has_blocking_diagnosis = (
+            select(DeploymentDiagnosis.id)
+            .where(
+                DeploymentDiagnosis.deployment_request_id == DeploymentRequest.id,
+                or_(
+                    DeploymentDiagnosis.status != DiagnosisStatus.RUNNING,
+                    DeploymentDiagnosis.created_at >= stale_before,
+                ),
+            )
+            .exists()
+        )
+        stmt = (
+            select(DeploymentRequest)
+            .join(Service, Service.id == DeploymentRequest.service_id)
+            .join(Project, Project.id == Service.project_id)
+            .where(
+                DeploymentRequest.status.in_(statuses),
+                DeploymentRequest.trigger_type != DeploymentTrigger.REMOVE,
+                DeploymentRequest.updated_at >= failed_after,
+                Service.is_deleted.is_(False),
+                Project.is_deleted.is_(False),
+                ~has_blocking_diagnosis,
+            )
+            .order_by(DeploymentRequest.updated_at, DeploymentRequest.id)
             .limit(1)
         )
         return (await self._session.scalars(stmt)).one_or_none()

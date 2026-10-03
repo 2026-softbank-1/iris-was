@@ -3,12 +3,14 @@ from app.models.base import Base
 from app.models.build import Build
 from app.models.cli_login_session import CliLoginSession
 from app.models.deployment_diagnosis import DeploymentDiagnosis
+from app.models.deployment_repair import DeploymentRepair
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
 from app.models.project import Project
 from app.models.release import Release
 from app.models.service import Service
+from app.models.service_upload import ServiceUpload
 from app.models.service_variable import ServiceVariable
 from app.models.target import ServiceTarget, Target
 from app.models.user import GithubInstallation, User, UserGithubInstallation
@@ -18,6 +20,7 @@ __all__ = [
     "Build",
     "CliLoginSession",
     "DeploymentDiagnosis",
+    "DeploymentRepair",
     "DeploymentRequest",
     "DeploymentStatusHistory",
     "GithubInstallation",
@@ -26,6 +29,7 @@ __all__ = [
     "Release",
     "Service",
     "ServiceTarget",
+    "ServiceUpload",
     "ServiceVariable",
     "Target",
     "User",

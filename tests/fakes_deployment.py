@@ -22,6 +22,7 @@ from tests.fakes import (
     make_repository,
 )
 from tests.fakes_project import FakeProjectRepository, FakeServiceRepository, FakeTargetRepository
+from tests.fakes_upload import FakeServiceUploadRepository, FakeUploadStorage
 from tests.fakes_variable import FakeServiceVariableRepository
 from tests.fakes_webhook import (
     FakeBuildRepository,
@@ -51,6 +52,8 @@ class DeploymentSetup:
         self.targets = FakeTargetRepository()
         self.histories = FakeDeploymentStatusHistoryRepository()
         self.variables = FakeServiceVariableRepository()
+        self.uploads = FakeServiceUploadRepository(self.session)
+        self.storage = FakeUploadStorage()
         self.github = FakeSourceRepositoryClient({22: [make_repository(FULL_NAME)]})
         self.github.heads[(FULL_NAME, "main")] = CommitInfo(HEAD_SHA, "feat: add login")
         # 외부 백엔드(Loki·CloudWatch)는 호출 인자만 확인하는 가짜다.
@@ -93,6 +96,7 @@ class DeploymentSetup:
             self.builds,  # type: ignore[arg-type]
             self.deployment_request_service(),
             SourceRepositoryService(self.installations, self.github),  # type: ignore[arg-type]
+            self.uploads,  # type: ignore[arg-type]
         )
 
     def history_service(self) -> DeploymentHistoryService:

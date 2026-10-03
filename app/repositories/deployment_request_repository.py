@@ -132,6 +132,7 @@ class DeploymentRequestRepository:
                 variables_snapshot=request.variables_snapshot,
                 scaling_snapshot=request.scaling_snapshot,
                 source_deployment_request_id=request.source_deployment_request_id,
+                service_upload_id=request.service_upload_id,
             )
             .on_conflict_do_nothing()
             .returning(DeploymentRequest)

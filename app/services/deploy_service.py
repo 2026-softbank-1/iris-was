@@ -7,6 +7,7 @@ job 은 짧게 끝낸다. Argo CD 반영을 기다릴 때는 job 을 잡고 있�
 import contextlib
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -65,6 +66,8 @@ _FAILED_PHASES = ("Failed", "Error")
 # 설치 토큰은 1시간 유효하다. 만료 직전 토큰을 쓰지 않게 일찍 갱신한다.
 _TOKEN_TTL_SECONDS = 50 * 60
 _MAX_ERROR_LENGTH = 1000
+# iris-service chart 의 values 스키마가 release.sourceSha 에 요구하는 형식.
+_GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 
 class Verdict(StrEnum):
@@ -126,10 +129,16 @@ def render_service_values(
     health: dict[str, Any] = {"timeoutSeconds": deploy.healthcheck_timeout}
     if deploy.healthcheck_path:
         health["path"] = deploy.healthcheck_path
+    # release.id 는 Pod annotation 으로 들어가 digest 가 같아도 release 마다 rollout 된다.
+    release: dict[str, Any] = {"id": release_id}
+    # chart 스키마가 sourceSha 를 소문자 40자리 Git SHA 로만 받는다. CLI 업로드의 `upload-…`
+    # 같은 값을 그대로 넣으면 values 검증에 걸려 Argo CD 가 새 manifest 를 렌더링하지 못하고
+    # release 가 PENDING 에서 멈춘다. 그런 소스는 필드를 생략한다(IRIS_GIT_COMMIT_SHA 도 없다).
+    if _GIT_SHA_PATTERN.fullmatch(source_sha):
+        release["sourceSha"] = source_sha
     values: dict[str, Any] = {
         "image": {"repository": image_repository, "digest": image_digest},
-        # release.id 는 Pod annotation 으로 들어가 digest 가 같아도 release 마다 rollout 된다.
-        "release": {"id": release_id, "sourceSha": source_sha},
+        "release": release,
         "containerPort": APP_PORT,
         "health": health,
         "route": {"host": f"{host_label}.{base_domain}"},

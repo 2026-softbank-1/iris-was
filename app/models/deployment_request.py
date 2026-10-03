@@ -63,6 +63,11 @@ class DeploymentRequest(TimestampMixin, Base):
     )
     # 더 새로운 요청이 이 요청을 대신하면 기록한다. Worker 가 보고 SUPERSEDED 로 끝낸다.
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # CLI 요청이 GitHub 대신 소스로 쓰는 업로드. 업로드 하나는 요청 하나에만 묶인다.
+    # 다른 트리거의 요청은 None 이다. 롤백·재시작도 이미지를 쓰므로 업로드를 가리키지 않는다.
+    service_upload_id: Mapped[int | None] = mapped_column(
+        ForeignKey("service_uploads.id"), unique=True
+    )
 
     service: Mapped[Service] = relationship(lazy="raise")
 

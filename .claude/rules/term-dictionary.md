@@ -52,6 +52,8 @@ erDiagram
   github_installations ||--o{ services : "소스 접근"
   services }o--o{ targets : "service_targets"
   services ||--o{ service_variables : "환경변수"
+  services ||--o{ service_uploads : "CLI 업로드"
+  service_uploads |o--o| deployment_requests : "소스로 쓰임 (한 번)"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
@@ -96,7 +98,7 @@ erDiagram
 |---|---|
 | `service_id` | 대상 서비스 |
 | `environment` | `environment` Enum (§5) |
-| `source_sha` | 빌드할 소스 커밋 SHA |
+| `source_sha` | 빌드할 소스 커밋 SHA. `CLI` 요청은 Git SHA 가 아니라 `upload-` + 업로드 아카이브 sha256 의 앞 12자(예: `upload-3fa9c2d1b7e4`)다. Git SHA 는 16진수뿐이라 겹치지 않는다 |
 | `idempotency_key` | 중복 요청 차단 키. unique 제약을 건다\* |
 | `source_commit_message`\* | 소스 커밋 메시지. 이력 화면 표시용 |
 | `trigger_type`\* | `deployment_trigger` Enum (§5). 어떻게 시작된 요청인지 |
@@ -105,10 +107,13 @@ erDiagram
 | `failure_code`\* | 실패 사유 코드 (§5) |
 | `variables_snapshot`\* | 요청 시점의 환경변수(jsonb, `{key: 암호문}`). 평문은 담지 않는다. 롤백은 원본 요청의 값을 그대로 가져오고, 그 밖의 요청(재배포·재시작 포함)은 그 시점의 서비스 변수를 담는다 (§4.11) |
 | `source_deployment_request_id`\* | 재배포·롤백·재시작이 따라가는 원본 배포 요청 (`deployment_requests.id`). 직접 만든 요청은 비어 있다 |
+| `service_upload_id`\* | `CLI` 요청이 GitHub 대신 소스로 쓰는 업로드 (`service_uploads.id`). 업로드 하나는 요청 하나에만 묶인다(UNIQUE). 다른 트리거의 요청은 비어 있다 |
 
 서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
 
 `REMOVE` 요청은 지금 떠 있는 배포(`source_deployment_request_id`)를 클러스터에서 내린다. 빌드·release 를 만들지 않고 REMOVE job 으로 시작하며, 서비스 정의는 남는다 (ADR 0016).
+
+`CLI` 요청은 GitHub 대신 올린 아카이브(`service_uploads`)를 소스로 빌드한다. 업로드는 요청을 만드는 트랜잭션에서 한 번만 가져간다(§4.14). 그 소스는 GitHub 에서 다시 받을 수 없어, `CLI` 로 만든 배포(와 거기서 이미지를 이어받은 롤백·재시작 요청)를 원본으로 한 `REDEPLOY` 는 거절한다.
 
 `ROLLBACK`·`RESTART` 요청은 소스를 다시 빌드하지 않는다. 원본 요청의 빌드가 만든 이미지를 가리키는 성공한 `builds` 행을 복사해 새 요청에 붙이고, BUILD 대신 DEPLOY job 으로 시작한다 (ADR 0015). 새 release 가 만들어지므로 같은 digest 라도 Pod 가 새로 뜬다.
 
@@ -271,16 +276,33 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 ### 4.13 배포 진단 (DeploymentDiagnosis) — `deployment_diagnoses`\*
 
-실패한 배포 요청 1건을 에러 진단 에이전트로 진단한 기록 1회다. 도메인 용어는 `diagnosis` 다. 다시 진단하면 새 행이 쌓이고 조회는 가장 최근 행을 본다. 진단으로 배포 요청의 `status` 를 바꾸지 않는다 (ADR 0020).
+실패한 배포 요청 1건을 에러 진단 에이전트로 진단한 기록 1회다. 배포가 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 으로 확정되면(`REMOVE` 제외, 끝난 지 10분 안) 서버가 자동으로 시작하고, 사용자는 다시 시도·다시 진단·오래된 실패에 직접 시작한다. 도메인 용어는 `diagnosis` 다. 다시 진단하면 새 행이 쌓이고 조회는 가장 최근 행을 본다. 진단으로 배포 요청의 `status` 를 바꾸지 않는다 (ADR 0020).
 
 | 필드 | 설명 |
 |---|---|
 | `deployment_request_id`\* | 진단한 배포 요청 |
-| `requested_by`\* | 진단을 요청한 사용자 (`users.id`) |
+| `requested_by`\* | 진단을 요청한 사용자 (`users.id`). 서버가 실패 확정 뒤 자동으로 시작한 진단은 비어 있다 |
 | `status`\* | `diagnosis_status` Enum (§5). 배포 요청마다 `RUNNING` 은 하나만 둘 수 있다 (부분 unique index) |
 | `result`\* | 에이전트가 돌려준 진단 결과(jsonb, `diagnosis-result.v3`). `SUCCEEDED` 일 때만 있다. 원인은 `analysis.hypotheses`, 해결책은 `analysis.remediation.plans`, 근거 로그는 `evidence` |
 | `error_code`\* | `FAILED` 일 때의 사유. 이 서버의 코드(`DIAGNOSIS_LOGS_UNAVAILABLE`·`DIAGNOSIS_ABANDONED`)이거나 에이전트의 코드(`MODEL_TIMEOUT` 등)다. §5 `failure_code` 와 다르다 |
 | `finished_at`\* | 진단이 끝난 시각 |
+
+### 4.14 서비스 업로드 (ServiceUpload) — `service_uploads`\*
+
+`likelion up` 이 올린 소스 아카이브(tar.gz) 1건이다. 아카이브는 S3 `uploads/{public_id}.tar.gz` 에 있고 이 행은 메타데이터만 담는다. 배포 요청이 가져가 소스로 쓴다 (ADR 0023).
+
+| 필드 | 설명 |
+|---|---|
+| `public_id`\* | 업로드 응답·배포 요청이 가리키는 추측 불가한 ID(256비트 무작위). unique |
+| `service_id`\* | 올린 서비스. 다른 서비스의 업로드는 쓸 수 없다 |
+| `uploaded_by`\* | 올린 사용자 (`users.id`) |
+| `size_bytes`\*, `sha256`\* | 올라온 아카이브(gzip)의 바이트 수와 sha256(hex). Build Worker 가 내려받으며 다시 확인한다 |
+| `storage_key`\* | 버킷 안의 키. 버킷은 설정(`ARTIFACT_BUCKET`)이 정한다 |
+| `expires_at`\* | 만료 시각. 올린 때부터 24시간. 지나면 쓸 수 없다 |
+| `consumed_at`\* | 배포 요청이 가져간 시각. 값이 있으면 다시 쓸 수 없다. `UPDATE … WHERE consumed_at IS NULL AND expires_at > now` 한 문장으로 가져가고, 요청을 만들지 못하면 롤백으로 되돌아간다 |
+
+- 아카이브의 루트가 서비스 소스의 루트다. `services.root_directory` 는 업로드에 적용하지 않는다.
+- 쓰이지 못하고 만료된 지 1일이 지난 행은 새 업로드를 받을 때 지운다(쓰인 행은 배포 요청이 가리켜 남긴다). S3 객체는 버킷 lifecycle(1일)이 지운다.
 
 ---
 
@@ -317,7 +339,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 ### 배포 시작 방식 (`deployment_trigger`)\* — `deployment_requests.trigger_type`
 
-`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 커밋을 다시 빌드해 배포) · `ROLLBACK`(성공했던 이전 배포의 이미지를 빌드 없이 다시 배포) · `RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작) · `REMOVE`(지금 떠 있는 배포를 클러스터에서 내림)
+`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI`(`likelion up` 이 올린 로컬 폴더를 빌드해 배포, `uploadId` 필수) · `REDEPLOY`(같은 커밋을 다시 빌드해 배포) · `ROLLBACK`(성공했던 이전 배포의 이미지를 빌드 없이 다시 배포) · `RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작) · `REMOVE`(지금 떠 있는 배포를 클러스터에서 내림)
 
 사용자가 시작하는 `ROLLBACK`(이 값)과 Deploy Worker 가 실패한 release 를 자동으로 되돌리는 job `ROLLBACK` 은 다르다. 앞쪽은 새 배포 요청이고 뒤쪽은 revert commit 이다 (§7).
 
@@ -368,7 +390,8 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 |---|---|
 | `SOURCE_NOT_ACCESSIBLE`\* | GitHub 소스에 접근할 수 없다 (설치·권한) |
 | `SOURCE_REF_NOT_FOUND`\* | 커밋·브랜치를 찾을 수 없다 |
-| `SOURCE_TOO_LARGE`\* | 소스 스냅샷이 한도를 넘는다 |
+| `SOURCE_TOO_LARGE`\* | 소스 스냅샷이 한도를 넘는다(업로드는 풀었을 때의 총 크기·항목 수도 본다) |
+| `SOURCE_INVALID`\* | 올린 소스 아카이브가 손상됐거나 허용하지 않는 항목(경로 이탈·위험한 링크·장치 파일)을 담고 있다. 올린 뒤 체크섬이 달라진 경우도 같다 |
 | `BUILD_CONFIG_REQUIRED` | 빌더 설정이 없거나 소스와 맞지 않는다 (원문 §4) |
 | `BUILD_FAILED` | 빌드·테스트·스캔 실패. GitOps 는 바꾸지 않는다 (원문 §6) |
 | `BUILD_TIMED_OUT`\* | 빌드 제한 시간 초과 |
@@ -400,6 +423,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
 | 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
 | 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
+| 소스 재패킹 | `repack_source_archive`\* | 업로드 아카이브를 항목마다 검사하며 GitHub tarball 처럼 최상위 디렉터리 아래로 다시 묶는 일. buildspec 이 `--strip-components=1` 로 풀기 때문이고, 경로 이탈·링크·압축 폭탄 방어선이다 (ADR 0023) |
 | pollSecret | `poll_secret`\* | CLI 로그인 세션을 만든 CLI 만 아는 폴링 비밀. 서버에는 해시(`poll_secret_hash`)만 둔다 |
 | 폴링 간격 | `interval`\* | CLI 가 `/token` 을 부르는 간격(2초). 이보다 빠르면 `429` 와 `Retry-After` 로 답한다 |
 

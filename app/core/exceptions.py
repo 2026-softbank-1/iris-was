@@ -9,6 +9,8 @@ raise 는 Service·Repository·Client 에서 하고, HTTP 변환은 exception_ha
 도메인 예외는 클라이언트 분기나 재시도 정책이 다를 때만 카테고리를 상속해 만든다.
 """
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import ClassVar
 
 from app.enums import FailureCode
@@ -30,11 +32,28 @@ class NotFoundError(AppError):
     status_code = 404
 
 
+@dataclass(frozen=True)
+class FieldIssue:
+    """입력의 어느 부분이 왜 틀렸는지. 응답의 `details` 가 된다. 값은 담지 않는다."""
+
+    field: str
+    reason: str
+
+
 class InvalidInputError(AppError):
-    """도메인 규칙상 받을 수 없는 입력. 스키마 검증 실패(VALIDATION_ERROR)와 구분한다."""
+    """도메인 규칙상 받을 수 없는 입력. 스키마 검증 실패(VALIDATION_ERROR)와 구분한다.
+
+    틀린 위치가 여러 곳이면 issues 에 담아 응답 `details` 로 알린다. message 는 계약이다.
+    """
 
     code = "INVALID_INPUT"
     status_code = 422
+
+    def __init__(
+        self, message: str | None = None, *, issues: Sequence[FieldIssue] = (), **fields: object
+    ) -> None:
+        super().__init__(message, **fields)
+        self.issues = tuple(issues)
 
 
 class ConflictError(AppError):
@@ -100,6 +119,45 @@ class DeploymentRequestNotFoundError(NotFoundError):
 
 class VariableNotFoundError(NotFoundError):
     code = "VARIABLE_NOT_FOUND"
+
+
+class UploadNotFoundError(NotFoundError):
+    """모르는 업로드이거나 다른 서비스의 업로드다. 둘을 구분해 알리지 않는다."""
+
+    code = "UPLOAD_NOT_FOUND"
+
+
+class UploadUnavailableError(ConflictError):
+    """업로드가 이미 배포 요청에 쓰였거나 만료됐다. 다시 올려야 한다."""
+
+    code = "UPLOAD_UNAVAILABLE"
+
+
+class UploadTooLargeError(AppError):
+    """업로드가 크기 한도(압축한 바이트)를 넘었다. 본문을 다 읽기 전에 거절한다."""
+
+    code = "UPLOAD_TOO_LARGE"
+    status_code = 413
+
+
+class UploadNotGzipError(AppError):
+    """본문이 gzip 이 아니다(매직 바이트 불일치)."""
+
+    code = "UPLOAD_NOT_GZIP"
+    status_code = 415
+
+
+class ArchiveInvalidError(AppError):
+    """소스 아카이브가 손상됐거나 허용하지 않는 항목을 담고 있다. 재시도해도 같다."""
+
+    code = "ARCHIVE_INVALID"
+    status_code = 422
+
+
+class ArchiveTooLargeError(ArchiveInvalidError):
+    """아카이브를 풀었을 때의 크기나 항목 수가 한도를 넘는다(압축 폭탄 방어)."""
+
+    code = "ARCHIVE_TOO_LARGE"
 
 
 class DiagnosisNotFoundError(NotFoundError):
