@@ -7,6 +7,7 @@ from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import Depends, Request, Security
@@ -325,6 +326,26 @@ def get_onprem_server_service(session: SessionDep, settings: SettingsDep) -> Onp
 
 
 OnpremServerServiceDep = Annotated[OnpremServerService, Depends(get_onprem_server_service)]
+
+
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+
+
+def get_onprem_install_base_url(settings: SettingsDep) -> str:
+    """installCommand 에 넣는 Control API 주소. 서버가 root 로 내려받아 실행하므로 요청의 Host 로
+    만들지 않고 설정에서만 읽으며, 로컬 개발이 아니면 https 만 받는다.
+    """
+    base_url = settings.api_base_url
+    if base_url is None:
+        raise NotConfiguredError("api base url is not configured", setting="API_BASE_URL")
+    parsed = urlsplit(base_url)
+    is_local_http = parsed.scheme == "http" and parsed.hostname in _LOCAL_HOSTS
+    if parsed.scheme != "https" and not is_local_http:
+        raise NotConfiguredError("api base url must use https", setting="API_BASE_URL")
+    return base_url.rstrip("/")
+
+
+OnpremInstallBaseUrlDep = Annotated[str, Depends(get_onprem_install_base_url)]
 
 
 def get_onprem_install_script_path() -> Path:

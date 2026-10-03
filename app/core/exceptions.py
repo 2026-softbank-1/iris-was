@@ -247,6 +247,12 @@ class OnpremServerNameConflictError(ConflictError):
     code = "ONPREM_SERVER_NAME_CONFLICT"
 
 
+class OnpremServerLimitExceededError(ConflictError):
+    """사용자마다 등록할 수 있는 서버 수를 넘었다. 한도는 fields 의 limit 이다."""
+
+    code = "ONPREM_SERVER_LIMIT_EXCEEDED"
+
+
 class OnpremServerInUseError(ConflictError):
     """서버 타깃에 서비스가 붙어 있거나 그 서비스의 배포가 진행 중이라 지울 수 없다."""
 

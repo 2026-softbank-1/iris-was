@@ -10,6 +10,7 @@ from app.core.exceptions import (
     InvalidStatusTransitionError,
     NotConfiguredError,
     OnpremServerInUseError,
+    OnpremServerLimitExceededError,
     OnpremServerNameConflictError,
     OnpremServerNotConnectedError,
     OnpremServerNotFoundError,
@@ -111,13 +112,45 @@ async def test_reissue_token_from_failed_returns_to_pending() -> None:
     assert reissued.server.next_check_at is None
 
 
-async def test_reissue_token_while_registering_is_invalid_transition() -> None:
+async def test_reissue_token_while_registering_stops_the_worker_and_returns_to_pending() -> None:
     setup = OnpremSetup()
     registration = await setup.service.create_server(OWNER, "home-lab")
-    await setup.connect(registration.registration_token, registration.server)
+    server = registration.server
+    await setup.connect(registration.registration_token, server)
+    server.locked_by = "worker-1"
+    server.locked_until = datetime.now(UTC) + timedelta(minutes=5)
+    server.confirm_gitops_commit(datetime.now(UTC) + timedelta(minutes=15))
+
+    reissued = await setup.service.reissue_registration_token(OWNER, server.id)
+
+    assert reissued.server.status == OnpremServerStatus.PENDING
+    assert server.connect_generation == 2
+    assert server.locked_by is None and server.locked_until is None
+    assert server.connect_deadline_at is None and server.next_check_at is None
+    assert server.server_secret_hash is None
+
+
+async def test_reissue_token_when_connected_is_invalid_transition() -> None:
+    setup = OnpremSetup()
+    registration = await setup.service.create_server(OWNER, "home-lab")
+    registration.server.mark_as_connected(datetime.now(UTC))
 
     with pytest.raises(InvalidStatusTransitionError):
         await setup.service.reissue_registration_token(OWNER, registration.server.id)
+
+
+async def test_create_server_over_owner_limit_is_rejected() -> None:
+    setup = OnpremSetup()
+    servers = [(await setup.service.create_server(OWNER, f"s{i}")).server for i in range(5)]
+
+    with pytest.raises(OnpremServerLimitExceededError) as error:
+        await setup.service.create_server(OWNER, "sixth")
+    assert error.value.status_code == 409
+    assert error.value.code == "ONPREM_SERVER_LIMIT_EXCEEDED"
+
+    await setup.service.delete_server(OWNER, servers[0].id)
+    assert await setup.service.create_server(OWNER, "sixth")
+    await setup.service.create_server(OTHER_OWNER, "other")
 
 
 async def test_bootstrap_returns_key_tailscale_and_versions() -> None:

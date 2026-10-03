@@ -228,6 +228,8 @@ grant_deploy_access() {
   step 5 "배포 권한(ServiceAccount) 만드는 중"
   if is_dry; then plan "namespace $SYSTEM_NAMESPACE, SA iris-argocd, ClusterRole iris-onprem-service-deployer, 만료 없는 토큰 Secret"; return; fi
   # ClusterRole 규칙은 iris-infra clusters/onprem-workload/argocd-service-deployer.yaml 과 같아야 한다.
+  # 첫 규칙(apiGroups·resources "*" 의 get·list·watch)은 Secret 을 포함한 클러스터 전체 읽기다.
+  # 이 SA 토큰을 가진 Argo CD(management)는 iris-system/iris-server-secret 도 읽을 수 있다(ADR 0029 위험).
   kc apply -f - >/dev/null <<'EOF'
 apiVersion: v1
 kind: Namespace
@@ -289,8 +291,9 @@ subjects:
     name: iris-argocd
     namespace: iris-system
 ---
-# probe Application 이 iris-system 에 ConfigMap 을 만든다. 같은 namespace 의 serverSecret 은 읽지 못하게
-# ConfigMap 만 준다(ClusterRole 이 바뀌어도 probe 가 깨지지 않게 따로 둔다).
+# probe Application 이 iris-system 에 ConfigMap 을 만든다. 이 Role 은 ConfigMap 쓰기만 더한다(ClusterRole
+# 이 바뀌어도 probe 가 깨지지 않게 따로 둔다). 읽기는 위 ClusterRole 이 Secret 까지 클러스터 전체에 주므로
+# iris-server-secret 을 숨기지 못한다.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

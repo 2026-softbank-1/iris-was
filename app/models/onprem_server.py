@@ -76,7 +76,12 @@ class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
         return self.registration_expires_at <= now
 
     def reissue_registration_token(self, token_hash: str, expires_at: datetime) -> None:
-        """이전 토큰과 서버 비밀은 무효가 되고 등록을 처음부터 다시 한다."""
+        """이전 토큰과 서버 비밀은 무효가 되고 등록을 처음부터 다시 한다.
+
+        REGISTERING 중이면 세대를 올리고 lease 를 비워, 그 등록을 처리하던 Worker 가 결과를 버린다.
+        """
+        self.connect_generation += 1
+        self.release_lease()
         self.registration_token_hash = token_hash
         self.registration_expires_at = expires_at
         self.status = OnpremServerStatus.PENDING
@@ -146,6 +151,14 @@ class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
 
     def schedule_check(self, at: datetime | None) -> None:
         self.next_check_at = at
+
+    def record_error(self, error: str, retry_at: datetime) -> None:
+        """GitOps 커밋과 무관한 실패(설정·복호화 등). 커밋 재시도 횟수는 쓰지 않는다."""
+        self.last_error = error
+        self.next_check_at = retry_at
+
+    def renew_lease(self, locked_until: datetime) -> None:
+        self.locked_until = locked_until
 
     def release_lease(self) -> None:
         self.locked_by = None

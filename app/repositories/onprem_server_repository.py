@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, OnpremServerNameConflictError
 from app.models.onprem_server import OnpremServer
+from app.models.user import User
 
 
 class OnpremServerRepository:
@@ -32,6 +33,16 @@ class OnpremServerRepository:
             OnpremServer.is_deleted.is_(False),
         )
         return (await self._session.scalars(stmt)).one_or_none()
+
+    async def count_active_by_owner_id_for_update(self, owner_id: int) -> int:
+        """삭제되지 않은 서버 수. 사용자 행을 잠가 동시 등록이 한도를 넘지 않게 한다."""
+        await self._session.execute(select(User.id).where(User.id == owner_id).with_for_update())
+        count = await self._session.scalar(
+            select(func.count())
+            .select_from(OnpremServer)
+            .where(OnpremServer.owner_id == owner_id, OnpremServer.is_deleted.is_(False))
+        )
+        return int(count or 0)
 
     async def search_by_owner_id(self, owner_id: int) -> list[OnpremServer]:
         """최신 등록 순."""

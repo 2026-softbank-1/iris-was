@@ -60,7 +60,7 @@ sequenceDiagram
 모든 응답은 `ApiResponse[T]` 봉투, 필드는 camelCase. 값이 없는(null) 필드는 응답에서 빠진다(공통 규칙. 아래 예시의 `null` 은 키가 없는 것과 같다). 소유자만 보고 고친다(남의 서버는 404).
 
 ### `POST /api/v1/onprem-servers` → 201
-요청 `{ "name": "home-lab" }` (1~63자, 소유자 안에서 유일, 삭제된 것 제외) · 이름이 겹치면 409 `ONPREM_SERVER_NAME_CONFLICT`
+요청 `{ "name": "home-lab" }` (1~63자, 소유자 안에서 유일, 삭제된 것 제외) · 이름이 겹치면 409 `ONPREM_SERVER_NAME_CONFLICT` · 사용자마다 5대까지(삭제한 것 제외), 넘으면 409 `ONPREM_SERVER_LIMIT_EXCEEDED` · WAS 설정 `API_BASE_URL` 이 없거나 https 가 아니면(localhost·127.0.0.1 의 http 는 허용) 503 `NOT_CONFIGURED`(재발급도 같다). `installCommand` 는 요청의 Host 로 만들지 않는다
 
 응답 `data`:
 ```json
@@ -79,7 +79,7 @@ sequenceDiagram
 ### `GET /api/v1/onprem-servers` → `OnpremServer[]` (내 것, 최신순)
 ### `GET /api/v1/onprem-servers/{id}` → `OnpremServer`
 ### `POST /api/v1/onprem-servers/{id}/registration-token` → 200 `{server, registrationToken, installCommand}`
-`PENDING`·`FAILED` 일 때만(그 외 409 `INVALID_STATUS_TRANSITION`). 이전 토큰은 무효, 상태는 `PENDING`.
+`PENDING`·`REGISTERING`·`FAILED` 일 때만(`CONNECTED` 는 409 `INVALID_STATUS_TRANSITION`). 이전 토큰·serverSecret 은 무효, 상태는 `PENDING`. `REGISTERING` 이면 Worker 가 하던 반영·연결 확인을 버린다(잘못된 서버에서 실행했거나 연결이 멈췄을 때 처음부터 다시 한다).
 ### `DELETE /api/v1/onprem-servers/{id}` → 204
 서비스가 붙어 있거나 붙었던 서비스를 내리는 중이면(진행 중 배포 요청) 409 `ONPREM_SERVER_IN_USE`. 소프트 삭제 + 타깃 소프트 삭제 + Worker 가 `platform/onprem-servers/{key}/` 를 지운다.
 
@@ -141,7 +141,7 @@ sequenceDiagram
 2. `bootstrap` 호출
 3. Tailscale 설치 → `tailscale up --auth-key … --hostname iris-{key} --advertise-tags tag:iris-onprem` → FQDN 확인
 4. K3s 설치(버전 고정, `--tls-san <tailnetFqdn>`, Traefik 유지)
-5. 배포 권한: namespace `iris-system`, SA `iris-argocd`, ClusterRole `iris-onprem-service-deployer`(iris-infra `clusters/onprem-workload/argocd-service-deployer.yaml` 과 같은 규칙) + `iris-system` 의 ConfigMap 권한만(probe 용. `iris-server-secret` 을 읽지 못하게), 만료 없는 토큰 Secret(`kubernetes.io/service-account-token`)
+5. 배포 권한: namespace `iris-system`, SA `iris-argocd`, ClusterRole `iris-onprem-service-deployer`(iris-infra `clusters/onprem-workload/argocd-service-deployer.yaml` 과 같은 규칙) + `iris-system` 의 ConfigMap 쓰기 권한(probe 용), 만료 없는 토큰 Secret(`kubernetes.io/service-account-token`). 복사한 ClusterRole 은 Secret 을 포함해 클러스터 전체를 읽으므로 이 토큰을 쓰는 management Argo CD 는 `iris-system/iris-server-secret` 도 읽을 수 있다(알려진 위험, ADR 0029)
 6. Argo Rollouts·Sealed Secrets controller 설치(버전 고정)
 7. `connect` 호출 → `serverSecret` 을 `iris-system/iris-server-secret` 에 저장
 8. ECR 갱신 CronJob(`iris-system/iris-ecr-refresh`, 5분) 설치·1회 실행. 5분인 이유: 새 서비스의 `svc-{id}` namespace 가 생긴 뒤 첫 pull 까지 기다리는 시간을 줄인다. 첫 Pod 가 Secret 보다 먼저 뜨면 ImagePullBackOff 로 재시도하다 Secret 이 생기면 받아진다(§7.1)

@@ -422,11 +422,11 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | 코드 | 의미 | 다음 |
 |---|---|---|
 | `PENDING` | 등록만 했다. 서버에서 명령을 아직 실행하지 않았다 | `REGISTERING`, (토큰 재발급 시 그대로 `PENDING`) |
-| `REGISTERING` | 서버가 connect 를 보냈다. Worker 가 GitOps 반영·연결 확인 중 | `CONNECTED`, `FAILED` |
+| `REGISTERING` | 서버가 connect 를 보냈다. Worker 가 GitOps 반영·연결 확인 중 | `CONNECTED`, `FAILED`, (토큰 재발급 시 `PENDING`) |
 | `CONNECTED` | probe Application 이 Synced+Healthy. 배포할 수 있다 | (끝, 삭제만) |
 | `FAILED` | 기한 안에 연결되지 않았거나 GitOps 반영에 실패했다 | 토큰 재발급 → `PENDING`, 같은 토큰이 만료 전이면 명령 재실행 → `REGISTERING` |
 
-토큰 재발급은 `PENDING`·`FAILED` 에서만 된다(그 밖은 `INVALID_STATUS_TRANSITION`).
+토큰 재발급은 `PENDING`·`REGISTERING`·`FAILED` 에서 된다(`CONNECTED` 는 `INVALID_STATUS_TRANSITION`). `REGISTERING` 에서 재발급하면 `connect_generation` 을 올리고 lease 를 비워 Worker 가 하던 일을 버린다. 사용자마다 서버는 5대까지다(`ONPREM_SERVER_LIMIT_EXCEEDED`).
 
 ### 온프레미스 서버 실패 코드 (`onprem_server_failure_code`)\* — `onprem_servers.failure_code`
 

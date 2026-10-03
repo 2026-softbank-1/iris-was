@@ -40,6 +40,9 @@ class FakeOnpremServerRepository:
     async def find_by_owner_id_and_name(self, owner_id: int, name: str) -> OnpremServer | None:
         return next((s for s in self._active() if s.owner_id == owner_id and s.name == name), None)
 
+    async def count_active_by_owner_id_for_update(self, owner_id: int) -> int:
+        return sum(1 for s in self._active() if s.owner_id == owner_id)
+
     async def search_by_owner_id(self, owner_id: int) -> list[OnpremServer]:
         return sorted((s for s in self._active() if s.owner_id == owner_id), key=lambda s: -s.id)
 

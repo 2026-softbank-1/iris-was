@@ -177,6 +177,24 @@ async def test_manual_deployment_to_connected_server_is_created(
     assert request.id is not None
 
 
+async def test_retry_with_same_key_returns_existing_request_even_if_server_disconnected(
+    deployment: DeploymentSetup,
+) -> None:
+    server = _server(OnpremServerStatus.CONNECTED)
+    deployment.services.servers[deployment.service.id] = server
+    first = await deployment.manual_service().create_deployment_request(
+        OWNER, deployment.service.id, trigger_type=DeploymentTrigger.MANUAL, idempotency_key="k1"
+    )
+    server.status = OnpremServerStatus.REGISTERING
+
+    replayed = await deployment.manual_service().create_deployment_request(
+        OWNER, deployment.service.id, trigger_type=DeploymentTrigger.MANUAL, idempotency_key="k1"
+    )
+
+    assert replayed.id == first.id
+    assert len(deployment.requests.requests) == 1
+
+
 async def test_push_skips_service_on_unconnected_server_but_deploys_others() -> None:
     services = [_service(1), _service(2)]
     repository = FakeWebhookServiceRepository(services)

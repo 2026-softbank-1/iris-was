@@ -28,6 +28,7 @@ from app.core.exceptions import (
     InvalidStatusTransitionError,
     NotConfiguredError,
     OnpremServerInUseError,
+    OnpremServerLimitExceededError,
     OnpremServerNameConflictError,
     OnpremServerNotConnectedError,
     OnpremServerNotFoundError,
@@ -51,7 +52,14 @@ INSTALL_SCRIPT_PATH = Path(__file__).resolve().parent.parent / "assets" / "onpre
 _SERVER_KEY_FIRST = string.ascii_lowercase
 _SERVER_KEY_REST = string.ascii_lowercase + string.digits
 _SERVER_KEY_LENGTH = 8
-_REISSUABLE_STATUSES = (OnpremServerStatus.PENDING, OnpremServerStatus.FAILED)
+# REGISTERING 에서도 다시 받는다. 잘못된 서버에서 실행했거나 연결이 멈췄을 때 처음부터 한다.
+_REISSUABLE_STATUSES = (
+    OnpremServerStatus.PENDING,
+    OnpremServerStatus.REGISTERING,
+    OnpremServerStatus.FAILED,
+)
+# 사용자마다 등록할 수 있는 서버 수(삭제한 것 제외). 운영자 Tailscale 키를 같이 써서 묶어 둔다.
+MAX_SERVERS_PER_OWNER = 5
 # connect 뒤 스크립트가 중간에 실패해도 같은 명령으로 다시 돌릴 수 있게 REGISTERING 도 받는다.
 # bootstrap 은 상태를 바꾸지 않고, connect 는 같은 토큰으로 다시 보내도 덮어쓴다.
 _RERUNNABLE_STATUSES = (
@@ -156,7 +164,16 @@ class OnpremServerService:
     # --- 사용자 API
 
     async def create_server(self, owner_id: int, name: str) -> OnpremServerRegistration:
-        """서버와 전용 타깃을 한 트랜잭션에서 만든다. 등록 토큰은 24시간 유효하다."""
+        """서버와 전용 타깃을 한 트랜잭션에서 만든다. 등록 토큰은 24시간 유효하다.
+
+        사용자마다 MAX_SERVERS_PER_OWNER 대까지다. 같은 사용자의 등록은 사용자 행 잠금으로
+        줄을 세운다.
+        """
+        count = await self._onprem_server_repository.count_active_by_owner_id_for_update(owner_id)
+        if count >= MAX_SERVERS_PER_OWNER:
+            raise OnpremServerLimitExceededError(
+                "onprem server limit exceeded", limit=MAX_SERVERS_PER_OWNER
+            )
         if await self._onprem_server_repository.find_by_owner_id_and_name(owner_id, name):
             raise OnpremServerNameConflictError("onprem server name already exists", name=name)
         server_key = generate_server_key()
@@ -200,7 +217,7 @@ class OnpremServerService:
     async def reissue_registration_token(
         self, owner_id: int, server_id: int
     ) -> OnpremServerRegistration:
-        """PENDING·FAILED 일 때만. 이전 토큰은 무효가 되고 상태는 PENDING 이다."""
+        """PENDING·REGISTERING·FAILED 일 때만. 이전 토큰은 무효가 되고 상태는 PENDING 이다."""
         server = await self._get_owned(owner_id, server_id, for_update=True)
         if server.status not in _REISSUABLE_STATUSES:
             raise InvalidStatusTransitionError(

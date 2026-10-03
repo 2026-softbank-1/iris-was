@@ -24,19 +24,19 @@ class Env:
     setup: OnpremSetup
 
 
-def _settings(api_base_url: str) -> Settings:
+def _settings(api_base_url: str | None) -> Settings:
     return Settings(
         database_url="postgresql+asyncpg://t:t@127.0.0.1:1/t", api_base_url=api_base_url
     )
 
 
 @pytest.fixture
-def api_base_url() -> str:
+def api_base_url() -> str | None:
     return "https://api.likelion.uk"
 
 
 @pytest.fixture
-async def env(tmp_path: Path, api_base_url: str) -> AsyncIterator[Env]:
+async def env(tmp_path: Path, api_base_url: str | None) -> AsyncIterator[Env]:
     setup = OnpremSetup()
     user = User(github_id=1, login="owner")
     user.id = OWNER
@@ -90,6 +90,26 @@ async def test_install_command_names_api_url_when_not_default(env: Env) -> None:
     command = response.json()["data"]["installCommand"]
     assert command.startswith("curl -fsSL https://api.dev.test/api/v1/onprem-servers/install.sh")
     assert command.endswith(" --api-url https://api.dev.test")
+
+
+@pytest.mark.parametrize("api_base_url", [None, "http://api.dev.test"])
+async def test_create_server_without_https_api_base_url_is_503_and_creates_nothing(
+    env: Env,
+) -> None:
+    response = await env.client.post(BASE, json={"name": "home-lab"})
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "NOT_CONFIGURED"
+    assert env.setup.servers.servers == []
+    assert len(env.setup.targets.targets) == 2
+
+
+@pytest.mark.parametrize("api_base_url", ["http://localhost:8000"])
+async def test_install_command_allows_local_http_api_base_url(env: Env) -> None:
+    response = await env.client.post(BASE, json={"name": "home-lab"})
+
+    assert response.status_code == 201
+    assert response.json()["data"]["installCommand"].endswith(" --api-url http://localhost:8000")
 
 
 async def test_create_server_blank_name_is_422(env: Env) -> None:

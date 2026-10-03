@@ -9,8 +9,10 @@ from app.models.base import now_utc
 from app.models.deployment_request import DeploymentRequest
 from app.models.onprem_server import OnpremServer
 from app.models.project import Project
+from app.models.release import Release
 from app.models.service import Service
 from app.models.target import ServiceTarget, Target
+from app.repositories.release_repository import removed_after_release
 
 
 class DeploymentSettings(NamedTuple):
@@ -145,19 +147,26 @@ class ServiceRepository:
         return list((await self._session.scalars(stmt)).all())
 
     async def is_target_in_use(self, target_id: int) -> bool:
-        """타깃에 삭제되지 않은 서비스가 붙어 있거나, 붙은 서비스의 배포가 진행 중이다.
+        """타깃에 삭제되지 않은 서비스가 붙어 있거나, 지운 서비스라도 아직 내려가지 않았다.
 
-        서비스를 지우면 앱을 내리는 REMOVE 요청이 남으므로 그 요청이 끝날 때까지도 쓰는 중이다.
+        지운 서비스는 배포가 진행 중이거나(앱을 내리는 REMOVE 포함), GitOps 에 커밋한 release 가
+        있는데 그 뒤로 성공한 REMOVE 가 없으면 서비스 디렉터리가 남아 있을 수 있어 쓰는 중으로 본다.
         """
         active_request = exists().where(
             DeploymentRequest.service_id == Service.id,
             DeploymentRequest.status.in_(ACTIVE_DEPLOYMENT_STATUSES),
         )
+        live_release = exists().where(
+            Release.service_id == Service.id,
+            Release.target_id == target_id,
+            Release.gitops_commit_sha.is_not(None),
+            ~removed_after_release(),
+        )
         stmt = select(
             exists().where(
                 ServiceTarget.service_id == Service.id,
                 ServiceTarget.target_id == target_id,
-                or_(Service.is_deleted.is_(False), active_request),
+                or_(Service.is_deleted.is_(False), active_request, live_release),
             )
         )
         return bool(await self._session.scalar(stmt))

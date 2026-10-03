@@ -215,7 +215,12 @@ class DeploymentRequestService:
         service_upload_id: int | None,
     ) -> DeploymentRequest | None:
         """`variables_snapshot` 가 None 이면 지금 서비스 변수를 스냅샷으로 저장한다."""
-        if trigger_type != DeploymentTrigger.REMOVE:
+        # 같은 키의 재시도는 연결 상태와 상관없이 처음 만든 요청을 돌려받게 연결 확인보다 먼저 본다.
+        is_replay = (
+            await self._deployment_request_repository.find_by_idempotency_key(idempotency_key)
+            is not None
+        )
+        if trigger_type != DeploymentTrigger.REMOVE and not is_replay:
             await self._check_target_connected(service)
         if variables_snapshot is None:
             variables = await self._service_variable_repository.search_by_service_id(service.id)

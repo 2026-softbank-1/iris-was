@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Request, Response, status
 
-from app.core.config import Settings
 from app.dependencies import (
     CurrentUserDep,
+    OnpremInstallBaseUrlDep,
     OnpremInstallScriptPathDep,
     OnpremServerSecretDep,
     OnpremServerServiceDep,
-    SettingsDep,
 )
 from app.schemas.onprem_server import (
     BootstrapOnpremServerRequest,
@@ -27,8 +26,7 @@ router = APIRouter(prefix="/api/v1/onprem-servers", tags=["onprem-servers"])
 DEFAULT_API_URL = "https://api.likelion.uk"
 
 
-def _build_install_command(request: Request, settings: Settings, token: str) -> str:
-    base_url = (settings.api_base_url or str(request.base_url)).rstrip("/")
+def _build_install_command(request: Request, base_url: str, token: str) -> str:
     path = request.app.url_path_for("get_onprem_install_script")
     command = f"curl -fsSL {base_url}{path} | sudo bash -s -- --token {token}"
     if base_url != DEFAULT_API_URL:
@@ -37,9 +35,9 @@ def _build_install_command(request: Request, settings: Settings, token: str) -> 
 
 
 def _registration_response(
-    request: Request, settings: Settings, registration: OnpremServerRegistration
+    request: Request, base_url: str, registration: OnpremServerRegistration
 ) -> OnpremServerRegistrationResponse:
-    command = _build_install_command(request, settings, registration.registration_token)
+    command = _build_install_command(request, base_url, registration.registration_token)
     return OnpremServerRegistrationResponse.from_registration(registration, command)
 
 
@@ -130,20 +128,21 @@ async def issue_onprem_registry_credentials(
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     summary="온프레미스 서버 등록",
-    responses=error_responses(401, 409, 422),
+    responses=error_responses(401, 409, 422, 503),
 )
 async def create_onprem_server(
     request: Request,
     body: CreateOnpremServerRequest,
     user: CurrentUserDep,
     service: OnpremServerServiceDep,
-    settings: SettingsDep,
+    base_url: OnpremInstallBaseUrlDep,
 ) -> ApiResponse[OnpremServerRegistrationResponse]:
     """서버와 전용 배포 타깃을 만든다. 응답의 `installCommand` 를 서버에서 실행하면 연결된다.
-    `registrationToken`(24시간)은 이 응답에서만 보인다.
+    `registrationToken`(24시간)은 이 응답에서만 보인다. 사용자마다 5대까지다(넘으면 409
+    `ONPREM_SERVER_LIMIT_EXCEEDED`). `API_BASE_URL` 이 없거나 https 가 아니면 503 이다.
     """
     registration = await service.create_server(user.id, body.name)
-    return ApiResponse(data=_registration_response(request, settings, registration))
+    return ApiResponse(data=_registration_response(request, base_url, registration))
 
 
 @router.get(
@@ -181,20 +180,21 @@ async def get_onprem_server(
     response_model=ApiResponse[OnpremServerRegistrationResponse],
     response_model_exclude_none=True,
     summary="등록 토큰 재발급",
-    responses=error_responses(401, 404, 409, 422),
+    responses=error_responses(401, 404, 409, 422, 503),
 )
 async def reissue_onprem_registration_token(
     request: Request,
     server_id: int,
     user: CurrentUserDep,
     service: OnpremServerServiceDep,
-    settings: SettingsDep,
+    base_url: OnpremInstallBaseUrlDep,
 ) -> ApiResponse[OnpremServerRegistrationResponse]:
-    """`PENDING`·`FAILED` 일 때만(그 밖은 409 `INVALID_STATUS_TRANSITION`). 이전 토큰은 무효가 되고
-    상태는 `PENDING` 이다. 새 `installCommand` 를 서버에서 다시 실행한다.
+    """`PENDING`·`REGISTERING`·`FAILED` 일 때만(`CONNECTED` 는 409 `INVALID_STATUS_TRANSITION`).
+    이전 토큰·서버 비밀은 무효가 되고 상태는 `PENDING` 이다. 진행 중이던 연결 확인은 멈춘다.
+    새 `installCommand` 를 서버에서 다시 실행한다.
     """
     registration = await service.reissue_registration_token(user.id, server_id)
-    return ApiResponse(data=_registration_response(request, settings, registration))
+    return ApiResponse(data=_registration_response(request, base_url, registration))
 
 
 @router.delete(
