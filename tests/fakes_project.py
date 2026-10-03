@@ -121,9 +121,9 @@ class FakeTargetRepository:
     def __init__(self) -> None:
         aws = Target(name="aws", kind=TargetKind.AWS)
         aws.id = 1
-        local = Target(name="local", kind=TargetKind.LOCAL)
-        local.id = 2
-        self.targets = [aws, local]
+        onprem = Target(name="onprem", kind=TargetKind.ONPREM)
+        onprem.id = 2
+        self.targets = [aws, onprem]
 
     async def search_all(self) -> list[Target]:
         return list(self.targets)

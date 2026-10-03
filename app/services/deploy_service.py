@@ -39,6 +39,7 @@ from app.enums import (
     ReleaseStatus,
 )
 from app.models import Job, Release
+from app.models.target import AWS_TARGET_NAME
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.job_repository import JobRepository
@@ -118,7 +119,7 @@ def render_service_values(
     variables: Mapping[str, Any] | None = None,
     scaling: ScalingConfig | None = None,
 ) -> str:
-    """services/{service_id}/prod/values.yaml 내용. 플랫폼 Helm chart(iris-service)의 values 다.
+    """services/{service_id}/{타깃 디렉터리}/values.yaml 내용. iris-service chart 의 values 다.
 
     배포마다 파일 전체를 새로 만든다. Pod 수와 리소스는 요청 스냅샷을 쓰고, 스냅샷이 없는
     기존 요청과 Ingress·NetworkPolicy는 chart·타겟 기본값을 쓴다. JSON 은 YAML 이다.
@@ -294,6 +295,9 @@ class DeployService:
             )
 
     async def _push_deploy_commit(self, job: Job, release: Release) -> None:
+        target = release.target
+        if target.domain_suffix is None:
+            raise NotConfiguredError("target has no domain suffix", target=target.name)
         token = await self._gitops_token()
         service = release.deployment_request.service
         build = release.build
@@ -309,7 +313,7 @@ class DeployService:
                 source_sha=build.source_sha,
                 builder=build.builder,
                 deploy=DeployConfig.model_validate(build.deploy_config or {}),
-                base_domain=self._settings.base_domain,
+                base_domain=target.domain_suffix,
                 iris=self._identity(release),
                 variables=variables,
                 scaling=(
@@ -326,7 +330,7 @@ class DeployService:
                 token,
                 self._repository,
                 head_sha,
-                _service_path(service.id),
+                _service_path(service.id, target.name),
                 tree_sha,
                 _commit_message(f"deploy service {service.id}", release.id),
             )
@@ -556,7 +560,7 @@ class DeployService:
         """
         assert release.gitops_commit_sha is not None and previous.gitops_commit_sha is not None
         token = await self._gitops_token()
-        path = _service_path(release.service_id)
+        path = _service_path(release.service_id, release.target.name)
         failed_sha, good_sha = release.gitops_commit_sha, previous.gitops_commit_sha
 
         async def create(head_sha: str) -> str:
@@ -606,12 +610,15 @@ class DeployService:
             request = await DeploymentRequestRepository(session).get_by_id(
                 job.deployment_request_id
             )
+            target = await ReleaseRepository(session).find_deploy_target(request.service_id)
+        if target is None:
+            raise NotFoundError("deploy target not found", service_id=request.service_id)
         if request.status != DeploymentStatus.DEPLOYING:
             async with self._session_factory.begin() as session:
                 await JobRepository(session).mark_succeeded(job.id)
             return
 
-        await self._delete_service_directory(job, request.service_id)
+        await self._delete_service_directory(job, request.service_id, target.name)
 
         now = datetime.now(UTC)
         is_expired = now > job.created_at + REMOVE_TIMEOUT
@@ -638,10 +645,10 @@ class DeployService:
         else:
             await self._snooze(job, RECONCILE_INTERVAL)
 
-    async def _delete_service_directory(self, job: Job, service_id: int) -> None:
-        """services/{id}/prod 를 지우는 커밋을 main 에 올린다. 디렉터리가 이미 없으면 건너뛴다."""
+    async def _delete_service_directory(self, job: Job, service_id: int, target_name: str) -> None:
+        """services/{id}/{타깃 디렉터리} 를 지우는 커밋을 main 에 올린다. 없으면 건너뛴다."""
         token = await self._gitops_token()
-        path = _service_path(service_id)
+        path = _service_path(service_id, target_name)
 
         async def create(head_sha: str) -> str:
             subtree_sha = await self._github.find_subtree_sha(
@@ -844,9 +851,13 @@ def service_namespace(service_id: int) -> str:
     return f"svc-{service_id}"
 
 
-def _service_path(service_id: int) -> str:
-    """Deploy Worker 가 통째로 쓰는 디렉터리. 이 디렉터리마다 Application 이 생긴다."""
-    return f"services/{service_id}/{GITOPS_ENVIRONMENT}"
+def _service_path(service_id: int, target_name: str) -> str:
+    """Deploy Worker 가 통째로 쓰는 디렉터리. 이 디렉터리마다 Application 이 생긴다.
+
+    `aws` 는 타깃 도입 전 경로(prod)를 쓴다. 옮기면 Argo 가 svc-{id} 를 지웠다 다시 만든다.
+    """
+    directory = GITOPS_ENVIRONMENT if target_name == AWS_TARGET_NAME else target_name
+    return f"services/{service_id}/{directory}"
 
 
 def _commit_message(subject: str, release_id: int) -> str:

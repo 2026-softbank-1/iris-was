@@ -121,7 +121,7 @@ OPENAPI_TAGS = [
         "name": "diagnosis",
         "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",
     },
-    {"name": "targets", "description": "배포 타깃(aws · local)"},
+    {"name": "targets", "description": "배포 타깃(aws · onprem)"},
     {"name": "domains", "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회"},
     {
         "name": "variables",

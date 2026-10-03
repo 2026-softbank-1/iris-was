@@ -215,7 +215,7 @@ async def test_search_targets_lists_seeded_targets(client: AsyncClient) -> None:
 
     assert [(t["name"], t["kind"]) for t in response.json()["data"]] == [
         ("aws", "AWS"),
-        ("local", "LOCAL"),
+        ("onprem", "ONPREM"),
     ]
 
 

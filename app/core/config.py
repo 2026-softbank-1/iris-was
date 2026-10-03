@@ -121,8 +121,6 @@ class DeployWorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     aws_region: str
-    # 사용자 서비스 도메인. Control Plane 과 다른 등록 도메인이다.
-    base_domain: str
     gitops_repository: str  # {owner}/{repo}
     gitops_app_id: int
     gitops_app_private_key: SecretStr

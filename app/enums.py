@@ -100,7 +100,7 @@ class DiagnosisStatus(StrEnum):
 
 class TargetKind(StrEnum):
     AWS = "AWS"
-    LOCAL = "LOCAL"
+    ONPREM = "ONPREM"
 
 
 class CliLoginSessionStatus(StrEnum):

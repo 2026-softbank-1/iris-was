@@ -24,7 +24,11 @@ class ServiceCreateRequest(ApiModel):
     branch: Branch | None = None
     root_directory: PathText | None = None
     is_auto_deploy: bool = True
-    target_ids: list[int] | None = None
+    target_ids: list[int] | None = Field(
+        default=None,
+        description="배포 타깃 id. 정확히 1개다. 생략하면 `aws` 타깃이다.",
+        examples=[[1]],
+    )
 
 
 class ServiceUpdateRequest(ApiModel):
@@ -39,7 +43,14 @@ class ServiceUpdateRequest(ApiModel):
     port: Port | None = None
     build_command: Command | None = None
     start_command: Command | None = None
-    target_ids: list[int] | None = None
+    target_ids: list[int] | None = Field(
+        default=None,
+        description=(
+            "배포 타깃 id. 정확히 1개다. 배포 요청이 한 번이라도 있으면 바꿀 수 없다(`409`)."
+            " 바꾸려면 서비스를 지우고 다시 만든다."
+        ),
+        examples=[[1]],
+    )
 
 
 class LatestDeploymentResponse(ApiModel):

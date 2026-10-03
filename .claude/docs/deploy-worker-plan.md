@@ -29,7 +29,7 @@
 | Argo CD (Master) | 3.x 버전 고정. Prod 클러스터 등록(`awsAuthConfig.roleARN`), 저장소 자격증명(읽기 전용), AppProject·ApplicationSet `iris-services`(§3.1), project role `deploy-reader` 토큰(만료 90일) |
 | Prod EKS | VPC CNI NetworkPolicy, 노드 IMDSv2 hop limit 1, AWS LB Controller(ALB Ingress group `iris-services`), 노드 IAM 에 ECR pull(`iris/services/*`) |
 | AWS (Terraform, iris-infra) | `BASE_DOMAIN` 은 Control Plane 과 다른 등록 도메인(쿠키·피싱 격리). Route 53 `*.<BASE_DOMAIN>` → 공유 ALB(ACM 와일드카드, 컨트롤러가 생성). Deploy Worker IAM(§6), Argo application-controller → Prod access entry. Secrets Manager: `iris-gitops` private key, Argo 토큰 |
-| 앱 설정 | `DeployWorkerSettings`(`BuildWorkerSettings` 와 같은 방식): `AWS_REGION`, `BASE_DOMAIN`, `GITOPS_REPOSITORY`, `GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`(SecretStr), `GITOPS_INSTALLATION_ID`, `ARGOCD_SERVER_URL`, `ARGOCD_TOKEN`(SecretStr). 브랜치(`main`)·리소스 기본값은 코드 상수 |
+| 앱 설정 | `DeployWorkerSettings`(`BuildWorkerSettings` 와 같은 방식): `AWS_REGION`, `GITOPS_REPOSITORY`, `GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`(SecretStr), `GITOPS_INSTALLATION_ID`, `ARGOCD_SERVER_URL`, `ARGOCD_TOKEN`(SecretStr). 브랜치(`main`)·리소스 기본값은 코드 상수 |
 | 선행 작업 | Control API 가 같은 서비스의 새 요청을 받을 때 이전 요청에 `cancel_requested_at` 을 기록해야 한다(대체 판정에 재사용, §2.2) |
 
 ## 1. 흐름
@@ -143,7 +143,7 @@ gitops-environments/
 | `command` | `deploy.startCommand` (Dockerfile 빌드만, `shlex.split`) | 있으면 container `command` (ENTRYPOINT·CMD 덮어쓰기, Railway 와 같음) |
 | `health.path` | `deploy.healthcheckPath` | 있으면 readiness `httpGet`(Host = `route.host`), 없으면 `tcpSocket` |
 | `health.timeoutSeconds` | `deploy.healthcheckTimeout` (30~3600, 기본 300) | Deployment `progressDeadlineSeconds` |
-| `route.host` | `{services.slug}.{BASE_DOMAIN}` | ALB Ingress host, env `IRIS_PUBLIC_DOMAIN` |
+| `route.host` | `{services.slug}.{targets.domain_suffix}` | ALB Ingress host, env `IRIS_PUBLIC_DOMAIN` |
 
 - 파일 내용은 JSON 이다(키 정렬·2칸 들여쓰기). JSON 은 YAML 이라 Helm 이 그대로 읽고, Worker 는 YAML 라이브러리가 필요 없다.
 - 리소스·replicas·rolling update(maxUnavailable 0)·`automountServiceAccountToken: false`·ALB Ingress 설정(group·HTTPS·health check)·NetworkPolicy 는 **chart·타겟 기본값**이 정한다. Worker 는 배포마다 달라지는 값만 쓴다.

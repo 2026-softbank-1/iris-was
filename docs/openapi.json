@@ -4444,6 +4444,12 @@
                 "type": "null"
               }
             ],
+            "description": "배포 타깃 id. 정확히 1개다. 생략하면 `aws` 타깃이다.",
+            "examples": [
+              [
+                1
+              ]
+            ],
             "title": "Targetids"
           }
         },
@@ -4812,6 +4818,12 @@
                 "type": "null"
               }
             ],
+            "description": "배포 타깃 id. 정확히 1개다. 배포 요청이 한 번이라도 있으면 바꿀 수 없다(`409`). 바꾸려면 서비스를 지우고 다시 만든다.",
+            "examples": [
+              [
+                1
+              ]
+            ],
             "title": "Targetids"
           }
         },
@@ -5010,7 +5022,7 @@
       "TargetKind": {
         "enum": [
           "AWS",
-          "LOCAL"
+          "ONPREM"
         ],
         "title": "TargetKind",
         "type": "string"
@@ -10876,7 +10888,7 @@
       "name": "diagnosis"
     },
     {
-      "description": "배포 타깃(aws · local)",
+      "description": "배포 타깃(aws · onprem)",
       "name": "targets"
     },
     {

@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 from cryptography.fernet import Fernet
-from sqlalchemy import select, text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.clients.argocd_client import ArgoAppStatus
@@ -30,7 +30,16 @@ from app.enums import (
     JobStatus,
     ReleaseStatus,
 )
-from app.models import Build, DeploymentRequest, Job, Project, Release, Service
+from app.models import (
+    Build,
+    DeploymentRequest,
+    Job,
+    Project,
+    Release,
+    Service,
+    ServiceTarget,
+    Target,
+)
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
@@ -56,7 +65,6 @@ pytestmark = [pytest.mark.integration, requires_database]
 REPOSITORY_URI = "123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/1"
 SETTINGS = DeployWorkerSettings(
     aws_region="ap-northeast-2",
-    base_domain="example.app",
     gitops_repository="org/gitops-environments",
     gitops_app_id=1,
     gitops_app_private_key="unused",
@@ -948,3 +956,43 @@ async def test_delete_service_twice_after_removal_requests_nothing_more(
     created = await _delete_service_with_teardown(h)
 
     assert created == 0
+
+
+async def _use_target(h: Harness, name: str) -> Target:
+    """서비스를 `name` 타깃에 배포하도록 바꾼다(서비스당 타깃 하나)."""
+    async with h.session_factory.begin() as session:
+        target = await session.scalar(select(Target).where(Target.name == name))
+        assert target is not None
+        await session.execute(delete(ServiceTarget).where(ServiceTarget.service_id == h.service_id))
+        session.add(ServiceTarget(service_id=h.service_id, target_id=target.id))
+    return target
+
+
+async def test_deploy_to_onprem_target_writes_onprem_directory_and_domain(
+    session_factory: Any,
+) -> None:
+    h = Harness(session_factory)
+    await h.request_deploy()
+    onprem = await _use_target(h, "onprem")
+
+    await h.run_next(JobKind.DEPLOY)
+
+    tree = h.gitops.commits[h.gitops.head][1]
+    assert f"services/{h.service_id}/prod" not in tree
+    values = json.loads(h.gitops.trees[tree[f"services/{h.service_id}/onprem"]]["values.yaml"])
+    assert values["route"]["host"] == f"web-{h.service_id}.{onprem.domain_suffix}"
+
+
+async def test_remove_on_onprem_target_deletes_onprem_directory(session_factory: Any) -> None:
+    h = Harness(session_factory)
+    live_id = await h.request_deploy()
+    await _use_target(h, "onprem")
+    await h.run_next(JobKind.DEPLOY)
+    h.argo.status = _argo(h.gitops.head)
+    await h.run_next(JobKind.RECONCILE)
+    assert f"services/{h.service_id}/onprem" in h.gitops.commits[h.gitops.head][1]
+
+    await _request_removal(h, live_id)
+    await h.run_next(JobKind.REMOVE)
+
+    assert f"services/{h.service_id}/onprem" not in h.gitops.commits[h.gitops.head][1]
