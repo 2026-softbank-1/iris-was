@@ -57,7 +57,7 @@ flowchart LR
 ```
 
 - `routers/` 와 `workers/` 는 서로 import 하지 않는다. 둘 다 `services/` 만 호출한다.
-- Control API 경로는 DB 기록·조회, 읽기 전용 Loki·Prometheus 관측 쿼리, 에러 진단 에이전트 서버 호출(`DiagnosisService`, 소스는 읽기 전용 S3 presigned URL 로만 넘긴다. ADR 0020), 배포 상세 화면의 읽기 전용 CloudWatch Logs 빌드 로그 조회(`DeploymentLogService`, ADR 0021), `likelion up` 소스 업로드(`UploadService`, S3 `uploads/` 쓰기만. 아카이브 내용은 읽지 않고 Build Worker 가 검사한다. ADR 0023)를 처리한다. CodeBuild·Git·Argo CD Client 를 쓰는 서비스 로직은 Worker 에서만 호출한다(원문 §3 금지 권한).
+- Control API 경로는 DB 기록·조회, 읽기 전용 Loki·Prometheus 관측 쿼리, 에러 진단 에이전트 서버 호출(`DiagnosisService`, 소스는 읽기 전용 S3 presigned URL 로만 넘긴다. 실패가 확정된 배포는 Control API 안의 `AutoDiagnosisRunner` 가 사용자 없이 시작한다. ADR 0020), 배포 상세 화면의 읽기 전용 CloudWatch Logs 빌드 로그 조회(`DeploymentLogService`, ADR 0021), `likelion up` 소스 업로드(`UploadService`, S3 `uploads/` 쓰기만. 아카이브 내용은 읽지 않고 Build Worker 가 검사한다. ADR 0023)를 처리한다. CodeBuild·Git·Argo CD Client 를 쓰는 서비스 로직은 Worker 에서만 호출한다(원문 §3 금지 권한).
 - AWS 자원(CodeBuild·S3·IAM)과 CodeBuild buildspec 은 iris-infra 레포(`terraform/environments/aws/dev/foundation/`)가 소유한다. buildspec 환경변수 이름은 `app/services/build_service.py` 와의 계약이다.
 - 코드 수정 후보는 `RepairService`가 특정 진단·고정 소스를 저장하고 에이전트에 한 번 접수한다. 결과·불확실 상태·검토용 artifact를 제공하며, 빌드 검증·원격 저장소 반영은 별도 역할이다([ADR 0024](docs/adr/0024-durable-code-repair-candidate-api.md)).
 - 레포 루트의 `deploy/helm/`, `deploy/argocd/`, `docker-compose.dev.yml` 은 원문 §8 위치대로 **필요해질 때** 만든다.

@@ -1,8 +1,8 @@
 """AI 진단 테스트가 함께 쓰는 조립 도우미."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from itertools import count
 from typing import Any
 
@@ -18,14 +18,22 @@ from app.models.deployment_request import DeploymentRequest
 from app.services.diagnosis_service import DiagnosisService, DiagnosisServiceOpener
 from app.services.observability_service import ObservabilityService
 from tests.fakes_deployment import OWNER, DeploymentSetup
+from tests.fakes_project import FakeServiceRepository
+from tests.fakes_webhook import FakeDeploymentRequestRepository
 
 SOURCE_SHA = "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0"
 
 
 class FakeDiagnosisRepository:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        requests: FakeDeploymentRequestRepository,
+        services: FakeServiceRepository,
+    ) -> None:
         self.rows: list[DeploymentDiagnosis] = []
         self._ids = count(1)
+        self._requests = requests
+        self._services = services
 
     def seed(
         self,
@@ -81,6 +89,36 @@ class FakeDiagnosisRepository:
             and r.status == DiagnosisStatus.SUCCEEDED
         ]
         return max(rows, key=lambda r: (r.created_at, r.id), default=None)
+
+    async def count_running_since(self, started_after: datetime) -> int:
+        return sum(
+            1
+            for r in self.rows
+            if r.status == DiagnosisStatus.RUNNING and r.created_at >= started_after
+        )
+
+    async def find_next_auto_start_candidate(
+        self,
+        failed_after: datetime,
+        stale_before: datetime,
+        statuses: Collection[DeploymentStatus],
+    ) -> DeploymentRequest | None:
+        candidates: list[DeploymentRequest] = []
+        for request in self._requests.requests:
+            if (
+                request.status not in statuses
+                or request.trigger_type == DeploymentTrigger.REMOVE
+                or request.updated_at < failed_after
+                or await self._services.find_owner_id_by_id(request.service_id) is None
+            ):
+                continue
+            rows = [r for r in self.rows if r.deployment_request_id == request.id]
+            if any(
+                r.status != DiagnosisStatus.RUNNING or r.created_at >= stale_before for r in rows
+            ):
+                continue
+            candidates.append(request)
+        return min(candidates, key=lambda r: (r.updated_at, r.id), default=None)
 
     async def fail_stale_running(
         self, deployment_request_id: int, started_before: Any, error_code: str
@@ -269,7 +307,7 @@ class DiagnosisSetup(DeploymentSetup):
 
     def __init__(self) -> None:
         super().__init__()
-        self.diagnoses = FakeDiagnosisRepository()
+        self.diagnoses = FakeDiagnosisRepository(self.requests, self.services)
         self.loki = FakeObservabilityClient()
         self.agent = FakeDiagnosisAgentClient()
         self.snapshots = FakeSnapshotUrlClient()
@@ -287,6 +325,8 @@ class DiagnosisSetup(DeploymentSetup):
         *,
         source_deployment_request_id: int | None = None,
         source_sha: str = SOURCE_SHA,
+        trigger_type: DeploymentTrigger = DeploymentTrigger.MANUAL,
+        failed_ago: timedelta = timedelta(minutes=6),
     ) -> DeploymentRequest:
         now = now_utc()
         request = DeploymentRequest(
@@ -294,13 +334,13 @@ class DiagnosisSetup(DeploymentSetup):
             service_id=self.service.id,
             environment=Environment.PROD,
             source_sha=source_sha,
-            trigger_type=DeploymentTrigger.MANUAL,
+            trigger_type=trigger_type,
             idempotency_key=f"key-{len(self.requests.requests) + 1}",
             status=status,
             failure_code=failure_code,
             source_deployment_request_id=source_deployment_request_id,
             created_at=now - timedelta(minutes=10),
-            updated_at=now - timedelta(minutes=6),
+            updated_at=now - failed_ago,
         )
         self.requests.requests.append(request)
         return request

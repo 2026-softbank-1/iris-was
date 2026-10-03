@@ -2,8 +2,18 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Header, Response
 
-from app.dependencies import CurrentUserDep, RepairServiceDep, RepairServiceOpenerDep
-from app.schemas.repair import CreateRepairRequest, RepairResponse
+from app.dependencies import (
+    CurrentUserDep,
+    RepairGithubAuthServiceDep,
+    RepairServiceDep,
+    RepairServiceOpenerDep,
+)
+from app.schemas.repair import (
+    CreateRepairRequest,
+    RepairGithubTokenRequest,
+    RepairGithubTokenResponse,
+    RepairResponse,
+)
 from app.schemas.response import ApiResponse, error_responses
 from app.services.repair_service import run_repair_in_background
 
@@ -76,3 +86,28 @@ async def get_repair_artifact(
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+@router.post(
+    "/repair-github-token",
+    response_model=ApiResponse[RepairGithubTokenResponse],
+    response_model_exclude_none=True,
+    summary="WAS 로그인 사용자의 서비스용 GitHub 단기 쓰기 토큰 발급",
+    description=(
+        "서비스 소유권, 로그인 시 연결된 GitHub App 설치와 현재 저장소 접근권한을 확인한다. "
+        "해당 소스 저장소 하나에 Contents·Pull requests write 토큰을 발급한다. "
+        "수정 코디네이터만 사용하며 생성 API·로그·작업 기록에 저장하지 않는다."
+    ),
+    responses=error_responses(401, 403, 404, 409, 422, 502, 503),
+)
+async def issue_repair_github_token(
+    service_id: int,
+    body: RepairGithubTokenRequest,
+    user: CurrentUserDep,
+    service: RepairGithubAuthServiceDep,
+    response: Response,
+) -> ApiResponse[RepairGithubTokenResponse]:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    token = await service.issue_token(user.id, service_id, body.repository)
+    return ApiResponse(data=token)

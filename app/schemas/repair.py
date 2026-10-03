@@ -54,3 +54,17 @@ class RepairResponse(ApiModel):
             created_at=repair.created_at,
             finished_at=repair.finished_at,
         )
+
+
+class RepairGithubTokenRequest(ApiModel):
+    repository: str = Field(
+        min_length=3, max_length=201, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    )
+
+
+class RepairGithubTokenResponse(ApiModel):
+    repository: str
+    token: str = Field(
+        repr=False, description="코디네이터 전용 단기 토큰. 저장·로그·모델 입력 금지"
+    )
+    expires_at: datetime

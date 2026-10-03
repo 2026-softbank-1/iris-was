@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     repair_agent_max_cost_usd: float = Field(default=1, gt=0, allow_inf_nan=False)
     repair_agent_source_hosts: str = ""
 
+    # 실패가 확정된 배포를 서버가 자동으로 진단한다(에이전트가 설정돼 있어야 한다). 모델 비용이
+    # 실패마다 들어 끄고 싶으면 false 로 둔다. 끄면 사용자가 버튼으로 시작하는 진단만 남는다.
+    diagnosis_auto_start_enabled: bool = True
+    # 진단할 배포를 찾는 주기. 실패가 확정된 뒤 진단이 시작되기까지 걸리는 시간의 상한이다.
+    diagnosis_auto_start_interval_seconds: float = 5.0
     # 빌드 입력(소스 스냅샷·업로드)을 두는 S3 버킷. 둘 다 있어야 쓴다.
     # - 진단에 소스를 함께 넘기려면 스냅샷(`snapshots/`)을 읽는 권한(S3 GetObject)이 필요하다.
     #   없으면 로그만 진단한다.

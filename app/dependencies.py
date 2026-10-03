@@ -51,6 +51,7 @@ from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
 from app.services.project_service import ProjectService
+from app.services.repair_github_auth_service import RepairGithubAuthService
 from app.services.repair_handoff_service import RepairHandoffService
 from app.services.repair_service import RepairService, RepairServiceOpener
 from app.services.service_registry_service import ServiceRegistryService
@@ -467,12 +468,13 @@ def get_diagnosis_service(
     return build_diagnosis_service(session, settings, http_client)
 
 
-def get_diagnosis_service_opener(
-    settings: SettingsDep, http_client: HttpClientDep
+def build_diagnosis_service_opener(
+    settings: Settings, http_client: httpx.AsyncClient
 ) -> DiagnosisServiceOpener:
-    """요청이 끝난 뒤에도 진단을 이어 갈 수 있게, 새 DB 세션으로 서비스를 여는 함수를 준다.
+    """요청이 끝난 뒤에도 진단을 이어 갈 수 있게, 새 DB 세션으로 서비스를 여는 함수를 만든다.
 
-    요청 범위의 세션은 응답과 함께 닫히므로 백그라운드 작업이 그것을 쓰면 안 된다.
+    요청 범위의 세션은 응답과 함께 닫히므로 백그라운드 작업이 그것을 쓰면 안 된다. 요청 없이
+    도는 자동 진단도 이 함수로 서비스를 연다.
     """
 
     @asynccontextmanager
@@ -481,6 +483,12 @@ def get_diagnosis_service_opener(
             yield build_diagnosis_service(session, settings, http_client)
 
     return open_service
+
+
+def get_diagnosis_service_opener(
+    settings: SettingsDep, http_client: HttpClientDep
+) -> DiagnosisServiceOpener:
+    return build_diagnosis_service_opener(settings, http_client)
 
 
 DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
@@ -581,3 +589,14 @@ def get_repair_service_opener(
 
 RepairServiceDep = Annotated[RepairService, Depends(get_repair_service)]
 RepairServiceOpenerDep = Annotated[RepairServiceOpener, Depends(get_repair_service_opener)]
+
+
+def get_repair_github_auth_service(
+    session: SessionDep, repositories: SourceRepositoryServiceDep
+) -> RepairGithubAuthService:
+    return RepairGithubAuthService(ServiceRepository(session), repositories)
+
+
+RepairGithubAuthServiceDep = Annotated[
+    RepairGithubAuthService, Depends(get_repair_github_auth_service)
+]

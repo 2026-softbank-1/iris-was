@@ -110,3 +110,14 @@ async def test_create_clone_token_delegates_to_client() -> None:
 
     assert token.token == "ghs_fake"
     assert client.token_requests == [22]
+
+
+async def test_create_repair_token_requires_user_link_and_current_repo_access() -> None:
+    service, client = await _service({22: [make_repository("iris-org/web")]}, [(22, "iris-org")])
+    token = await service.create_repair_token(1, "iris-org/web")
+    assert token.token == "ghs_repair_fake"
+    assert client.repair_token_requests == [(22, "iris-org/web")]
+    for user_id, repository in [(2, "iris-org/web"), (1, "iris-org/private"), (1, "other/web")]:
+        with pytest.raises(RepositoryNotAccessibleError):
+            await service.create_repair_token(user_id, repository)
+    assert len(client.repair_token_requests) == 1

@@ -276,12 +276,12 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 ### 4.13 배포 진단 (DeploymentDiagnosis) — `deployment_diagnoses`\*
 
-실패한 배포 요청 1건을 에러 진단 에이전트로 진단한 기록 1회다. 도메인 용어는 `diagnosis` 다. 다시 진단하면 새 행이 쌓이고 조회는 가장 최근 행을 본다. 진단으로 배포 요청의 `status` 를 바꾸지 않는다 (ADR 0020).
+실패한 배포 요청 1건을 에러 진단 에이전트로 진단한 기록 1회다. 배포가 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 으로 확정되면(`REMOVE` 제외, 끝난 지 10분 안) 서버가 자동으로 시작하고, 사용자는 다시 시도·다시 진단·오래된 실패에 직접 시작한다. 도메인 용어는 `diagnosis` 다. 다시 진단하면 새 행이 쌓이고 조회는 가장 최근 행을 본다. 진단으로 배포 요청의 `status` 를 바꾸지 않는다 (ADR 0020).
 
 | 필드 | 설명 |
 |---|---|
 | `deployment_request_id`\* | 진단한 배포 요청 |
-| `requested_by`\* | 진단을 요청한 사용자 (`users.id`) |
+| `requested_by`\* | 진단을 요청한 사용자 (`users.id`). 서버가 실패 확정 뒤 자동으로 시작한 진단은 비어 있다 |
 | `status`\* | `diagnosis_status` Enum (§5). 배포 요청마다 `RUNNING` 은 하나만 둘 수 있다 (부분 unique index) |
 | `result`\* | 에이전트가 돌려준 진단 결과(jsonb, `diagnosis-result.v3`). `SUCCEEDED` 일 때만 있다. 원인은 `analysis.hypotheses`, 해결책은 `analysis.remediation.plans`, 근거 로그는 `evidence` |
 | `error_code`\* | `FAILED` 일 때의 사유. 이 서버의 코드(`DIAGNOSIS_LOGS_UNAVAILABLE`·`DIAGNOSIS_ABANDONED`)이거나 에이전트의 코드(`MODEL_TIMEOUT` 등)다. §5 `failure_code` 와 다르다 |

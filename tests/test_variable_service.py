@@ -9,6 +9,7 @@ from app.core.exceptions import (
 )
 from app.models.service import Service
 from app.services.variable_service import (
+    MAX_RAW_ISSUES,
     MAX_VALUE_LENGTH,
     MAX_VARIABLES,
     build_system_variables,
@@ -233,4 +234,74 @@ def test_build_system_variables_lists_platform_injected_names() -> None:
         "IRIS_DEPLOYMENT_ID",
         "IRIS_PUBLIC_DOMAIN",
         "IRIS_GIT_COMMIT_SHA",
+    ]
+
+
+async def test_replace_variables_lists_every_bad_line_in_issues(setup: VariableSetup) -> None:
+    raw = "A=1\nPORT=3000\n\nB=2\nIRIS_TOKEN=x\nC=3\n"
+
+    with pytest.raises(InvalidInputError) as caught:
+        await setup.variable_service().replace_variables(OWNER, setup.service.id, raw)
+
+    assert caught.value.message == "variable key is reserved by the platform"
+    assert [(i.field, i.reason) for i in caught.value.issues] == [
+        ("raw", "line 2: reserved key PORT"),
+        ("raw", "line 5: reserved key IRIS_TOKEN"),
+    ]
+    assert setup.variables.variables == []
+
+
+async def test_replace_variables_issue_points_at_duplicate_keys_last_line(
+    setup: VariableSetup,
+) -> None:
+    with pytest.raises(InvalidInputError) as caught:
+        await setup.variable_service().replace_variables(
+            OWNER, setup.service.id, "PORT=1\nA=1\nPORT=2\n"
+        )
+
+    assert [i.reason for i in caught.value.issues] == ["line 3: reserved key PORT"]
+
+
+async def test_replace_variables_issues_never_contain_values(setup: VariableSetup) -> None:
+    raw = "PORT=super-secret-value\n"
+
+    with pytest.raises(InvalidInputError) as caught:
+        await setup.variable_service().replace_variables(OWNER, setup.service.id, raw)
+
+    assert "super-secret-value" not in str(caught.value.issues)
+
+
+async def test_replace_variables_issues_are_capped(setup: VariableSetup) -> None:
+    raw = "\n".join(f"IRIS_{i}=v" for i in range(MAX_RAW_ISSUES + 5))
+
+    with pytest.raises(InvalidInputError) as caught:
+        await setup.variable_service().replace_variables(OWNER, setup.service.id, raw)
+
+    assert len(caught.value.issues) == MAX_RAW_ISSUES
+    assert caught.value.fields["problem_count"] == MAX_RAW_ISSUES + 5
+
+
+async def test_replace_variables_value_too_long_issue_names_key_and_line(
+    setup: VariableSetup,
+) -> None:
+    raw = f"A=1\nBIG={'x' * (MAX_VALUE_LENGTH + 1)}\n"
+
+    with pytest.raises(InvalidInputError) as caught:
+        await setup.variable_service().replace_variables(OWNER, setup.service.id, raw)
+
+    assert caught.value.message == "variable value is too long"
+    assert [i.reason for i in caught.value.issues] == [
+        f"line 2: value of BIG is longer than {MAX_VALUE_LENGTH} characters"
+    ]
+
+
+async def test_replace_variables_over_limit_issue_reports_count(setup: VariableSetup) -> None:
+    raw = "\n".join(f"K{i}=v" for i in range(MAX_VARIABLES + 1))
+
+    with pytest.raises(InvalidInputError) as caught:
+        await setup.variable_service().replace_variables(OWNER, setup.service.id, raw)
+
+    assert caught.value.message == "too many variables"
+    assert [i.reason for i in caught.value.issues] == [
+        f"{MAX_VARIABLES + 1} variables, at most {MAX_VARIABLES} allowed"
     ]
