@@ -338,6 +338,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 - 서버를 지우면 서버와 타깃을 소프트 삭제하고 Worker 가 GitOps 의 서버 디렉터리를 지운다. 삭제되지 않은 서비스가 붙어 있거나 붙은 서비스의 배포가 진행 중이면 지울 수 없다(`ONPREM_SERVER_IN_USE`).
 - 서버 타깃으로의 배포 요청은 서버가 `CONNECTED` 일 때만 만든다(`TARGET_NOT_CONNECTED`). 서비스를 내리는 `REMOVE` 요청은 막지 않는다.
 - bootstrap·connect 는 `PENDING`·`REGISTERING`·`FAILED` 에서 받는다(설치 재실행). bootstrap 은 상태를 바꾸지 않고, connect 는 `REGISTERING` 으로 만든다.
+- 서버 타깃은 `kind=ONPREM` 이라 공용 `onprem` 처럼 롤링만 쓴다(`CANARY`·`BLUE_GREEN` 저장 거절, 적용 방식 `ROLLING`, values 에 `deploymentStrategy` 없음. ADR 0028).
 - 서버 타깃 서비스의 values 에는 `imagePullSecrets: [{name: iris-ecr-pull}]`(서버 CronJob 이 `svc-{id}` 에 만드는 ECR pull Secret)를 더한다.
 
 ---

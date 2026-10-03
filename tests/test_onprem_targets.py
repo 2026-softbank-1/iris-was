@@ -5,13 +5,14 @@ import re
 import pytest
 
 from app.core.exceptions import InvalidInputError, TargetNotConnectedError
-from app.enums import DeploymentTrigger, OnpremServerStatus, TargetKind
+from app.enums import DeploymentStrategy, DeploymentTrigger, OnpremServerStatus, TargetKind
 from app.models.deployment_request import DeploymentRequest
 from app.models.onprem_server import OnpremServer
 from app.models.target import Target
 from app.schemas.service import TargetResponse
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.domain_service import build_service_host, service_host_label, target_server_key
+from app.services.scaling_config import ScalingConfig
 from app.services.target_service import TargetService
 from app.services.webhook_service import WebhookService
 from tests.fakes import FakeGithubInstallationRepository, FakeSession
@@ -141,6 +142,24 @@ async def test_create_service_on_other_owners_server_target_is_rejected_like_unk
         assert error.value.message == "unknown target"
 
 
+async def test_progressive_strategy_on_registered_server_target_is_rejected() -> None:
+    # 등록한 서버 타깃도 kind 가 ONPREM 이라 공용 onprem 처럼 롤링만 된다.
+    setup = RegistrySetup()
+    registry = await setup.build(deployment_strategy_enabled=True)
+    setup.targets.targets.append(_owned_target(7, OWNER))
+    detail = await _create(registry, setup, target_ids=[7])
+    detail.service.scaling_config = (
+        ScalingConfig.defaults().model_copy(update={"replicas": 3}).model_dump(mode="json")
+    )
+
+    with pytest.raises(InvalidInputError) as error:
+        await registry.update_service(
+            OWNER, detail.service.id, {"deployment_strategy": DeploymentStrategy.CANARY}
+        )
+
+    assert [i.reason for i in error.value.issues] == ["deployment_strategy_unsupported_target"]
+
+
 @pytest.fixture
 async def deployment() -> DeploymentSetup:
     return await DeploymentSetup().build()
@@ -193,6 +212,25 @@ async def test_retry_with_same_key_returns_existing_request_even_if_server_disco
 
     assert replayed.id == first.id
     assert len(deployment.requests.requests) == 1
+
+
+async def test_deployment_to_registered_server_target_applies_rolling(
+    deployment: DeploymentSetup,
+) -> None:
+    deployment.deployment_strategy_enabled = True
+    deployment.service.deployment_strategy = DeploymentStrategy.CANARY
+    deployment.service.scaling_config = (
+        ScalingConfig.defaults().model_copy(update={"replicas": 3}).model_dump(mode="json")
+    )
+    await deployment.services.replace_targets(deployment.service.id, {7})
+    deployment.services.servers[deployment.service.id] = _server(OnpremServerStatus.CONNECTED)
+
+    request = await deployment.manual_service().create_deployment_request(
+        OWNER, deployment.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    assert request.requested_deployment_strategy == DeploymentStrategy.CANARY
+    assert request.deployment_strategy == DeploymentStrategy.ROLLING
 
 
 async def test_push_skips_service_on_unconnected_server_but_deploys_others() -> None:

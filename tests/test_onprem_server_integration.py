@@ -45,7 +45,7 @@ from app.services.onprem_server_service import (
 from app.services.onprem_server_sync_service import MAX_GITOPS_ATTEMPTS, OnpremServerSyncService
 from tests.fakes_onprem import CA_PEM, SEALED_SECRETS_CERT, SERVER_KEY
 from tests.sealed_support import make_controller_key, unseal
-from tests.test_deploy_flow import FakeArgo, FakeGitOps, Harness
+from tests.test_deploy_flow import SETTINGS, FakeArgo, FakeGitOps, Harness
 from tests.worker_support import (
     add,
     requires_database,
@@ -379,7 +379,13 @@ async def test_deploy_to_server_target_uses_server_host_and_server_sealing_key(
     session_factory: Any,
 ) -> None:
     global_key, global_cert = make_controller_key()
-    h = Harness(session_factory, cipher=CIPHER, sealer=SecretSealer(global_cert))
+    # 플래그를 켠 Worker 라도 서버 타깃(ONPREM)에는 deploymentStrategy 를 쓰지 않는다.
+    h = Harness(
+        session_factory,
+        cipher=CIPHER,
+        sealer=SecretSealer(global_cert),
+        settings=SETTINGS.model_copy(update={"deployment_strategy_enabled": True}),
+    )
     await h.request_deploy(variables_snapshot={"DATABASE_URL": CIPHER.encrypt("postgres://x")})
     async with session_factory() as session:
         owner_id = await session.scalar(
@@ -403,6 +409,7 @@ async def test_deploy_to_server_target_uses_server_host_and_server_sealing_key(
     assert values["route"]["host"] == f"web-{h.service_id}-{key}.internal.likelion.uk"
     assert values["iris"]["targetName"] == f"onprem-{key}"
     assert values["imagePullSecrets"] == [{"name": "iris-ecr-pull"}]
+    assert "deploymentStrategy" not in values
     variables = values["variables"]
     sealed = variables["encryptedData"]["DATABASE_URL"]
     namespace = f"svc-{h.service_id}"
