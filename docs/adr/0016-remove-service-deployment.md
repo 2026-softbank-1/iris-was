@@ -1,6 +1,6 @@
 # 0016. 서비스 삭제는 GitOps 디렉터리를 지워 ApplicationSet 이 Application 을 정리하게 한다
 
-- 상태: 수락됨 (인프라 적용 대기)
+- 상태: 수락됨 (운영 적용·검증 완료)
 - 날짜: 2026-10-02
 - 결정자: 김지민
 
@@ -33,7 +33,17 @@ A 를 택한다(사용자 결정).
 - `syncPolicy.applicationsSync: sync` — 사라진 디렉터리의 Application 을 지운다.
 - Application 템플릿 `metadata.finalizers: [resources-finalizer.argocd.argoproj.io]` — Application 을 지울 때 Pod·Service·Ingress 가 함께 지워지게 한다. 없으면 Application 만 사라지고 리소스가 고아로 남는다.
 
-이 변경은 iris-infra PR 로 올렸다. ApplicationSet 은 root Application 이 고정한 revision 으로 읽으므로, 병합 뒤 운영자가 새 SHA 로 bootstrap 해야 반영된다(iris-infra runbook).
+이 변경은 iris-infra PR #40 으로 병합했다. ApplicationSet 은 root Application 이 고정한 revision 으로 읽으므로 병합만으로는 반영되지 않고 운영자가 새 SHA 로 bootstrap 해야 한다(iris-infra runbook). 2026-10-03 02:58 UTC 에 root Application `iris-addons` 가 `bba1453`(#40 포함)으로 갱신돼 적용됐다.
+
+## 운영 검증 (2026-10-03)
+임시 서비스(`remove-e2e`)를 배포한 뒤 `REMOVE` 를 요청해 확인했다. 서비스는 확인 뒤 소프트 삭제했다.
+
+- 요청 `QUEUED → DEPLOYING → SUCCEEDED`, 빌드 단계 없이 약 2분 23초. GitOps 커밋 `remove service 7` 이 요청 2초 뒤에 올라갔다.
+- Argo CD Application `svc-7` 이 사라졌고(삭제 전에는 `Synced/Healthy`, finalizer 있음) 공개 주소가 200 에서 404 로 바뀌었다. 다른 서비스 Application 과 `iris-platform`·`iris-addons` 는 그대로 `Healthy` 였다.
+- 내려간 서비스에 `RESTART`·`REMOVE` 를 다시 보내면 `409 NO_SUCCEEDED_DEPLOYMENT`, 도메인 `isConnected` 는 false, 프로젝트 online 서비스 수에서 빠졌다.
+- iris-web 은 "Service is removed"와 다시 올리는 안내를 표시했다(iris-web PR #16).
+- 시험하지 못한 것: `MANUAL_INTERVENTION` 경로(Application 이 기한 안에 안 사라지는 경우)와 `svc-{id}` namespace 정리 여부. namespace 는 확인하지 않았다.
+- 서비스마다 만들어지는 ECR 저장소 `iris/services/{id}` 는 REMOVE 로 지워지지 않는다.
 
 ## 결과
 - 서비스를 클러스터에서 내리는 경로가 생긴다. 위 인프라 선행 조건이 적용되기 전까지는 REMOVE 를 운영에서 쓰지 않는다.
