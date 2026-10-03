@@ -119,7 +119,7 @@ class ServiceRegistryService:
             await self._ensure_branch_exists(owner_id, repository.full_name, branch)
         service_name = name or slugify_service_name(repository.full_name.split("/", 1)[1])
         await self._ensure_name_available(project.id, service_name)
-        resolved_target_ids = await self._resolve_target_ids(target_ids)
+        resolved_target_ids = await self._resolve_target_ids(owner_id, target_ids)
         installation = await self._installation_repository.find_by_installation_id(
             repository.installation_id
         )
@@ -195,7 +195,7 @@ class ServiceRegistryService:
             setattr(service, field, value)
 
         if "target_ids" in changes:
-            target_ids = await self._resolve_target_ids(changes["target_ids"])
+            target_ids = await self._resolve_target_ids(owner_id, changes["target_ids"])
             await self._ensure_target_kept_after_deploy(service.id, target_ids)
             await self._service_repository.replace_targets(service.id, set(target_ids))
         await self._session.commit()
@@ -270,15 +270,19 @@ class ServiceRegistryService:
         if branch not in {b.name for b in branches}:
             raise InvalidInputError("branch not found in repository", field="branch", branch=branch)
 
-    async def _resolve_target_ids(self, target_ids: list[int] | None) -> list[int]:
-        """서비스는 타깃 하나에만 배포한다. 지정이 없으면 `aws` 타깃이다."""
+    async def _resolve_target_ids(self, owner_id: int, target_ids: list[int] | None) -> list[int]:
+        """서비스는 타깃 하나에만 배포한다. 지정이 없으면 `aws` 타깃이다.
+
+        고를 수 있는 타깃은 공용 타깃과 이 사용자가 등록한 서버의 타깃이다. 남의 서버 타깃은 없는
+        타깃과 같게 거절한다.
+        """
         if target_ids is None:
             targets = await self._target_repository.search_all()
             return [t.id for t in targets if t.name == AWS_TARGET_NAME]
         wanted = sorted(set(target_ids))
         if len(wanted) != 1:
             raise InvalidInputError("exactly one target is required", field="targetIds")
-        if not await self._target_repository.search_by_ids(wanted):
+        if not await self._target_repository.search_visible_by_ids(wanted, owner_id):
             raise InvalidInputError("unknown target", field="targetIds", target_ids=wanted)
         return wanted
 

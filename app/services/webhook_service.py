@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import InvalidInputError, UnauthorizedError
+from app.core.exceptions import InvalidInputError, TargetNotConnectedError, UnauthorizedError
 from app.core.security import verify_github_signature
 from app.enums import DeploymentTrigger
 from app.models.service import Service
@@ -83,14 +83,22 @@ class WebhookService:
         for service in services:
             if not _is_service_changed(service, changed_paths, len(push.commits)):
                 continue
-            request = await self._deployment_request_service.create_deployment_request(
-                service,
-                source_sha=push.after,
-                source_commit_message=message,
-                trigger_type=DeploymentTrigger.PUSH,
-                # 같은 delivery 가 다시 와도(GitHub 재전송) 같은 서비스에 요청이 중복되지 않는다.
-                idempotency_key=f"github-push:{delivery_id}:{service.id}",
-            )
+            try:
+                request = await self._deployment_request_service.create_deployment_request(
+                    service,
+                    source_sha=push.after,
+                    source_commit_message=message,
+                    trigger_type=DeploymentTrigger.PUSH,
+                    # 같은 delivery 가 다시 와도(GitHub 재전송) 같은 서비스에 중복되지 않는다.
+                    idempotency_key=f"github-push:{delivery_id}:{service.id}",
+                )
+            except TargetNotConnectedError:
+                # 연결되지 않은 서버로는 배포하지 않는다. 다른 서비스의 배포는 그대로 만든다.
+                logger.info(
+                    "push deployment skipped, target not connected",
+                    extra={"action": "handle_push", "service_id": service.id},
+                )
+                continue
             if request is not None:
                 deployment_request_ids.append(request.id)
 

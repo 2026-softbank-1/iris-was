@@ -1,11 +1,13 @@
 import logging
 
+from app.core.exceptions import TargetNotConnectedError
 from app.enums import (
     DeploymentStatus,
     DeploymentStrategy,
     DeploymentTrigger,
     Environment,
     JobKind,
+    OnpremServerStatus,
 )
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
@@ -42,6 +44,9 @@ class DeploymentRequestService:
     배포 방식도 같다. 서비스가 고른 방식(요청 방식)과 실제로 적용할 방식을 함께 남기고, Pod 가
     2개 미만이거나 타깃이 on-prem 이거나 기능이 꺼져 있으면 적용 방식은 ROLLING 이다. 서비스를
     내리는 요청은 Pod 를 띄우지 않으므로 둘 다 비운다.
+
+    배포 타깃이 사용자가 등록한 서버면 그 서버가 CONNECTED 일 때만 만든다(TargetNotConnectedError).
+    서비스를 내리는 요청은 막지 않는다.
     """
 
     def __init__(
@@ -186,6 +191,16 @@ class DeploymentRequestService:
             self._deployment_request_repository, self._deployment_status_history_repository
         ).transition_status(request.id, DeploymentStatus.DEPLOYING)
 
+    async def _check_target_connected(self, service: Service) -> None:
+        server = await self._service_repository.find_deploy_target_server(service.id)
+        if server is not None and server.status != OnpremServerStatus.CONNECTED:
+            raise TargetNotConnectedError(
+                "deploy target is not connected",
+                service_id=service.id,
+                onprem_server_id=server.id,
+                onprem_server_status=server.status,
+            )
+
     async def _add_request(
         self,
         service: Service,
@@ -200,6 +215,8 @@ class DeploymentRequestService:
         service_upload_id: int | None,
     ) -> DeploymentRequest | None:
         """`variables_snapshot` 가 None 이면 지금 서비스 변수를 스냅샷으로 저장한다."""
+        if trigger_type != DeploymentTrigger.REMOVE:
+            await self._check_target_connected(service)
         if variables_snapshot is None:
             variables = await self._service_variable_repository.search_by_service_id(service.id)
             variables_snapshot = {v.key: v.encrypted_value for v in variables}

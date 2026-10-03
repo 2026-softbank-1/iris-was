@@ -1,11 +1,13 @@
 from typing import Any, NamedTuple
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DeploymentStrategy, TargetKind
+from app.enums import ACTIVE_DEPLOYMENT_STATUSES, DeploymentStrategy, TargetKind
 from app.models.base import now_utc
+from app.models.deployment_request import DeploymentRequest
+from app.models.onprem_server import OnpremServer
 from app.models.project import Project
 from app.models.service import Service
 from app.models.target import ServiceTarget, Target
@@ -121,6 +123,44 @@ class ServiceRepository:
         for service_id, target_id in (await self._session.execute(stmt)).all():
             target_ids[service_id].append(target_id)
         return target_ids
+
+    async def find_deploy_target_server(self, service_id: int) -> OnpremServer | None:
+        """서비스의 배포 타깃이 사용자가 등록한 서버면 그 서버. 공용 타깃이면 None 이다."""
+        stmt = (
+            select(OnpremServer)
+            .join(ServiceTarget, ServiceTarget.target_id == OnpremServer.target_id)
+            .where(ServiceTarget.service_id == service_id)
+            .limit(1)
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
+    async def search_ids_by_target_id(self, target_id: int) -> list[int]:
+        """타깃에 붙은(삭제되지 않은) 서비스 id."""
+        stmt = (
+            select(Service.id)
+            .join(ServiceTarget, ServiceTarget.service_id == Service.id)
+            .where(ServiceTarget.target_id == target_id, Service.is_deleted.is_(False))
+            .order_by(Service.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
+    async def is_target_in_use(self, target_id: int) -> bool:
+        """타깃에 삭제되지 않은 서비스가 붙어 있거나, 붙은 서비스의 배포가 진행 중이다.
+
+        서비스를 지우면 앱을 내리는 REMOVE 요청이 남으므로 그 요청이 끝날 때까지도 쓰는 중이다.
+        """
+        active_request = exists().where(
+            DeploymentRequest.service_id == Service.id,
+            DeploymentRequest.status.in_(ACTIVE_DEPLOYMENT_STATUSES),
+        )
+        stmt = select(
+            exists().where(
+                ServiceTarget.service_id == Service.id,
+                ServiceTarget.target_id == target_id,
+                or_(Service.is_deleted.is_(False), active_request),
+            )
+        )
+        return bool(await self._session.scalar(stmt))
 
     async def save(self, service: Service) -> Service:
         self._session.add(service)

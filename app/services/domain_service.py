@@ -11,18 +11,33 @@ from app.services.service_registry_service import slugify_service_name
 DNS_LABEL_MAX_LENGTH = 63
 
 
-def service_host_label(name: str, service_id: int) -> str:
+def service_host_label(name: str, service_id: int, server_key: str | None = None) -> str:
     """서비스 도메인의 첫 label. chart 는 소문자·숫자·하이픈 DNS label(63자 이하)만 받는다.
 
     이름은 사용자가 정할 수 있고 프로젝트 안에서만 유일해서, 변환한 뒤 service_id 를 붙인다.
+    사용자가 등록한 서버의 타깃이면 끝에 `-{serverKey}` 를 더 붙인다. 게이트웨이는 마지막 `-` 뒤의
+    영문으로 시작하는 8자로 서버를 고른다. 63자를 넘으면 서비스 이름 부분을 줄인다.
     """
-    suffix = f"-{service_id}"
+    suffix = f"-{service_id}" if server_key is None else f"-{service_id}-{server_key}"
     return slugify_service_name(name, DNS_LABEL_MAX_LENGTH - len(suffix)) + suffix
 
 
-def build_service_host(name: str, service_id: int, domain_suffix: str) -> str:
-    """`{서비스 이름}-{service_id}.{타깃 도메인 접미사}`. 접미사는 `likelion.uk` 처럼 점 하나다."""
-    return f"{service_host_label(name, service_id)}.{domain_suffix}"
+def target_server_key(target: Target) -> str | None:
+    """사용자가 등록한 서버의 타깃이면 그 serverKey. 공용 타깃이면 None 이다.
+
+    `target.onprem_server` 를 함께 읽은 타깃이어야 한다.
+    """
+    return target.onprem_server.server_key if target.onprem_server is not None else None
+
+
+def build_service_host(
+    name: str, service_id: int, domain_suffix: str, server_key: str | None = None
+) -> str:
+    """`{서비스 이름}-{service_id}.{타깃 도메인 접미사}`. 접미사는 `likelion.uk` 처럼 점 하나다.
+
+    등록한 서버의 타깃이면 `{서비스 이름}-{service_id}-{serverKey}.internal.likelion.uk` 다.
+    """
+    return f"{service_host_label(name, service_id, server_key)}.{domain_suffix}"
 
 
 @dataclass(frozen=True)
@@ -63,6 +78,8 @@ class DomainService:
     async def _detail(self, service: Service, target: Target) -> ServiceDomainDetail:
         if target.domain_suffix is None:
             return ServiceDomainDetail(target, None, False)
-        host = build_service_host(service.name, service.id, target.domain_suffix)
+        host = build_service_host(
+            service.name, service.id, target.domain_suffix, target_server_key(target)
+        )
         release = await self._release_repository.find_last_known_good(service.id, target.id)
         return ServiceDomainDetail(target, host, release is not None)

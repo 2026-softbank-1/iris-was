@@ -57,6 +57,21 @@ class Settings(BaseSettings):
     # 수 없고 새 배포 요청은 ROLLING 으로 적용한다. iris-service chart 0.7.0 이 배포된 뒤에 켠다.
     deployment_strategy_enabled: bool = False
 
+    # 사용자 온프레미스 서버 등록(ADR 0029).
+    # 서버가 tailnet 에 가입할 때 쓰는 Tailscale 가입 키(reusable·pre-approved·tag:iris-onprem).
+    # 없으면 bootstrap API 는 503 (NOT_CONFIGURED). 화면·CLI·로그에 내보내지 않는다.
+    onprem_tailscale_auth_key: SecretStr | None = None
+    # 서버에 ECR pull 자격증명을 줄 때 AssumeRole 하는 Role(iris-infra 의 ECR pull 전용 Role).
+    # AWS_REGION 과 둘 다 있어야 한다. 없으면 registry-credentials API 는 503 (NOT_CONFIGURED).
+    onprem_ecr_pull_role_arn: str | None = None
+    # AssumeRole 세션 길이(초). Role 의 MaxSessionDuration 이하여야 한다. ECR 토큰이 세션보다
+    # 오래 살지 않으므로, 서버가 6시간마다 갱신하는 동안 끊기지 않게 6시간보다 길게 둔다.
+    onprem_ecr_pull_session_seconds: int = Field(default=43200, ge=900, le=43200)
+    # 설치 스크립트가 서버에 고정해 설치하는 버전. bootstrap 응답으로 내려간다.
+    onprem_k3s_version: str = "v1.31.4+k3s1"
+    onprem_argo_rollouts_version: str = "v1.7.2"
+    onprem_sealed_secrets_version: str = "0.27.1"
+
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -135,6 +150,10 @@ class DeployWorkerSettings(BaseSettings):
     variables_encryption_key: SecretStr | None = None
     # workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다). 변수를 봉인할 때 쓴다.
     sealed_secrets_cert: str | None = None
+    # management 클러스터 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다). 사용자가 등록한
+    # 서버의 Argo CD cluster 접속 정보를 봉인한다. 없으면 서버 등록을 처리하지 않아 서버가
+    # REGISTERING 에 머문다. 서비스 변수용 SEALED_SECRETS_CERT 와 다른 인증서다.
+    platform_sealed_secrets_cert: str | None = None
     # values 에 deploymentStrategy 를 쓴다. 이 키를 모르는 이전 chart(0.7.0 미만)의 schema 가
     # 거절하므로 chart 0.7.0 이 배포된 뒤에 켠다. Control API 와 같은 값으로 둔다.
     deployment_strategy_enabled: bool = False

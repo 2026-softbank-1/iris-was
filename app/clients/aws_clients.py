@@ -4,9 +4,11 @@ AWS 호출 실패는 모두 ExternalError(재시도) 로 바꾼다. 쓰로틀링
 """
 
 import asyncio
+import base64
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -15,7 +17,12 @@ from boto3.exceptions import RetriesExceededError, S3TransferFailedError, S3Uplo
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.core.exceptions import ExternalError, InvalidInputError, NotFoundError
+from app.core.exceptions import (
+    ExternalError,
+    InvalidInputError,
+    NotConfiguredError,
+    NotFoundError,
+)
 
 _BOTO_CONFIG = Config(retries={"mode": "standard", "max_attempts": 5}, signature_version="s3v4")
 PRESIGNED_URL_SECONDS = 15 * 60
@@ -285,6 +292,102 @@ class EcrClient:
             pass
         except (BotoCoreError, ClientError) as exc:
             raise ExternalError("aws request failed", operation="put_image") from exc
+
+
+# 온프레미스 서버가 서비스 이미지를 받는 데 필요한 동작만 허용한다.
+_ECR_PULL_ACTIONS = [
+    "ecr:BatchGetImage",
+    "ecr:GetDownloadUrlForLayer",
+    "ecr:BatchCheckLayerAvailability",
+]
+
+
+@dataclass(frozen=True)
+class EcrPullCredential:
+    registry: str
+    username: str
+    password: str
+    expires_at: datetime
+
+
+class EcrPullCredentialClient:
+    """온프레미스 서버에 줄 ECR pull 자격증명. Control API 가 쓴다.
+
+    pull 전용 Role 을 세션 정책으로 좁혀 AssumeRole 하고, 그 임시 자격증명으로 ECR 토큰을 받는다.
+    세션 정책은 Role 권한과의 교집합이라, 서버는 요청에 담은 저장소만 받을 수 있다.
+    """
+
+    def __init__(
+        self,
+        region: str,
+        role_arn: str,
+        session_seconds: int,
+        client_factory: Callable[..., Any] = boto3.client,
+    ) -> None:
+        parts = role_arn.split(":")
+        if len(parts) != 6 or parts[2] != "iam" or not parts[4].isdigit():
+            raise NotConfiguredError(
+                "ecr pull role arn is invalid", setting="ONPREM_ECR_PULL_ROLE_ARN"
+            )
+        self._region = region
+        self._account_id = parts[4]
+        self._role_arn = role_arn
+        self._session_seconds = session_seconds
+        self._client_factory = client_factory
+        self._sts = client_factory("sts", region_name=region, config=_BOTO_CONFIG)
+
+    @property
+    def registry(self) -> str:
+        """`<계정>.dkr.ecr.<리전>.amazonaws.com`. 서버의 imagePullSecret 이 가리키는 주소다."""
+        return f"{self._account_id}.dkr.ecr.{self._region}.amazonaws.com"
+
+    def repository_arn(self, repository_name: str) -> str:
+        return f"arn:aws:ecr:{self._region}:{self._account_id}:repository/{repository_name}"
+
+    async def issue_pull_credential(
+        self, session_name: str, repository_names: list[str]
+    ) -> EcrPullCredential:
+        """repository_names 만 받을 수 있는 ECR 토큰. 만료는 토큰과 임시 자격증명 중 이른 쪽이다."""
+        # ponytail: 세션 정책은 압축해 2048자까지다. 저장소 ARN 이 25개쯤을 넘으면 AWS 가 거절해
+        #   502 가 된다. 서버당 서비스가 그만큼 늘면 저장소 이름 접두사를 서버별로 나눠
+        #   와일드카드로 준다.
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+                {
+                    "Effect": "Allow",
+                    "Action": _ECR_PULL_ACTIONS,
+                    "Resource": [self.repository_arn(name) for name in repository_names],
+                },
+            ],
+        }
+        response = await _call(
+            self._sts.assume_role,
+            RoleArn=self._role_arn,
+            RoleSessionName=session_name,
+            Policy=json.dumps(policy, separators=(",", ":")),
+            DurationSeconds=self._session_seconds,
+        )
+        credentials = response["Credentials"]
+        ecr = await asyncio.to_thread(
+            self._client_factory,
+            "ecr",
+            region_name=self._region,
+            aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"],
+            config=_BOTO_CONFIG,
+        )
+        token = await _call(ecr.get_authorization_token)
+        data = token["authorizationData"][0]
+        username, password = base64.b64decode(data["authorizationToken"]).decode().split(":", 1)
+        return EcrPullCredential(
+            registry=self.registry,
+            username=username,
+            password=password,
+            expires_at=min(data["expiresAt"], credentials["Expiration"]),
+        )
 
 
 class SnapshotUrlClient(Protocol):
