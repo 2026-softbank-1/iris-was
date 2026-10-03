@@ -4,7 +4,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import NotFoundError, OnpremServerNameConflictError
 from app.models.onprem_server import OnpremServer
 
 
@@ -72,12 +72,17 @@ class OnpremServerRepository:
         return (await self._session.scalars(stmt)).one_or_none()
 
     async def save(self, server: OnpremServer) -> OnpremServer:
-        """이름이 동시에 겹치면 ConflictError. 그 뒤 이 트랜잭션은 rollback 해야 한다."""
+        """이름이 동시에 겹치면 OnpremServerNameConflictError. 그 뒤 트랜잭션은 rollback 해야 한다.
+
+        server_key 도 unique 지만 26×36^7 가지 무작위 값이라 겹치는 일은 이름 충돌로 본다.
+        """
         self._session.add(server)
         try:
             await self._session.flush()
         except IntegrityError as exc:
-            raise ConflictError("onprem server conflict", owner_id=server.owner_id) from exc
+            raise OnpremServerNameConflictError(
+                "onprem server name already exists", owner_id=server.owner_id
+            ) from exc
         return server
 
     # --- Deploy Worker

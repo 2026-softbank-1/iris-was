@@ -71,7 +71,8 @@ async def get_onprem_install_script(path: OnpremInstallScriptPathDep) -> Respons
 async def bootstrap_onprem_server(
     body: BootstrapOnpremServerRequest, service: OnpremServerServiceDep
 ) -> ApiResponse[OnpremBootstrapResponse]:
-    """설치 스크립트가 부른다. 서버가 `PENDING`·`FAILED` 이고 토큰이 만료 전일 때만 답한다.
+    """설치 스크립트가 부른다. 서버가 `PENDING`·`REGISTERING`·`FAILED` 이고 토큰이 만료 전일 때만
+    답하며 상태는 바꾸지 않는다(설치 재실행).
     토큰이 없거나 만료됐거나 이미 연결된 서버면 구분하지 않고 401 `INVALID_REGISTRATION_TOKEN` 이다.
     """
     bootstrap = await service.bootstrap(body.registration_token)
@@ -107,12 +108,13 @@ async def connect_onprem_server(
     response_model=ApiResponse[RegistryCredentialsResponse],
     response_model_exclude_none=True,
     summary="서버용 ECR pull 자격증명",
-    responses=error_responses(401, 502, 503),
+    responses=error_responses(401, 409, 502, 503),
 )
 async def issue_onprem_registry_credentials(
     server_secret: OnpremServerSecretDep, service: OnpremServerServiceDep
 ) -> ApiResponse[RegistryCredentialsResponse]:
-    """서버의 CronJob 이 `Authorization: Bearer <serverSecret>` 로 부른다. `CONNECTED` 일 때만이다.
+    """서버의 CronJob 이 `Authorization: Bearer <serverSecret>` 로 부른다. 비밀이 틀리면 401,
+    아직 `CONNECTED` 가 아니면 409 `ONPREM_SERVER_NOT_CONNECTED` 다.
     이 서버 타깃에 붙은 서비스의 ECR 저장소만 받을 수 있다. 붙은 서비스가 없으면 password 가 없다.
     """
     credentials = await service.issue_registry_credentials(server_secret)

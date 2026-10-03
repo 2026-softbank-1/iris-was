@@ -103,9 +103,9 @@ class OnpremSetup:
             self.services,  # type: ignore[arg-type]
             OnpremBootstrapSettings(
                 tailscale_auth_key=tailscale_auth_key,
-                k3s_version="v1.31.4+k3s1",
-                argo_rollouts_version="v1.7.2",
-                sealed_secrets_version="0.27.1",
+                k3s_version="v1.33.13+k3s2",
+                argo_rollouts_version="v1.10.0",
+                sealed_secrets_version="0.40.0",
             ),
             cipher=self.cipher if has_cipher else None,
             ecr_pull_client=self.ecr if has_ecr else None,  # type: ignore[arg-type]

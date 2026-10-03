@@ -64,13 +64,14 @@ class Settings(BaseSettings):
     # 서버에 ECR pull 자격증명을 줄 때 AssumeRole 하는 Role(iris-infra 의 ECR pull 전용 Role).
     # AWS_REGION 과 둘 다 있어야 한다. 없으면 registry-credentials API 는 503 (NOT_CONFIGURED).
     onprem_ecr_pull_role_arn: str | None = None
-    # AssumeRole 세션 길이(초). Role 의 MaxSessionDuration 이하여야 한다. ECR 토큰이 세션보다
-    # 오래 살지 않으므로, 서버가 6시간마다 갱신하는 동안 끊기지 않게 6시간보다 길게 둔다.
-    onprem_ecr_pull_session_seconds: int = Field(default=43200, ge=900, le=43200)
-    # 설치 스크립트가 서버에 고정해 설치하는 버전. bootstrap 응답으로 내려간다.
-    onprem_k3s_version: str = "v1.31.4+k3s1"
-    onprem_argo_rollouts_version: str = "v1.7.2"
-    onprem_sealed_secrets_version: str = "0.27.1"
+    # AssumeRole 세션 길이(초). Control API 자격증명이 이미 role 세션이라 AssumeRole 이 연쇄되어
+    # AWS 가 1시간까지만 허용한다. 서버의 CronJob 이 5분마다 갱신하므로 충분하다.
+    onprem_ecr_pull_session_seconds: int = Field(default=3600, ge=900, le=3600)
+    # 설치 스크립트가 서버에 고정해 설치하는 버전. bootstrap 응답으로 내려간다. iris-infra 가
+    # 고정한 버전(Argo Rollouts `helm/versions.json`, Sealed Secrets chart 의 appVersion)과 맞춘다.
+    onprem_k3s_version: str = "v1.33.13+k3s2"
+    onprem_argo_rollouts_version: str = "v1.10.0"
+    onprem_sealed_secrets_version: str = "0.40.0"
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -154,6 +155,10 @@ class DeployWorkerSettings(BaseSettings):
     # 서버의 Argo CD cluster 접속 정보를 봉인한다. 없으면 서버 등록을 처리하지 않아 서버가
     # REGISTERING 에 머문다. 서비스 변수용 SEALED_SECRETS_CERT 와 다른 인증서다.
     platform_sealed_secrets_cert: str | None = None
+    # 등록한 서버의 probe Application(Argo project `iris-onprem-probe`)을 읽는 토큰. ARGOCD_TOKEN 은
+    # 자기 project 만 보므로 따로 받는다(role `iris-deploy-reader`, applications get). 없으면 서버
+    # 연결 확인을 하지 않아 서버가 REGISTERING 에 머문다.
+    argocd_probe_token: SecretStr | None = None
     # values 에 deploymentStrategy 를 쓴다. 이 키를 모르는 이전 chart(0.7.0 미만)의 schema 가
     # 거절하므로 chart 0.7.0 이 배포된 뒤에 켠다. Control API 와 같은 값으로 둔다.
     deployment_strategy_enabled: bool = False

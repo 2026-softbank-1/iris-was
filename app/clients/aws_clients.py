@@ -347,7 +347,7 @@ class EcrPullCredentialClient:
     async def issue_pull_credential(
         self, session_name: str, repository_names: list[str]
     ) -> EcrPullCredential:
-        """repository_names 만 받을 수 있는 ECR 토큰. 만료는 토큰과 임시 자격증명 중 이른 쪽이다."""
+        """repository_names 만 받을 수 있는 ECR 토큰. 만료는 ECR 응답 값이다."""
         # ponytail: 세션 정책은 압축해 2048자까지다. 저장소 ARN 이 25개쯤을 넘으면 AWS 가 거절해
         #   502 가 된다. 서버당 서비스가 그만큼 늘면 저장소 이름 접두사를 서버별로 나눠
         #   와일드카드로 준다.
@@ -386,7 +386,7 @@ class EcrPullCredentialClient:
             registry=self.registry,
             username=username,
             password=password,
-            expires_at=min(data["expiresAt"], credentials["Expiration"]),
+            expires_at=data["expiresAt"],
         )
 
 

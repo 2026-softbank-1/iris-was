@@ -103,6 +103,7 @@ def test_target_response_carries_server_id_and_connection_status() -> None:
 
     body = response.model_dump(by_alias=True, exclude_none=True)
     assert body["onpremServerId"] == 3
+    assert body["onpremServerName"] == "home-lab"
     assert body["connectionStatus"] == "REGISTERING"
     assert "connectionStatus" not in shared.model_dump(by_alias=True, exclude_none=True)
 
@@ -122,13 +123,22 @@ async def test_search_targets_shows_shared_and_own_servers_only() -> None:
 async def test_create_service_on_other_owners_server_target_is_rejected_like_unknown() -> None:
     setup = RegistrySetup()
     registry = await setup.build()
-    setup.targets.targets += [_owned_target(7, OWNER), _owned_target(8, 99)]
+    deleted = _owned_target(9, OWNER)
+    deleted.is_deleted = True
+    setup.targets.targets += [_owned_target(7, OWNER), _owned_target(8, 99), deleted]
+    with pytest.raises(InvalidInputError) as unknown:
+        await _create(registry, setup, name="unknown", target_ids=[404])
 
     detail = await _create(registry, setup, target_ids=[7])
     assert detail.target_ids == [7]
-    with pytest.raises(InvalidInputError) as error:
-        await _create(registry, setup, name="other", target_ids=[8])
-    assert error.value.message == "unknown target"
+    for index, target_id in enumerate([8, 9]):
+        with pytest.raises(InvalidInputError) as error:
+            await _create(registry, setup, name=f"other-{index}", target_ids=[target_id])
+        assert (error.value.code, error.value.message) == (
+            unknown.value.code,
+            unknown.value.message,
+        )
+        assert error.value.message == "unknown target"
 
 
 @pytest.fixture

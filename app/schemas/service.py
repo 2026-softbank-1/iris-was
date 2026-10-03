@@ -164,6 +164,9 @@ class TargetResponse(ApiModel):
     onprem_server_id: int | None = Field(
         default=None, description="내가 등록한 온프레미스 서버의 타깃이면 그 서버 id", examples=[3]
     )
+    onprem_server_name: str | None = Field(
+        default=None, description="내가 등록한 온프레미스 서버의 이름", examples=["home-lab"]
+    )
     connection_status: OnpremServerStatus | None = Field(
         default=None,
         description=(
@@ -183,5 +186,6 @@ class TargetResponse(ApiModel):
             region=target.region,
             domain_suffix=target.domain_suffix,
             onprem_server_id=server.id if server is not None else None,
+            onprem_server_name=server.name if server is not None else None,
             connection_status=server.status if server is not None else None,
         )

@@ -108,9 +108,9 @@ async def test_bootstrap_and_connect_flow_through_api(env: Env) -> None:
     key = data["serverKey"]
     assert data["tailscale"]["hostname"] == f"iris-{key}"
     assert data["versions"] == {
-        "k3s": "v1.31.4+k3s1",
-        "argoRollouts": "v1.7.2",
-        "sealedSecrets": "0.27.1",
+        "k3s": "v1.33.13+k3s2",
+        "argoRollouts": "v1.10.0",
+        "sealedSecrets": "0.40.0",
     }
 
     server = env.setup.servers.servers[0]
@@ -125,6 +125,18 @@ async def test_bootstrap_with_bad_token_is_401(env: Env) -> None:
 
     assert response.status_code == 401
     assert response.json()["code"] == "INVALID_REGISTRATION_TOKEN"
+
+
+async def test_registry_credentials_before_connected_is_409(env: Env) -> None:
+    created = (await env.client.post(BASE, json={"name": "home-lab"})).json()["data"]
+    secret = await env.setup.connect(created["registrationToken"], env.setup.servers.servers[0])
+
+    response = await env.client.post(
+        f"{BASE}/registry-credentials", headers={"Authorization": f"Bearer {secret}"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "ONPREM_SERVER_NOT_CONNECTED"
 
 
 async def test_registry_credentials_without_bearer_is_401(env: Env) -> None:

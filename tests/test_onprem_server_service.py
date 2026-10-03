@@ -10,6 +10,7 @@ from app.core.exceptions import (
     NotConfiguredError,
     OnpremServerInUseError,
     OnpremServerNameConflictError,
+    OnpremServerNotConnectedError,
     OnpremServerNotFoundError,
     UnauthorizedError,
 )
@@ -129,7 +130,7 @@ async def test_bootstrap_returns_key_tailscale_and_versions() -> None:
     assert bootstrap.tailscale_auth_key == TAILSCALE_AUTH_KEY
     assert bootstrap.tailscale_hostname == f"iris-{key}"
     assert bootstrap.tailscale_tags == ("tag:iris-onprem",)
-    assert bootstrap.k3s_version == "v1.31.4+k3s1"
+    assert bootstrap.k3s_version == "v1.33.13+k3s2"
 
 
 @pytest.mark.parametrize("case", ["unknown", "expired", "connected", "deleted"])
@@ -165,6 +166,34 @@ async def test_bootstrap_after_failure_with_same_token_is_allowed() -> None:
     registration.server.fail(OnpremServerFailureCode.CONNECT_TIMED_OUT)
 
     assert await setup.service.bootstrap(registration.registration_token)
+    assert registration.server.status == OnpremServerStatus.FAILED
+
+
+async def test_bootstrap_while_registering_is_allowed_without_status_change() -> None:
+    setup = OnpremSetup()
+    registration = await setup.service.create_server(OWNER, "home-lab")
+    await setup.connect(registration.registration_token, registration.server)
+
+    assert await setup.service.bootstrap(registration.registration_token)
+    assert registration.server.status == OnpremServerStatus.REGISTERING
+    assert registration.server.connect_generation == 1
+
+
+async def test_connect_after_failure_returns_to_registering_with_new_check() -> None:
+    setup = OnpremSetup()
+    registration = await setup.service.create_server(OWNER, "home-lab")
+    server = registration.server
+    await setup.connect(registration.registration_token, server)
+    server.confirm_gitops_commit(datetime.now(UTC))
+    server.fail(OnpremServerFailureCode.CONNECT_TIMED_OUT)
+
+    await setup.connect(registration.registration_token, server)
+
+    assert server.status == OnpremServerStatus.REGISTERING
+    assert server.failure_code is None
+    # 커밋이 다시 반영되면 기한을 새로 잡는다.
+    assert server.connect_deadline_at is None
+    assert server.next_check_at is not None
 
 
 async def test_connect_stores_encrypted_token_and_starts_registering() -> None:
@@ -316,14 +345,21 @@ async def test_registry_credentials_without_services_has_no_password() -> None:
     assert setup.ecr.calls == []
 
 
-async def test_registry_credentials_require_connected_server_and_right_secret() -> None:
+async def test_registry_credentials_before_connected_is_not_connected_conflict() -> None:
     setup = OnpremSetup()
     registration = await setup.service.create_server(OWNER, "home-lab")
     secret = await setup.connect(registration.registration_token, registration.server)
 
-    with pytest.raises(UnauthorizedError):
+    with pytest.raises(OnpremServerNotConnectedError) as error:
         await setup.service.issue_registry_credentials(secret)
-    registration.server.mark_as_connected(datetime.now(UTC))
+    assert error.value.status_code == 409
+    assert error.value.code == "ONPREM_SERVER_NOT_CONNECTED"
+
+
+async def test_registry_credentials_with_wrong_secret_is_unauthorized() -> None:
+    setup = OnpremSetup()
+    await _connected_server_secret(setup)
+
     with pytest.raises(UnauthorizedError):
         await setup.service.issue_registry_credentials("wrong-secret")
 

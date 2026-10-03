@@ -253,6 +253,12 @@ class OnpremServerInUseError(ConflictError):
     code = "ONPREM_SERVER_IN_USE"
 
 
+class OnpremServerNotConnectedError(ConflictError):
+    """서버 비밀은 맞지만 서버가 아직 CONNECTED 가 아니다. 서버는 다음 회차에 다시 부른다."""
+
+    code = "ONPREM_SERVER_NOT_CONNECTED"
+
+
 class InvalidRegistrationTokenError(UnauthorizedError):
     """등록 토큰이 없거나 만료됐거나 이미 연결된 서버의 토큰이다. 셋을 구분해 알리지 않는다."""
 

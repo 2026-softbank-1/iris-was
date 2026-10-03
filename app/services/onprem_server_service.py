@@ -28,6 +28,7 @@ from app.core.exceptions import (
     NotConfiguredError,
     OnpremServerInUseError,
     OnpremServerNameConflictError,
+    OnpremServerNotConnectedError,
     OnpremServerNotFoundError,
     UnauthorizedError,
 )
@@ -50,9 +51,9 @@ _SERVER_KEY_FIRST = string.ascii_lowercase
 _SERVER_KEY_REST = string.ascii_lowercase + string.digits
 _SERVER_KEY_LENGTH = 8
 _REISSUABLE_STATUSES = (OnpremServerStatus.PENDING, OnpremServerStatus.FAILED)
-_BOOTSTRAP_STATUSES = (OnpremServerStatus.PENDING, OnpremServerStatus.FAILED)
-# connect 는 같은 토큰으로 다시 보내도(설치 재실행) 덮어쓴다.
-_CONNECT_STATUSES = (
+# connect 뒤 스크립트가 중간에 실패해도 같은 명령으로 다시 돌릴 수 있게 REGISTERING 도 받는다.
+# bootstrap 은 상태를 바꾸지 않고, connect 는 같은 토큰으로 다시 보내도 덮어쓴다.
+_RERUNNABLE_STATUSES = (
     OnpremServerStatus.PENDING,
     OnpremServerStatus.REGISTERING,
     OnpremServerStatus.FAILED,
@@ -245,7 +246,7 @@ class OnpremServerService:
         server = await self._onprem_server_repository.find_by_registration_token_hash(
             hash_url_token(registration_token)
         )
-        server = _check_registration_token(server, registration_token, _BOOTSTRAP_STATUSES)
+        server = _check_registration_token(server, registration_token, _RERUNNABLE_STATUSES)
         logger.info(
             "onprem server bootstrapped",
             extra={"action": "bootstrap", "onprem_server_id": server.id},
@@ -281,7 +282,7 @@ class OnpremServerService:
         server = await self._onprem_server_repository.find_by_registration_token_hash_for_update(
             hash_url_token(registration_token)
         )
-        server = _check_registration_token(server, registration_token, _CONNECT_STATUSES)
+        server = _check_registration_token(server, registration_token, _RERUNNABLE_STATUSES)
         tailnet_fqdn = tailnet_fqdn.strip().lower().removesuffix(".")
         _validate_connection(server, tailnet_fqdn, api_ca_cert, sealed_secrets_cert)
 
@@ -306,7 +307,11 @@ class OnpremServerService:
         return OnpremConnection(server.status, server_secret)
 
     async def issue_registry_credentials(self, server_secret: str) -> RegistryCredentials:
-        """이 서버 타깃에 붙은 서비스들의 ECR 저장소만 받을 수 있는 pull 자격증명. CONNECTED 만."""
+        """이 서버 타깃에 붙은 서비스들의 ECR 저장소만 받을 수 있는 pull 자격증명.
+
+        비밀이 틀리면 401, 맞지만 아직 CONNECTED 가 아니면 409 다(서버의 CronJob 이 다음 회차를
+        기다린다).
+        """
         if self._ecr_pull_client is None:
             raise NotConfiguredError(
                 "ecr pull role is not configured",
@@ -319,9 +324,14 @@ class OnpremServerService:
             server is None
             or server.server_secret_hash is None
             or not verify_url_token(server_secret, server.server_secret_hash)
-            or server.status != OnpremServerStatus.CONNECTED
         ):
             raise UnauthorizedError("invalid server secret")
+        if server.status != OnpremServerStatus.CONNECTED:
+            raise OnpremServerNotConnectedError(
+                "onprem server is not connected",
+                onprem_server_id=server.id,
+                onprem_server_status=server.status,
+            )
 
         service_ids = await self._service_repository.search_ids_by_target_id(server.target_id)
         registry = self._ecr_pull_client.registry
