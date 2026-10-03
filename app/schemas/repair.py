@@ -39,6 +39,7 @@ class RepairResponse(ApiModel):
     error_code: str | None = None
     created_at: datetime
     finished_at: datetime | None = None
+    publication: dict[str, Any] | None = None
 
     @classmethod
     def from_model(cls, repair: DeploymentRepair) -> Self:
@@ -53,7 +54,15 @@ class RepairResponse(ApiModel):
             error_code=repair.error_code,
             created_at=repair.created_at,
             finished_at=repair.finished_at,
+            publication=repair.request_metadata.get("publication"),
         )
+
+
+class RepairAccessResponse(ApiModel):
+    repository: str
+    can_write: bool
+    installation_url: str
+    reason: str | None = None
 
 
 class RepairGithubTokenRequest(ApiModel):

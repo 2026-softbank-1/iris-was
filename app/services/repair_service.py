@@ -372,6 +372,13 @@ class RepairService:
                 await self._session.commit()
         return repair
 
+    async def latest_repair(
+        self, owner_id: int, service_id: int, deployment_id: int, diagnosis_id: int
+    ) -> DeploymentRepair:
+        await self._get_owned_service(owner_id, service_id)
+        repair = await self._repairs.latest(service_id, deployment_id, diagnosis_id)
+        return await self.get_repair(owner_id, service_id, repair.id)
+
     async def get_artifact(
         self, owner_id: int, service_id: int, repair_id: int, name: str
     ) -> bytes:

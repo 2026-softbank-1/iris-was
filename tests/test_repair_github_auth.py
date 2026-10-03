@@ -137,3 +137,49 @@ async def test_token_endpoint_authenticates_existing_was_session_jwt(
     )
     assert response.status_code == 200
     assert github.repair_token_requests == [(22, "iris-org/web")]
+
+
+async def test_access_check_never_returns_a_github_token(
+    client: AsyncClient, auth_setup: tuple
+) -> None:
+    setup, _, _ = auth_setup
+    response = await client.get(f"/api/v1/services/{setup.service.id}/repair-access")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    data = response.json()["data"]
+    assert data["canWrite"] is True
+    assert data["repository"] == "iris-org/web"
+    assert data["installationUrl"].endswith("/installations/22")
+    assert "token" not in data
+    assert "ghs_" not in response.text
+
+
+async def test_access_check_links_installation_and_reports_write_denial(
+    client: AsyncClient, auth_setup: tuple
+) -> None:
+    from app.core.exceptions import ForbiddenError
+
+    setup, _, github = auth_setup
+
+    async def denied(*args):
+        raise ForbiddenError("write permissions need approval")
+
+    github.create_repair_token = denied
+    response = await client.get(f"/api/v1/services/{setup.service.id}/repair-access")
+    assert response.status_code == 200
+    assert response.json()["data"]["canWrite"] is False
+    assert response.json()["data"]["reason"] == "FORBIDDEN"
+    assert response.json()["data"]["installationUrl"].endswith("/installations/22")
+
+
+async def test_access_check_hides_other_users_service(
+    client: AsyncClient, auth_setup: tuple
+) -> None:
+    setup, _, github = auth_setup
+    other = User(github_id=2000, login="other")
+    other.id = OWNER + 1
+    app.dependency_overrides[get_current_user] = lambda: other
+    assert (
+        await client.get(f"/api/v1/services/{setup.service.id}/repair-access")
+    ).status_code == 404
+    assert github.repair_token_requests == []
