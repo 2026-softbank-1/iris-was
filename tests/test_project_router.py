@@ -4,6 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.clients.source_repository_client import BranchInfo
+from app.core.exceptions import DeploymentInProgressError
 from app.dependencies import (
     get_current_user,
     get_project_service,
@@ -23,7 +24,12 @@ from tests.fakes import (
     make_installation,
     make_repository,
 )
-from tests.fakes_project import FakeProjectRepository, FakeServiceRepository, FakeTargetRepository
+from tests.fakes_project import (
+    FakeProjectRepository,
+    FakeServiceRepository,
+    FakeTargetRepository,
+    FakeTeardownService,
+)
 from tests.fakes_webhook import FakeDeploymentRequestRepository
 
 
@@ -48,10 +54,12 @@ async def client() -> AsyncIterator[AsyncClient]:
 
     current = {"user": _user(1)}
     app.dependency_overrides[get_current_user] = lambda: current["user"]
+    teardown = FakeTeardownService()
     app.dependency_overrides[get_project_service] = lambda: ProjectService(
         session,  # type: ignore[arg-type]
         projects,  # type: ignore[arg-type]
         services,  # type: ignore[arg-type]
+        teardown,  # type: ignore[arg-type]
     )
     app.dependency_overrides[get_target_service] = lambda: TargetService(targets)  # type: ignore[arg-type]
     app.dependency_overrides[get_service_registry_service] = lambda: ServiceRegistryService(
@@ -62,9 +70,11 @@ async def client() -> AsyncIterator[AsyncClient]:
         installations,  # type: ignore[arg-type]
         SourceRepositoryService(installations, github),  # type: ignore[arg-type]
         deployments,  # type: ignore[arg-type]
+        teardown,  # type: ignore[arg-type]
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
         http.current = current  # type: ignore[attr-defined]
+        http.teardown = teardown  # type: ignore[attr-defined]
         yield http
     app.dependency_overrides.clear()
 
@@ -220,3 +230,40 @@ async def test_service_response_has_no_latest_deployment_before_first_deploy(
 
     assert created.status_code == 201
     assert "latestDeployment" not in created.json()["data"]
+
+
+async def test_delete_service_with_deployment_in_progress_returns_conflict(
+    client: AsyncClient,
+) -> None:
+    project_id = (await client.post("/api/v1/projects", json={"name": "shop"})).json()["data"]["id"]
+    service = (
+        await client.post(
+            f"/api/v1/projects/{project_id}/services",
+            json={"repositoryUrl": "https://github.com/iris-org/web"},
+        )
+    ).json()["data"]
+    client.teardown.error = DeploymentInProgressError(  # type: ignore[attr-defined]
+        "a deployment is in progress", service_id=service["id"]
+    )
+
+    response = await client.delete(f"/api/v1/services/{service['id']}")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "DEPLOYMENT_IN_PROGRESS"
+    # 지워지지 않았으니 그대로 조회된다.
+    assert (await client.get(f"/api/v1/services/{service['id']}")).status_code == 200
+
+
+async def test_delete_project_with_deployment_in_progress_returns_conflict(
+    client: AsyncClient,
+) -> None:
+    project_id = (await client.post("/api/v1/projects", json={"name": "shop"})).json()["data"]["id"]
+    client.teardown.error = DeploymentInProgressError(  # type: ignore[attr-defined]
+        "a deployment is in progress", service_id=1
+    )
+
+    response = await client.delete(f"/api/v1/projects/{project_id}")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "DEPLOYMENT_IN_PROGRESS"
+    assert (await client.get(f"/api/v1/projects/{project_id}")).status_code == 200

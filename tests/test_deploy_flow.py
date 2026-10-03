@@ -30,7 +30,7 @@ from app.enums import (
     JobStatus,
     ReleaseStatus,
 )
-from app.models import Build, DeploymentRequest, Job, Release, Service
+from app.models import Build, DeploymentRequest, Job, Project, Release, Service
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
@@ -42,6 +42,7 @@ from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.deploy_service import DeployService
 from app.services.deployment_request_service import DeploymentRequestService
+from app.services.service_teardown_service import ServiceTeardownService
 from tests.sealed_support import make_controller_key, unseal
 from tests.worker_support import (
     add,
@@ -879,3 +880,71 @@ async def test_remove_error_before_commit_exhausted_fails_and_keeps_service(
     )
     assert _job_states(jobs) == [(JobKind.REMOVE, JobStatus.FAILED)]
     assert h.gitops.head == head_before
+
+
+async def _delete_service_with_teardown(h: Harness) -> int:
+    """서비스 삭제와 같은 순서로 REMOVE 요청을 만들고 소프트 삭제한다. 만든 요청 수를 돌려준다."""
+    async with h.session_factory.begin() as session:
+        service = await session.get_one(Service, h.service_id)
+        project = await session.get_one(Project, service.project_id)
+        teardown = ServiceTeardownService(
+            DeploymentRequestRepository(session),
+            DeploymentRequestService(
+                DeploymentRequestRepository(session),
+                JobRepository(session),
+                DeploymentStatusHistoryRepository(session),
+                BuildRepository(session),
+                ServiceVariableRepository(session),
+                ServiceRepository(session),
+            ),
+        )
+        created = await teardown.request_teardown([service], project.owner_id)
+        service.mark_as_deleted()
+        return created
+
+
+async def test_delete_service_takes_app_down_even_though_service_is_soft_deleted(
+    session_factory: Any,
+) -> None:
+    h = Harness(session_factory)
+    await h.deploy_successfully()
+    path = f"services/{h.service_id}/prod"
+    assert path in h.gitops.commits[h.gitops.head][1]
+
+    created = await _delete_service_with_teardown(h)
+
+    assert created == 1
+    async with session_factory() as session:
+        service = await session.get_one(Service, h.service_id)
+        remove = await session.scalar(
+            select(DeploymentRequest).where(
+                DeploymentRequest.trigger_type == DeploymentTrigger.REMOVE
+            )
+        )
+    assert service.is_deleted is True
+    assert remove is not None and remove.status == DeploymentStatus.DEPLOYING
+
+    # 서비스가 이미 삭제 표시여도 Worker 가 job 을 집어 앱을 내린다.
+    await h.run_next(JobKind.REMOVE)
+    assert path not in h.gitops.commits[h.gitops.head][1]
+    h.argo.status = None
+    await h.run_next(JobKind.REMOVE)
+
+    request, _, jobs = await h.load(remove.id)
+    assert request.status == DeploymentStatus.SUCCEEDED
+    assert _job_states(jobs) == [(JobKind.REMOVE, JobStatus.SUCCEEDED)]
+
+
+async def test_delete_service_twice_after_removal_requests_nothing_more(
+    session_factory: Any,
+) -> None:
+    h = Harness(session_factory)
+    await h.deploy_successfully()
+    await _delete_service_with_teardown(h)
+    await h.run_next(JobKind.REMOVE)
+    h.argo.status = None
+    await h.run_next(JobKind.REMOVE)
+
+    created = await _delete_service_with_teardown(h)
+
+    assert created == 0

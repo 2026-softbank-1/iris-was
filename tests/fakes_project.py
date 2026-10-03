@@ -123,3 +123,17 @@ class FakeTargetRepository:
 
     async def search_by_ids(self, target_ids: list[int]) -> list[Target]:
         return [t for t in self.targets if t.id in target_ids]
+
+
+class FakeTeardownService:
+    """서비스 삭제 테스트용 대역. 호출을 기록하고, error 가 있으면 던진다."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[tuple[list[int], int]] = []
+        self.error = error
+
+    async def request_teardown(self, services: list[Service], requested_by: int) -> int:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(([s.id for s in services], requested_by))
+        return len(services)

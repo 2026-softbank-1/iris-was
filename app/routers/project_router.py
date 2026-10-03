@@ -82,8 +82,8 @@ async def update_project(
 @router.delete(
     "/{project_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="프로젝트 삭제",
-    responses=error_responses(401, 404, 422),
+    summary="프로젝트 삭제 (떠 있는 앱도 함께 내린다)",
+    responses=error_responses(401, 404, 409, 422),
 )
 async def delete_project(
     project_id: int, user: CurrentUserDep, service: ProjectServiceDep
