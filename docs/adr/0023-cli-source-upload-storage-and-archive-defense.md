@@ -10,7 +10,7 @@
 지금 빌드는 Build Worker 가 GitHub tarball 을 받아 `snapshots/{buildId}.tar.gz` 로 S3 에 두고 CodeBuild 에 presigned URL 로 넘긴다. 업로드는 그 소스 자리에 끼워야 한다. 확인한 제약:
 
 - **buildspec 은 스냅샷을 `tar -xz --strip-components=1` 로 푼다**(iris-infra `buildspec.yml`). GitHub tarball 은 최상위에 `{owner}-{repo}-{sha}/` 가 하나 있지만, 업로드는 소스의 루트가 곧 아카이브의 루트라서 그대로 두면 첫 경로 요소가 잘려 나간다.
-- **Control API Pod 에는 S3 쓰기 권한이 없다.** iris-infra main 에는 Control API 역할 자체가 없고(PR #46 이 `logs:GetLogEvents` 만 가진 역할을 추가 중), Build Worker 는 `snapshots/*` 만 읽고 쓴다. 컴포넌트끼리 IAM Role 을 공유하지 않는다.
+- **Control API Pod 에는 S3 쓰기 권한이 없다.** iris-infra 의 Control API 역할(`iris-dev-control-api`, PR #46 으로 병합·적용됨)은 CloudWatch `logs:GetLogEvents` 만 가지며, Build Worker 는 `snapshots/*` 만 읽고 쓴다. 컴포넌트끼리 IAM Role 을 공유하지 않는다.
 - 버킷은 모든 객체를 1일 뒤 지운다(lifecycle `days=1`, S3 는 생성 시각에서 24시간 뒤를 다음 자정(UTC)으로 올림하므로 실제 보존은 24~48시간). SSE-S3, TLS 만 허용.
 - 아카이브는 사용자 입력이다. 압축 해제 위치 밖으로 나가는 경로(절대 경로·`..`), 링크를 통한 쓰기, 장치 파일, 압축 폭탄이 빌드 단계에서 문제를 일으키지 않아야 한다.
 
@@ -84,22 +84,32 @@ CLI 는 폴더 밖을 가리키는 링크를 빼고 안쪽을 가리키는 `..` 
 `SOURCE_INVALID`(손상·허용하지 않는 항목·체크섬 불일치)를 더한다. 기존 `SOURCE_TOO_LARGE`·`SOURCE_REF_NOT_FOUND` 를 재사용한다. 사용자에게는 코드만 보이고 어떤 항목 때문인지는 로그(`fields.path`)에만 남는다 — 업로드 시점 검사(A)를 도입하면 메시지를 줄 수 있다.
 
 ## 인프라 변경 (iris-infra, 이 저장소에서는 적용하지 않는다)
-이 기능은 아래 없이는 운영에서 동작하지 않는다. Control API 역할은 iris-infra PR #46(`control-api-identity.tf`)이 만드는 중이라 그 위에 얹는다.
+이 기능은 아래 없이는 운영에서 동작하지 않는다. Control API 역할(`iris-dev-control-api`)은 iris-infra PR #46 으로 이미 병합·적용돼 있고, 지금 권한은 CloudWatch `logs:GetLogEvents` 뿐이다. 이 역할에 새 인라인 정책으로 권한을 더한다. 기존 `read-build-logs` 정책은 그대로 둔다.
 
 ```hcl
-# foundation/control-api-identity.tf — aws_iam_role_policy.control_api 의 Statement 에 추가
-{
-  Sid      = "WriteSourceUploads"
-  Effect   = "Allow"
-  Action   = ["s3:PutObject", "s3:AbortMultipartUpload"]
-  Resource = "${aws_s3_bucket.build_artifacts.arn}/uploads/*"
-},
-{
-  # 진단이 소스를 함께 보낼 때(ARTIFACT_BUCKET 이 설정되면 켜진다). ADR 0020
-  Sid      = "ReadSnapshotsForDiagnosis"
-  Effect   = "Allow"
-  Action   = ["s3:GetObject"]
-  Resource = "${aws_s3_bucket.build_artifacts.arn}/snapshots/*"
+# foundation/control-api-identity.tf — 기존 aws_iam_role_policy.control_api(read-build-logs)는 두고 새 인라인 정책을 더한다
+resource "aws_iam_role_policy" "control_api_artifacts" {
+  name = "source-uploads"
+  role = aws_iam_role.control_api.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "WriteSourceUploads"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:AbortMultipartUpload"]
+        Resource = "${aws_s3_bucket.build_artifacts.arn}/uploads/*"
+      },
+      {
+        # 진단이 소스를 함께 보낼 때(ARTIFACT_BUCKET 이 설정되면 켜진다). ADR 0020
+        Sid      = "ReadSnapshotsForDiagnosis"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.build_artifacts.arn}/snapshots/*"
+      }
+    ]
+  })
 }
 ```
 
@@ -113,9 +123,15 @@ CLI 는 폴더 밖을 가리키는 링크를 빼고 안쪽을 가리키는 `..` 
 }
 ```
 
-- Control API ConfigMap 에 `AWS_REGION`·`ARTIFACT_BUCKET` 을 넣는다(chart `api.artifactBucket` 같은 값. PR #46 은 `api.buildLogGroup` 이 있을 때만 `AWS_REGION` 을 넣는다). **같은 두 변수가 진단의 소스 전송도 켜므로** 위 `ReadSnapshotsForDiagnosis` 와 함께 적용해야 한다. 권한 없이 켜면 진단이 받는 presigned URL 이 `403` 을 준다.
 - 버킷 lifecycle·암호화·TLS 정책은 바꾸지 않는다. 키가 없을 때 Worker 가 `403` 대신 `404` 를 받으려면 `uploads/` 접두어 한정 `s3:ListBucket` 을 줄 수 있다(없어도 동작하며 `403` 은 재시도 후 실패한다).
-- Pod Identity 는 이미 떠 있는 Pod 에 적용되지 않으므로 API·Build Worker 를 재시작한다.
+
+### 운영 절차
+순서를 지킨다. 2 의 환경변수가 업로드 API 와 진단의 소스 전송을 **함께** 켜므로, 1 의 Role 권한(Control API 의 `uploads/*` Put·AbortMultipartUpload, `snapshots/*` Get)이 먼저 적용돼 있어야 한다. 권한 없이 켜면 진단이 받는 presigned URL 이 `403` 을 준다.
+
+1. **iris-infra 정책 PR 을 병합한다**(CI 가 apply). 위 Control API 인라인 정책과 Build Worker 의 `ReadSourceUploads` 를 함께 올린다. 역할이 이미 Pod 에 연결돼 있고 IAM 인라인 정책 변경은 떠 있는 Pod 에도 바로 적용되므로 **재시작이 필요 없다**. Pod 재시작은 새 Pod Identity association 을 만들 때만 필요하다.
+2. **운영 Secret `iris-platform-was-env` 에 `ARTIFACT_BUCKET` 키를 추가한다.** dev 값은 `iris-dev-build-artifacts-187069338876-ap-northeast-2` 다. chart 값(`api.artifactBucket` 같은 것)으로 넣지 않는다. Argo CD root 가 iris-infra 의 특정 SHA 에 고정돼 있어 iris-infra 의 chart ConfigMap 변경이 클러스터에 바로 들어가지 않기 때문이다. Build Worker 는 이미 ConfigMap 으로 `AWS_REGION`·`ARTIFACT_BUCKET` 을 갖고 있어 바꾸지 않는다. API 에 `AWS_REGION` 이 이미 들어오는지는 운영 Pod 에서 확인한 뒤 정한다(없으면 같은 Secret 에 함께 넣는다). 확인하기 전에는 들어온다고 가정하지 않는다.
+3. **API 를 롤링 재시작한다.** 환경변수를 바꾼 API 에만 필요하다. Build Worker 는 환경변수도 새 association 도 없으므로 재시작하지 않는다.
+4. **확인한다.** 로그인한 사용자의 토큰으로 본인 서비스에 빈 본문 `POST /api/v1/services/{id}/uploads` 를 보내 `503 NOT_CONFIGURED` 가 `422 INVALID_INPUT`(`Content-Length` 0)으로 바뀐 것을 본다. 이어서 같은 사용자로 `likelion up` 을 끝까지 돌려 배포가 `SUCCEEDED` 로 끝나는지 본다.
 
 ## 결과
 - 계약 변경 없이 `likelion up` 이 한 번의 업로드와 한 번의 배포 요청으로 끝난다. GitHub 경로는 바뀌지 않는다.
