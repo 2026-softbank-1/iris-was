@@ -137,7 +137,7 @@ App 설정에서 맞춰야 할 값:
 
 - 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제다.
 - 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`REDEPLOY`(`sourceDeploymentId` 의 커밋을 다시 빌드)·`ROLLBACK`(성공한 `sourceDeploymentId` 가 만든 이미지를 빌드 없이 배포)·`RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작, 원본은 보내지 않는다)·`REMOVE`(지금 떠 있는 배포를 클러스터에서 내림, 원본은 보내지 않는다)이다. 롤백·재시작·삭제는 요청이 곧바로 `DEPLOYING` 이 되고 `QUEUED → BUILDING` 이 없다([ADR 0015](docs/adr/0015-rollback-and-restart-reuse-built-image.md)·[ADR 0016](docs/adr/0016-remove-service-deployment.md)). 삭제는 iris-infra ApplicationSet 이 디렉터리 삭제로 Application 을 정리하도록 설정돼 있어야 끝난다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](docs/adr/0010-deployment-status-transitions-and-history.md).
-- AI 진단은 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 결과(`analysis.hypotheses`=원인, `analysis.remediation.plans`=해결책, `evidence`=근거 로그)를 `deployment_diagnoses` 에 저장한다. 성공한 진단이 있으면 모델을 다시 부르지 않는다. 해결책은 제안일 뿐 실행하지 않고 배포 요청 상태도 바꾸지 않는다. **빌드 단계 실패는 로그를 수집하지 않아 아직 진단하지 못한다**(진단이 `FAILED`·`DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다). 설계와 한계는 [ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md).
+- AI 진단은 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 결과(`analysis.hypotheses`=원인, `analysis.remediation.plans`=해결책, `evidence`=근거 로그)를 `deployment_diagnoses` 에 저장한다. 성공한 진단이 있으면 모델을 다시 부르지 않는다. 해결책은 제안일 뿐 실행하지 않고 배포 요청 상태도 바꾸지 않는다. 빌드 단계 실패는 Build Worker 가 남긴 빌드 로그(`builds.log_tail`)로 진단한다. Build Worker 역할에 CloudWatch `logs:GetLogEvents` 가 없으면 로그가 남지 않아 진단이 `FAILED`·`DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다. 설계와 한계는 [ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md).
 - 서비스 생성 때 `targetIds` 를 생략하면 등록된 모든 타깃에 배포한다.
 - 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
 - 환경변수 값은 `VARIABLES_ENCRYPTION_KEY` 로 암호화해 저장하고 소유자에게만 복호화해 돌려준다. 키는 영문·숫자·밑줄이고 `PORT`·`IRIS_*` 는 플랫폼 예약이다. 배포 요청을 만들 때 변수가 `variables_snapshot` 에 암호문으로 복사된다(롤백은 원본 요청의 변수, 재배포·재시작은 지금 변수). **아직 앱 컨테이너에 전달되지는 않는다** — chart·Prod Secret 경로가 필요하다. 설계는 [ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md).
@@ -152,6 +152,8 @@ Build Worker 만 쓰는 값(`BuildWorkerSettings`). Control API 에는 넣지 �
 | `CODEBUILD_PROJECT` · `ARTIFACT_BUCKET` | iris-infra `aws/dev/foundation` 출력값. dev: `iris-dev-build` · `iris-dev-build-artifacts-<ACCOUNT_ID>-ap-northeast-2` |
 | `CONCURRENCY` | Worker 1개가 동시에 처리할 BUILD job 수. 기본 4 |
 | `USER_CONCURRENT_BUILD_LIMIT` · `BUILD_TIMEOUT_MINUTES` · `SNAPSHOT_MAX_BYTES` | 사용자별 동시 빌드 2 · 빌드 15분 · 스냅샷 250MB |
+
+Build Worker 역할(IAM)에는 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`(`/aws/codebuild/<프로젝트>:*`)가 있어야 한다. 없어도 빌드는 동작하고 AI 진단만 빌드 로그 없이 끝난다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
 
 Deploy Worker 만 쓰는 값(`DeployWorkerSettings`). Build Worker 와 GitHub App·자격증명을 공유하지 않는다.
 

@@ -149,6 +149,7 @@ PostgreSQL 기반 큐의 작업 1건이다. 전달 보장은 at-least-once 다.
 | `deploy_config`\* | 서비스 레포 설정(`iris.json`)의 `deploy.*`. Deploy Worker 가 읽는다 |
 | `failure_code`\* | 빌드 실패 사유 (§5) |
 | `log_url` | CodeBuild 로그 URL |
+| `log_tail`\* | 실패한 빌드의 로그 끝부분(jsonb, `{entries: [{timestamp, message}], is_truncated}`). Build Worker 가 CloudWatch 에서 읽어 비밀 패턴을 가리고 남긴다. AI 진단이 `build` 단계 로그로 쓴다 (ADR 0020) |
 | `started_at`\*, `finished_at`\* | 빌드 시작·종료 시각 |
 
 원문 §6 은 SBOM·스캔 결과도 저장한다고 한다. 해당 필드는 구현 순서 7단계(SBOM·이미지 서명)에서 정한다.

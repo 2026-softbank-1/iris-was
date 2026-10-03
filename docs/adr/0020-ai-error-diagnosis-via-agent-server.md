@@ -32,6 +32,7 @@ task 에는 에이전트 호출 방식(URL·메서드·인증, 응답 형식, �
 - 입력은 다음과 같이 만든다.
   - **로그**: Loki 에서 `svc-{service_id}` 의 런타임 로그를 읽는다(요청 생성 시각부터 마지막 상태 변경 5분 뒤까지, 최신 1000건). 에이전트 입력 한도에 맞춰 가장 최근 줄부터 예산(12KB, 거절당하면 6KB)만큼 고르고, 잘렸으면 `logRange.isComplete=false` 로 알린다. 로그가 하나도 없으면 에이전트를 부르지 않고 행을 `DIAGNOSIS_LOGS_UNAVAILABLE` 로 닫는다. 없는 로그를 만들어 내지 않는다.
   - **실패 단계**: `failure_code` 로 가린다. `BUILD_*`·`SOURCE_*` 는 `build`, `DEPLOY_FAILED`(Sync·readiness 실패, 앱이 못 뜬 경우가 많다)는 `runtime`, `DEPLOY_TIMED_OUT`·`DEPLOY_INFRA_ERROR` 는 `deploy` 다. 종료 코드는 모르므로 보내지 않는다.
+  - **빌드 로그**: `build` 단계로 실패했으면(`BUILD_*`·`SOURCE_*`) Loki 대신 Build Worker 가 `builds.log_tail` 에 남긴 빌드 로그를 쓴다(아래 "빌드 로그 수집"). 로그는 `stage=build`·`sourceId=codebuild`·`stream=combined` 로 보낸다.
   - **소스**: 빌드가 S3 에 올린 스냅샷(`snapshots/{build_id}.tar.gz`)의 presigned URL, 커밋 SHA(40자리일 때만), `rootDirectory` 를 보낸다. 롤백·재시작처럼 빌드하지 않은 요청은 원본 요청의 빌드를 따라간다. 스냅샷은 하루 뒤 지워지므로 23시간이 지난 빌드는 소스를 보내지 않는다. URL 은 로그·DB 에 남기지 않는다.
   - 환경변수 값(`variables_snapshot`)은 보내지 않는다.
 - 진단 결과로 배포 요청의 상태를 바꾸지 않는다. 해결책은 제안일 뿐 서버가 실행하지 않는다.
@@ -40,7 +41,7 @@ task 에는 에이전트 호출 방식(URL·메서드·인증, 응답 형식, �
 ## 결과
 - 프런트는 POST 로 시작하고 GET 을 폴링해 원인·해결책을 받는다(최대 150초, 에이전트 대기 한도). ALB idle timeout 과 무관하다. 폴링 중 `RUNNING` 이 4분을 넘으면 서버가 죽은 것이니 다시 시작하면 된다. 재시작에도 이어 가야 한다고 판단되면 `DIAGNOSE` job 으로 옮긴다. 진단 행(`RUNNING → 결과`)과 `GET` 은 그대로 쓸 수 있다.
 - **Control API 에 S3 읽기 권한이 생긴다.** "CodeBuild·Git·Argo CD 는 Worker 만 호출하고 Control API 는 AWS 권한이 없다"는 원칙의 예외다. `presign` 은 로컬 서명이라 호출은 없지만, 받는 쪽이 읽으려면 Control API 의 IAM Role 에 스냅샷 버킷 `snapshots/*` 의 `s3:GetObject` 만 허용해야 한다(iris-infra 작업). 권한을 주기 전에는 설정을 비워 로그만 진단한다.
-- **빌드 단계 실패는 아직 진단하지 못한다.** CodeBuild 로그는 CloudWatch 에 있고 DB 에는 링크(`builds.log_url`)만 있다. 빌드 실패가 가장 흔한 실패라서 가장 큰 공백이다. 후속으로 Build Worker 가 실패한 빌드의 로그 끝부분을 `builds` 에 남기고 진단이 그것을 `build` 단계 로그로 보내는 방식을 제안한다(Worker 의 CloudWatch Logs 읽기 권한 필요). 앱이 뜨기 전에 실패한 배포(`ImagePullBackOff` 등)도 앱 로그가 없어 같은 이유로 진단하지 못하며, 쿠버네티스 이벤트 수집이 필요하다.
+- **빌드 단계 실패의 진단은 Build Worker 가 로그를 남겨야 한다.** 아래 "빌드 로그 수집"으로 해결했지만 Build Worker 역할에 CloudWatch Logs 읽기 권한이 있어야 동작한다. 앱이 뜨기 전에 실패한 배포(`ImagePullBackOff` 등)는 앱 로그가 없어 진단하지 못하며, 쿠버네티스 이벤트 수집이 필요하다.
 - 에이전트는 동시에 2건만 처리한다. 넘으면 `429` 를 받아 진단이 `FAILED`(`BUSY`)로 끝나고, 사용자가 다시 누르면 된다.
 - 마이그레이션 `2dc16dd598ea` 가 `deployment_diagnoses` 를 추가한다.
 
@@ -53,3 +54,24 @@ task 에는 에이전트 호출 방식(URL·메서드·인증, 응답 형식, �
 - 이 주소는 에러 진단 에이전트다(`/healthz`·`/models`·`/diagnose` 만 있다). 코드 분석기는 운영 서버가 없다(runbook: "Code Analyzer는 후속 작업").
 - 운영에 넣을 값: Secret `iris-platform-was-env` 에 `DIAGNOSIS_AGENT_URL`(위 주소)과 `DIAGNOSIS_AGENT_API_KEY`(Secret `iris-error-agent` 의 `AGENT_API_KEY` 와 같은 값). 현재 배포된 WAS 이미지는 이 기능을 포함하지 않는다.
 - 클러스터에 접근할 수 없어 실제 파드 상태·Secret 존재·DNS 해석은 확인하지 못했다.
+
+## 빌드 로그 수집 (2026-10-03 추가)
+빌드 단계 실패가 가장 흔한 실패인데 CodeBuild 로그는 CloudWatch 에만 있어(`/aws/codebuild/<프로젝트>`, 30일 보관) DB 에는 링크(`builds.log_url`)뿐이었다. Control API 에 CloudWatch 권한을 더 주는 대신, 이미 CodeBuild 를 다루는 Build Worker 가 실패를 확정할 때 로그 끝부분을 남긴다.
+
+- Build Worker 는 빌드가 `FAILED`(사용자 소스·설정 단계)나 `TIMED_OUT` 으로 끝나면 CloudWatch 에서 마지막 300줄을 읽어 `builds.log_tail`(JSONB, `{"entries": [{"timestamp", "message"}], "is_truncated"}`)에 저장한다. 인프라 오류로 재시도할 때는 읽지 않는다.
+- 저장 전에 소스 스냅샷 presigned URL 의 서명, `Authorization` 헤더, GitHub 토큰 모양을 `[REDACTED]` 로 가리고, 한 줄 2,000자·200줄·64KB 로 줄인다(최근 줄을 남긴다). 진단 에이전트도 마스킹하지만 DB 에는 가린 값만 둔다.
+- **읽기에 실패해도 빌드 결과는 바뀌지 않는다.** 권한이 없거나 로그가 아직 없으면 경고 로그만 남기고 `log_tail` 을 비운다. 이 경우 진단은 `DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다.
+- 진단은 `failure_code` 가 `BUILD_*`·`SOURCE_*` 이면 이 로그를 쓰고(런타임 로그·Loki 는 보지 않는다), 로그 범위는 첫 줄~마지막 줄 시각이며 `is_truncated` 면 `isComplete=false` 로 알린다.
+- **iris-infra 에 필요한 권한**: Build Worker 역할(`iris-dev-build-worker`, `terraform/environments/aws/dev/foundation/build.tf` 의 `aws_iam_role_policy.build_worker`)에 아래를 더한다. 로그 그룹 ARN 에 `:*` 를 붙이면 로그 스트림까지 덮는다.
+
+```hcl
+{
+  Sid      = "ReadBuildLogs"
+  Effect   = "Allow"
+  Action   = ["logs:GetLogEvents"]
+  Resource = "${aws_cloudwatch_log_group.build.arn}:*"
+}
+```
+
+- 이 권한이 적용되기 전에 끝난 빌드와, CodeBuild 를 시작하기 전에 실패한 요청(`SOURCE_*`: 소스 접근·커밋 없음·용량 초과), 인프라 오류로 재시도를 소진한 요청(`BUILD_INFRA_ERROR`)은 로그가 없어 진단하지 못한다.
+- 마이그레이션 `4682081516de` 가 `builds.log_tail` 을 추가한다.
