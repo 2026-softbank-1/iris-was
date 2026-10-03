@@ -30,7 +30,8 @@
 - 배포 중에 `DELETE /services/{id}` 를 보내면 `409 DEPLOYMENT_IN_PROGRESS` 이고 서비스는 그대로 조회된다.
 - 배포가 `SUCCEEDED` 가 된 뒤 `DELETE` 는 `204` 이고, 서비스는 곧바로 조회·목록에서 사라진다(`404 SERVICE_NOT_FOUND`).
 - GitOps 디렉터리는 삭제 후 약 12초 안에 지워졌고(`remove service 9`), Argo CD Application 은 약 2분 50초 뒤에 사라졌다(삭제 전에는 `Synced/Healthy`, finalizer 있음). 공개 주소는 200 에서 503 으로 바뀌었다. 다른 서비스 Application 은 그대로였다.
-- 시험하지 못한 것: 운영에서 프로젝트 삭제(단위·통합 테스트만), 삭제 뒤 `REMOVE` 가 실패하는 경로(`MANUAL_INTERVENTION`), workload 클러스터의 `svc-{id}` namespace 정리 여부.
+- 프로젝트 삭제도 임시 프로젝트(서비스 2개: 배포한 것 1개, 배포한 적 없는 것 1개)로 확인했다. 배포 중인 서비스가 있을 때 `DELETE /projects/{id}` 는 `409 DEPLOYMENT_IN_PROGRESS` 이고 프로젝트와 두 서비스가 그대로 남았다. 배포가 끝난 뒤에는 `204` 이고 프로젝트와 두 서비스가 모두 조회되지 않았다(`404`). 배포한 서비스의 GitOps 디렉터리는 약 6초, Application 은 약 1분 뒤에 사라졌고 공개 주소는 200 에서 404 로 바뀌었다. 배포한 적 없는 서비스는 요청 없이 건너뛰었다. 다른 서비스는 그대로였다.
+- 시험하지 못한 것: 삭제 뒤 `REMOVE` 가 실패하는 경로(`MANUAL_INTERVENTION`), workload 클러스터의 `svc-{id}` namespace 정리 여부.
 
 ## 결과
 - 서비스·프로젝트를 지우면 앱도 내려가고, 삭제 후 이름을 다시 쓸 수 있다(서비스 id 가 달라 GitOps 경로·도메인이 겹치지 않는다).
