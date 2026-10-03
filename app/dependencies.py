@@ -384,6 +384,7 @@ def build_observability_service(
         LokiPrometheusObservabilityClient(http_client),
         settings.loki_url,
         settings.prometheus_url,
+        settings.traffic_cluster,
     )
 
 
