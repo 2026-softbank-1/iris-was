@@ -92,7 +92,8 @@
 - 순서: infra(controller → chart 0.7.0 반영) → WAS 배포 → `DEPLOYMENT_STRATEGY_ENABLED=true` → web.
 - chartRevision 이 전역이라 chart 0.7.0 반영 시 모든 서비스가 동시에 Deployment → Rollout 으로 바뀐다. 무중단을 지키되 잠시 Pod 수가 늘어난다.
 - 블루그린은 배포 중 Pod 가 최대 2배다.
-- 되돌리기: 플래그를 끄면 새 배포는 롤링 values 로 돌아간다. chart 는 chartRevision 을 0.6.0 으로 되돌린다.
+- 블루그린(AWS ALB): 새 묶음은 전환 전 active Service 에 속하지 않아 target 으로 등록되지 않는다. 전환 순간 새 target 이 health check 를 통과할 때까지 몇 초 동안 503 이 날 수 있다. 블루그린 서비스의 Ingress 에만 짧은 health check(5초 간격, healthy threshold 2)를 걸어 이 시간을 줄인다. 근본 해결(ALB traffic routing)은 범위 밖이다. on-prem 은 영향이 없다.
+- 되돌리기: 플래그를 끄면 새 배포는 롤링 values 로 돌아간다. chartRevision 을 0.6.0 으로 되돌리려면 먼저 플래그를 끄고, values 에 `deploymentStrategy` 가 남은 서비스를 다시 배포해야 한다. 0.6.0 schema 가 그 키를 거절해 sync 가 실패하기 때문이다(떠 있는 Pod 는 계속 응답한다).
 
 ## 9. Acceptance criteria
 
