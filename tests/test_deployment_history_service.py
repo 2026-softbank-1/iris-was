@@ -3,9 +3,16 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.core.exceptions import DeploymentRequestNotFoundError, ServiceNotFoundError
-from app.enums import DeploymentStatus, DeploymentTrigger
+from app.enums import (
+    DeploymentStatus,
+    DeploymentTrigger,
+    Environment,
+    FailureCode,
+    ReleaseStatus,
+)
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
+from app.models.release import Release
 from app.services.deployment_history_service import DeploymentStage, build_stages
 from tests.fakes_deployment import OWNER, DeploymentSetup
 
@@ -137,3 +144,99 @@ async def test_get_deployment_request_of_other_service_raises_not_found(
 ) -> None:
     with pytest.raises(DeploymentRequestNotFoundError):
         await setup.history_service().get_deployment_request(OWNER, setup.service.id, 999)
+
+
+async def _succeed_new_request(setup: DeploymentSetup) -> DeploymentRequest:
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+    status_service = setup.status_service()
+    await status_service.transition_status(request.id, DeploymentStatus.BUILDING)
+    await status_service.transition_status(request.id, DeploymentStatus.DEPLOYING)
+    await status_service.transition_status(request.id, DeploymentStatus.SUCCEEDED)
+    return request
+
+
+async def test_get_deployment_request_without_release_returns_service_targets(
+    setup: DeploymentSetup,
+) -> None:
+    setup.services.targets[setup.service.id] = {1}
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    detail = await setup.history_service().get_deployment_request(
+        OWNER, setup.service.id, request.id
+    )
+
+    assert detail.service.id == setup.service.id
+    assert detail.build is not None
+    assert detail.releases == []
+    assert [t.name for t in detail.targets] == ["aws"]
+
+
+async def test_get_deployment_request_with_release_returns_released_targets(
+    setup: DeploymentSetup,
+) -> None:
+    setup.services.targets[setup.service.id] = {1, 2}
+    request = await _succeed_new_request(setup)
+    release = Release(
+        deployment_request_id=request.id,
+        build_id=1,
+        service_id=setup.service.id,
+        environment=Environment.PROD,
+        target_id=2,
+        image_digest="sha256:abc",
+        status=ReleaseStatus.SUCCEEDED,
+    )
+    release.id = 7
+    setup.releases.releases.append(release)
+
+    detail = await setup.history_service().get_deployment_request(
+        OWNER, setup.service.id, request.id
+    )
+
+    assert [r.id for r in detail.releases] == [7]
+    assert [t.name for t in detail.targets] == ["local"]
+
+
+async def test_get_deployment_request_replaced_by_next_succeeded_returns_replacement(
+    setup: DeploymentSetup,
+) -> None:
+    first = await _succeed_new_request(setup)
+    second = await _succeed_new_request(setup)
+
+    first_detail = await setup.history_service().get_deployment_request(
+        OWNER, setup.service.id, first.id
+    )
+    second_detail = await setup.history_service().get_deployment_request(
+        OWNER, setup.service.id, second.id
+    )
+
+    assert first_detail.replaced_by is not None
+    assert first_detail.replaced_by.deployment_request_id == second.id
+    second_succeeded_at = next(
+        h.created_at
+        for h in setup.histories.histories
+        if h.deployment_request_id == second.id and h.to_status == DeploymentStatus.SUCCEEDED
+    )
+    assert first_detail.replaced_by.at == second_succeeded_at
+    assert second_detail.replaced_by is None
+
+
+async def test_get_deployment_request_not_succeeded_has_no_replacement(
+    setup: DeploymentSetup,
+) -> None:
+    failed = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+    await setup.status_service().transition_status(
+        failed.id, DeploymentStatus.FAILED, failure_code=FailureCode.BUILD_FAILED
+    )
+    await _succeed_new_request(setup)
+
+    detail = await setup.history_service().get_deployment_request(
+        OWNER, setup.service.id, failed.id
+    )
+
+    assert detail.replaced_by is None

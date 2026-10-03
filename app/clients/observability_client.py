@@ -12,11 +12,22 @@ from app.core.exceptions import ExternalError
 MetricKind = Literal["cpu", "memory", "network_receive", "network_transmit"]
 # total: 서비스 전체 합계 1개, pod: Pod(replica)별 시리즈
 MetricGrouping = Literal["total", "pod"]
+StatusClass = Literal["2xx", "3xx", "4xx", "5xx"]
 
 # OTel 수집기의 리소스 속성(k8s.namespace.name 등)을 Loki·Prometheus 가 `_` 로 바꾼 라벨이다.
 NAMESPACE_LABEL = "k8s_namespace_name"
 POD_LABEL = "k8s_pod_name"
 CONTAINER_LABEL = "k8s_container_name"
+# Deploy Worker 가 Pod annotation 으로 넣은 release.id 를 수집기가 라벨로 올린다.
+RELEASE_LABEL = "iris_release_id"
+# iris-infra 의 ALB 접근 로그 수집기가 정규화해 보내는 스트림이다(job·k8s_namespace_name 라벨).
+ALB_ACCESS_JOB = "iris-alb-access"
+_STATUS_CLASS_RANGES: dict[StatusClass, tuple[int, int]] = {
+    "2xx": (200, 299),
+    "3xx": (300, 399),
+    "4xx": (400, 499),
+    "5xx": (500, 599),
+}
 
 
 @dataclass(frozen=True)
@@ -25,6 +36,18 @@ class LogEntry:
     message: str
     pod: str
     container: str
+
+
+@dataclass(frozen=True)
+class NetworkLogEntry:
+    """ALB 가 완료한 요청 1건. 수집기가 URL·메서드·IP·User-Agent 를 보내지 않아 이 값들뿐이다."""
+
+    timestamp_ns: str
+    status: int
+    target_status: int | None
+    received_bytes: int
+    sent_bytes: int
+    response_time_seconds: float | None
 
 
 @dataclass(frozen=True)
@@ -51,7 +74,19 @@ class ObservabilityClient(Protocol):
         limit: int,
         search: str,
         direction: Literal["forward", "backward"] = "backward",
+        *,
+        release_ids: list[int] | None = None,
     ) -> list[LogEntry]: ...
+
+    async def search_network_logs(
+        self,
+        base_url: str,
+        namespace: str,
+        start_ns: int,
+        end_ns: int,
+        limit: int,
+        status_class: StatusClass | None,
+    ) -> list[NetworkLogEntry]: ...
 
     async def search_metrics(
         self,
@@ -62,6 +97,41 @@ class ObservabilityClient(Protocol):
         step: int,
         group_by: MetricGrouping = "total",
     ) -> list[MetricSeries]: ...
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _parse_network_entry(timestamp_ns: str, line: str) -> NetworkLogEntry | None:
+    """수집기가 만든 JSON 본문을 항목으로 바꾼다.
+
+    형식이 다른 줄은 화면에 보일 값이 없고 한 줄 때문에 나머지를 잃지 않도록 건너뛴다.
+    TargetGroup ARN·record id 같은 내부 값은 항목에 담지 않는다.
+    """
+    try:
+        body = json.loads(line)
+        status = body["elb_status_code"]
+        received = body["received_bytes"]
+        sent = body["sent_bytes"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    target_status = body.get("target_status_code")
+    latency = body.get("target_processing_time")
+    if not (_is_int(status) and _is_int(received) and _is_int(sent)):
+        return None
+    if target_status is not None and not _is_int(target_status):
+        return None
+    if latency is not None and (isinstance(latency, bool) or not isinstance(latency, int | float)):
+        return None
+    return NetworkLogEntry(
+        timestamp_ns,
+        status,
+        target_status,
+        received,
+        sent,
+        float(latency) if latency is not None else None,
+    )
 
 
 class LokiPrometheusObservabilityClient:
@@ -88,9 +158,15 @@ class LokiPrometheusObservabilityClient:
         limit: int,
         search: str,
         direction: Literal["forward", "backward"] = "backward",
+        *,
+        release_ids: list[int] | None = None,
     ) -> list[LogEntry]:
         # namespace 는 인증된 서비스 ID 에서만 만든다. 사용자 검색은 문자열 리터럴로 인코딩한다.
-        query = f'{{{NAMESPACE_LABEL}={json.dumps(namespace)},{CONTAINER_LABEL}="app"}}'
+        selector = f'{NAMESPACE_LABEL}={json.dumps(namespace)},{CONTAINER_LABEL}="app"'
+        if release_ids:
+            # release id 는 DB 의 정수라 정규식에 넣어도 안전하다.
+            selector += f',{RELEASE_LABEL}=~"{"|".join(str(i) for i in release_ids)}"'
+        query = f"{{{selector}}}"
         if search:
             query += f" |= {json.dumps(search, ensure_ascii=False)}"
         payload = await self._get(
@@ -131,6 +207,48 @@ class LokiPrometheusObservabilityClient:
             )
         except (KeyError, TypeError, ValueError, IndexError, AttributeError) as exc:
             raise ExternalError("invalid log query response") from exc
+
+    async def search_network_logs(
+        self,
+        base_url: str,
+        namespace: str,
+        start_ns: int,
+        end_ns: int,
+        limit: int,
+        status_class: StatusClass | None,
+    ) -> list[NetworkLogEntry]:
+        query = f'{{job="{ALB_ACCESS_JOB}",{NAMESPACE_LABEL}={json.dumps(namespace)}}}'
+        if status_class is not None:
+            low, high = _STATUS_CLASS_RANGES[status_class]
+            query += (
+                f' | json | __error__ = "" | elb_status_code >= {low} | elb_status_code <= {high}'
+            )
+        payload = await self._get(
+            f"{base_url.rstrip('/')}/loki/api/v1/query_range",
+            {
+                "query": query,
+                "start": str(start_ns),
+                "end": str(end_ns),
+                "limit": str(limit),
+                "direction": "backward",
+            },
+        )
+        try:
+            if payload["resultType"] != "streams":
+                raise ValueError("expected streams")
+            entries = []
+            for stream in payload["result"]:
+                for row in stream["values"]:
+                    timestamp_ns, line = row[:2]
+                    if not isinstance(timestamp_ns, str) or not isinstance(line, str):
+                        raise ValueError("invalid log entry")
+                    int(timestamp_ns)
+                    entry = _parse_network_entry(timestamp_ns, line)
+                    if entry is not None:
+                        entries.append(entry)
+            return sorted(entries, key=lambda entry: int(entry.timestamp_ns))
+        except (KeyError, TypeError, ValueError, IndexError, AttributeError) as exc:
+            raise ExternalError("invalid network log query response") from exc
 
     async def search_metrics(
         self,

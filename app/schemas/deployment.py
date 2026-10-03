@@ -3,11 +3,30 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, StringConstraints, model_validator
 
-from app.enums import ACTIVE_DEPLOYMENT_STATUSES, DeploymentStatus, DeploymentTrigger, FailureCode
+from app.core.exceptions import InvalidInputError
+from app.enums import (
+    ACTIVE_DEPLOYMENT_STATUSES,
+    Builder,
+    BuildStatus,
+    DeploymentStatus,
+    DeploymentTrigger,
+    FailureCode,
+    ReleaseStatus,
+    TargetKind,
+)
+from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
+from app.models.release import Release
+from app.models.service import Service
+from app.models.target import Target
 from app.schemas.response import ApiModel
-from app.services.deployment_history_service import DeploymentDetail, DeploymentStage
+from app.services.deployment_history_service import (
+    DeploymentDetail,
+    DeploymentReplacement,
+    DeploymentStage,
+)
+from app.services.repository_url import parse_repository_url
 
 CommitSha = Annotated[
     str,
@@ -154,9 +173,153 @@ class DeploymentStageResponse(ApiModel):
         )
 
 
+class DeploymentSourceResponse(ApiModel):
+    """배포한 소스. 커밋 SHA·메시지는 배포 요청 최상위 필드(sourceSha·sourceCommitMessage)다."""
+
+    repository: str = Field(
+        description="owner/repo 형식의 소스 저장소", examples=["Saccharine1211/railway-deploy-demo"]
+    )
+    branch: str = Field(
+        description="서비스에 지정된 배포 브랜치. 배포 시점이 아니라 지금의 설정값이다.",
+        examples=["main"],
+    )
+
+    @classmethod
+    def from_service(cls, service: Service) -> Self:
+        try:
+            owner, name = parse_repository_url(service.source_repository_url)
+            repository = f"{owner}/{name}"
+        except InvalidInputError:
+            repository = service.source_repository_url
+        return cls(repository=repository, branch=service.source_branch)
+
+
+class DeploymentTargetResponse(ApiModel):
+    id: int
+    name: str = Field(examples=["aws"])
+    kind: TargetKind
+
+    @classmethod
+    def from_model(cls, target: Target) -> Self:
+        return cls(id=target.id, name=target.name, kind=target.kind)
+
+
+class DeploymentBuildConfigurationResponse(ApiModel):
+    builder: Builder | None = Field(
+        default=None, description="없으면 빌더를 아직 확정하지 않은 것이다(화면의 Auto-detect)."
+    )
+    root_directory: str | None = Field(
+        default=None, description="저장소 안의 서비스 위치. 없으면 저장소 루트다."
+    )
+    build_command: str | None = None
+
+
+class DeploymentDeployConfigurationResponse(ApiModel):
+    targets: list[DeploymentTargetResponse] = Field(
+        description="실제로 반영한 타깃. 아직 반영 전이면 서비스에 지정된 타깃이다."
+    )
+    port: int | None = None
+    start_command: str | None = Field(
+        default=None, description="빌드가 기록한 값이 있으면 그 값, 없으면 서비스 설정값이다."
+    )
+
+
+class DeploymentConfigurationResponse(ApiModel):
+    """화면의 Configuration. root·build command·port 는 배포 시점이 아닌 현재 설정값이다."""
+
+    build: DeploymentBuildConfigurationResponse
+    deploy: DeploymentDeployConfigurationResponse
+
+    @classmethod
+    def from_detail(cls, detail: DeploymentDetail) -> Self:
+        service, build = detail.service, detail.build
+        deploy_config = (build.deploy_config if build is not None else None) or {}
+        return cls(
+            build=DeploymentBuildConfigurationResponse(
+                builder=(build.builder if build is not None else None) or service.builder,
+                root_directory=service.root_directory,
+                build_command=service.build_command,
+            ),
+            deploy=DeploymentDeployConfigurationResponse(
+                targets=[DeploymentTargetResponse.from_model(t) for t in detail.targets],
+                port=service.port,
+                start_command=deploy_config.get("startCommand") or service.start_command,
+            ),
+        )
+
+
+class DeploymentBuildResponse(ApiModel):
+    """이 배포 요청의 빌드 결과. 롤백·재시작은 원본 빌드를 복사한 것이라 시각이 요청 시각이다."""
+
+    status: BuildStatus
+    builder: Builder | None = None
+    image_digest: str | None = Field(default=None, examples=["sha256:3f1c..."])
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    failure_code: FailureCode | None = None
+
+    @classmethod
+    def from_model(cls, build: Build) -> Self:
+        return cls(
+            status=build.status,
+            builder=build.builder,
+            image_digest=build.image_digest,
+            started_at=build.started_at,
+            finished_at=build.finished_at,
+            failure_code=build.failure_code,
+        )
+
+
+class DeploymentReleaseResponse(ApiModel):
+    """타깃 하나에 반영한 결과. Argo CD 상태는 원본 표기 그대로다."""
+
+    id: int
+    target_id: int
+    status: ReleaseStatus
+    argo_sync_status: str | None = Field(default=None, examples=["Synced"])
+    argo_health_status: str | None = Field(default=None, examples=["Healthy"])
+    gitops_commit_sha: str | None = None
+    failure_code: FailureCode | None = None
+    finished_at: datetime | None = None
+
+    @classmethod
+    def from_model(cls, release: Release) -> Self:
+        return cls(
+            id=release.id,
+            target_id=release.target_id,
+            status=release.status,
+            argo_sync_status=release.argo_sync_status,
+            argo_health_status=release.argo_health_status,
+            gitops_commit_sha=release.gitops_commit_sha,
+            failure_code=release.failure_code,
+            finished_at=release.finished_at,
+        )
+
+
+class DeploymentReplacedByResponse(ApiModel):
+    deployment_id: int = Field(description="이 배포를 대신한 더 새로운 성공 배포 id")
+    at: datetime = Field(description="그 배포가 성공한 시각")
+
+    @classmethod
+    def from_replacement(cls, replacement: DeploymentReplacement) -> Self:
+        return cls(deployment_id=replacement.deployment_request_id, at=replacement.at)
+
+
 class DeploymentDetailResponse(DeploymentResponse):
     history: list[DeploymentStatusHistoryResponse]
     stages: list[DeploymentStageResponse]
+    source: DeploymentSourceResponse
+    configuration: DeploymentConfigurationResponse
+    build: DeploymentBuildResponse | None = Field(
+        default=None, description="빌드를 시작하기 전에 끝난 요청은 없다."
+    )
+    releases: list[DeploymentReleaseResponse] = Field(
+        description="빌드 실패처럼 배포까지 가지 못한 요청은 비어 있다."
+    )
+    replaced_by: DeploymentReplacedByResponse | None = Field(
+        default=None,
+        description="성공했던 배포를 더 새로운 성공 배포가 대신했을 때만 있다(화면의 Removed).",
+    )
 
     @classmethod
     def from_detail(cls, detail: DeploymentDetail) -> Self:
@@ -165,4 +328,13 @@ class DeploymentDetailResponse(DeploymentResponse):
             **base.model_dump(),
             history=[DeploymentStatusHistoryResponse.from_model(h) for h in detail.histories],
             stages=[DeploymentStageResponse.from_stage(s) for s in detail.stages],
+            source=DeploymentSourceResponse.from_service(detail.service),
+            configuration=DeploymentConfigurationResponse.from_detail(detail),
+            build=DeploymentBuildResponse.from_model(detail.build) if detail.build else None,
+            releases=[DeploymentReleaseResponse.from_model(r) for r in detail.releases],
+            replaced_by=(
+                DeploymentReplacedByResponse.from_replacement(detail.replaced_by)
+                if detail.replaced_by
+                else None
+            ),
         )

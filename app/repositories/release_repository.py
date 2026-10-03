@@ -40,6 +40,15 @@ class ReleaseRepository:
             _select_with_relations().where(Release.deployment_request_id == deployment_request_id)
         )
 
+    async def search_by_deployment_request_id(self, deployment_request_id: int) -> list[Release]:
+        """배포 요청의 release 를 타깃 반영 순서(id 순)로 돌려준다. 빌드 실패 요청은 비어 있다."""
+        stmt = (
+            select(Release)
+            .where(Release.deployment_request_id == deployment_request_id)
+            .order_by(Release.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
     async def find_last_known_good(self, service_id: int, target_id: int) -> Release | None:
         return await self._session.scalar(
             select(Release)

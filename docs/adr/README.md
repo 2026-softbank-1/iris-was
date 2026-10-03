@@ -54,3 +54,4 @@
 | [0018](0018-cli-login-session-table-and-polling.md) | CLI 로그인은 DB 세션 테이블과 폴링으로 하고 토큰은 한 번만 내준다 | 수락됨 |
 | [0019](0019-job-wakeup-listen-notify.md) | Worker 는 5초 polling 대신 jobs 트리거의 LISTEN/NOTIFY 로 깨운다 | 제안됨 |
 | [0020](0020-ai-error-diagnosis-via-agent-server.md) | 실패한 배포의 AI 진단은 Control API 가 에이전트 서버를 호출하고 결과를 DB 에 저장한다 | 제안됨 (에이전트 서버 배포 대기) |
+| [0021](0021-deployment-detail-logs-api.md) | 배포 상세 화면의 로그 API 는 Control API 가 읽기 전용으로 조회하고 빌드 로그는 CloudWatch 에서 읽는다 | 수락됨 (iris-infra IAM 권한 추가 대기) |
