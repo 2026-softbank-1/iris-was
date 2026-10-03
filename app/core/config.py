@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     # 웹 프런트엔드 주소. 로그인이 끝나면 여기로 돌려보낸다.
     web_base_url: str = "http://localhost:3000"
+    # Control API 의 공개 주소(예: https://api.likelion.uk). CLI 로그인의 verificationUrl 을 만든다.
+    # 없으면 요청의 Host 로 만든다. TLS 를 앞단에서 끝내는 운영에서는 https 주소로 꼭 지정한다.
+    api_base_url: str | None = None
     # CORS 로 허용할 Origin 정규식(전체 일치). 쿠키 인증이라 `*` 대신 Origin 을 되돌려 줘야 한다.
     # 기본값: likelion.uk 와 모든 하위 도메인(https), localhost·127.0.0.1 의 모든 포트.
     cors_allow_origin_regex: str = (
@@ -31,6 +34,10 @@ class Settings(BaseSettings):
     session_cookie_name: str = "anydeploy_session"
     # 로컬 http 개발에서는 false 로 둔다. 운영은 반드시 true.
     is_session_cookie_secure: bool = True
+
+    # 서비스 환경변수 값을 DB 에 암호화해 저장하는 Fernet 키(README 의 생성 명령 참고).
+    # 없으면 변수 API 는 503 (NOT_CONFIGURED). 키를 잃으면 저장된 값을 읽을 수 없다.
+    variables_encryption_key: SecretStr | None = None
 
     # GitHub App 하나로 로그인(user authorization)과 저장소 접근(installation)을 함께 쓴다.
     github_app_id: str | None = None

@@ -52,6 +52,19 @@ class ForbiddenError(AppError):
     status_code = 403
 
 
+class TooManyRequestsError(AppError):
+    """허용된 빈도보다 빠른 요청. 몇 초 뒤에 다시 보내면 되는지 retry_after_seconds 에 담는다."""
+
+    code = "TOO_MANY_REQUESTS"
+    status_code = 429
+
+    def __init__(
+        self, message: str | None = None, *, retry_after_seconds: int, **fields: object
+    ) -> None:
+        super().__init__(message, retry_after_seconds=retry_after_seconds, **fields)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class ExternalError(AppError):
     """외부 시스템(CodeBuild·Git·Argo CD) 호출 실패. Client 가 SDK 예외를 이것으로 바꾼다."""
 
@@ -85,12 +98,26 @@ class DeploymentRequestNotFoundError(NotFoundError):
     code = "DEPLOYMENT_REQUEST_NOT_FOUND"
 
 
+class VariableNotFoundError(NotFoundError):
+    code = "VARIABLE_NOT_FOUND"
+
+
 class ProjectNameConflictError(ConflictError):
     code = "PROJECT_NAME_CONFLICT"
 
 
 class ServiceNameConflictError(ConflictError):
     code = "SERVICE_NAME_CONFLICT"
+
+
+class VariableConflictError(ConflictError):
+    code = "VARIABLE_CONFLICT"
+
+
+class VariableDecryptionError(AppError):
+    """저장된 변수 값을 복호화하지 못했다. 암호화 키가 바뀌었거나 값이 손상됐다."""
+
+    code = "VARIABLE_DECRYPTION_FAILED"
 
 
 class DeploymentInProgressError(ConflictError):
@@ -100,7 +127,7 @@ class DeploymentInProgressError(ConflictError):
 
 
 class NoSucceededDeploymentError(ConflictError):
-    """재시작할 배포가 없다. 서비스에 성공한 배포가 한 번도 없다."""
+    """재시작·삭제할 배포가 없다. 성공한 배포가 없거나 이미 서비스를 내렸다."""
 
     code = "NO_SUCCEEDED_DEPLOYMENT"
 

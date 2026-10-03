@@ -1,9 +1,10 @@
-"""DEPLOY·RECONCILE·ROLLBACK job 처리: GitOps 커밋 → Argo CD 상태 확인 → 성공 확정 또는 revert.
+"""DEPLOY·RECONCILE·ROLLBACK·REMOVE job 처리: GitOps 커밋 → Argo CD 상태 확인 → 성공·revert·삭제.
 
 job 은 짧게 끝낸다. Argo CD 반영을 기다릴 때는 job 을 잡고 있지 않고 snooze 한다.
 외부에 쓰기 전에 커밋 SHA 를 먼저 기록해, Worker 가 죽어도 중복 커밋 없이 이어서 처리한다.
 """
 
+import contextlib
 import json
 import logging
 import time
@@ -19,9 +20,18 @@ from app.clients.aws_clients import EcrClient
 from app.clients.github_client import GitHubClient
 from app.core.config import DeployWorkerSettings
 from app.core.exceptions import ConflictError, ExternalError, GitOpsConflictError, NotFoundError
-from app.enums import Builder, DeploymentStatus, Environment, FailureCode, JobKind, ReleaseStatus
+from app.enums import (
+    APP_PORT,
+    Builder,
+    DeploymentStatus,
+    Environment,
+    FailureCode,
+    JobKind,
+    ReleaseStatus,
+)
 from app.models import Job, Release
 from app.repositories.build_repository import BuildRepository
+from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.services.builder_detection import DeployConfig
@@ -30,15 +40,16 @@ from app.services.domain_service import service_host_label
 
 logger = logging.getLogger(__name__)
 
-JOB_KINDS = frozenset({JobKind.DEPLOY, JobKind.RECONCILE, JobKind.ROLLBACK})
+JOB_KINDS = frozenset({JobKind.DEPLOY, JobKind.RECONCILE, JobKind.ROLLBACK, JobKind.REMOVE})
 GITOPS_BRANCH = "main"
 GITOPS_ENVIRONMENT = "prod"
 VALUES_FILE_NAME = "values.yaml"
-APP_PORT = 8080
 RECONCILE_INTERVAL = timedelta(seconds=10)
 IN_FLIGHT_SNOOZE = timedelta(seconds=15)
 # 첫 배포의 ApplicationSet 폴링(약 3분)과 Application 폴링(최대 약 3분)을 감안한 여유.
 DEADLINE_MARGIN = timedelta(minutes=10)
+# 디렉터리를 지운 뒤 ApplicationSet 폴링(약 3분)과 Application 정리를 기다리는 한도.
+REMOVE_TIMEOUT = timedelta(minutes=10)
 RETRY_BASE_DELAY = timedelta(seconds=30)
 MAX_PUSH_ATTEMPTS = 5
 _FAILED_PHASES = ("Failed", "Error")
@@ -119,6 +130,10 @@ class _RollbackBlockedError(Exception):
     """GitOps HEAD 의 서비스 디렉터리가 실패한 release 커밋과 다르다. 자동 revert 하지 않는다."""
 
 
+class _AlreadyRemovedError(Exception):
+    """GitOps HEAD 에 서비스 디렉터리가 이미 없다. 지울 커밋이 필요 없다."""
+
+
 class DeployService:
     def __init__(
         self,
@@ -142,6 +157,10 @@ class DeployService:
             # user_build_limit 은 BUILD 에만 쓰인다.
             return await JobRepository(session).claim_next_job(self._worker_id, JOB_KINDS, 0)
 
+    async def find_seconds_until_next_run(self) -> float | None:
+        async with self._session_factory() as session:
+            return await JobRepository(session).find_seconds_until_next_run(JOB_KINDS)
+
     async def run(self, job: Job) -> None:
         """job 을 한 번 처리한다. 재시도할 만한 실패는 예외로 던진다."""
         if job.attempts > job.max_attempts:
@@ -151,6 +170,8 @@ class DeployService:
             await self._deploy(job)
         elif job.kind == JobKind.RECONCILE:
             await self._reconcile(job)
+        elif job.kind == JobKind.REMOVE:
+            await self._remove(job)
         else:
             await self._rollback(job)
 
@@ -310,7 +331,7 @@ class DeployService:
         self, service_id: int, target_sha: str
     ) -> tuple[ArgoAppStatus | None, bool, bool]:
         """Argo 가 아직 목표 커밋을 못 봤으면 refresh 해서 한 번 더 읽는다."""
-        name = f"svc-{service_id}"
+        name = _argo_application_name(service_id)
         status = await self._argocd.get_application(name)
         if status is None:
             return None, False, False
@@ -493,6 +514,110 @@ class DeployService:
             extra={"action": "rollback_blocked", "release_id": release.id},
         )
 
+    # --- REMOVE
+
+    async def _remove(self, job: Job) -> None:
+        """GitOps 에서 서비스 디렉터리를 지우고 Argo CD Application 이 사라질 때까지 기다린다.
+
+        커밋 SHA 를 먼저 기록해 Worker 가 죽어도 중복 커밋 없이 이어서 처리한다. Application 은
+        ApplicationSet 이 디렉터리 삭제를 보고 지운다. 기한 안에 사라지지 않으면 운영자에게 넘긴다.
+        """
+        async with self._session_factory.begin() as session:
+            request = await DeploymentRequestRepository(session).get_by_id(
+                job.deployment_request_id
+            )
+        if request.status != DeploymentStatus.DEPLOYING:
+            async with self._session_factory.begin() as session:
+                await JobRepository(session).mark_succeeded(job.id)
+            return
+
+        await self._delete_service_directory(job, request.service_id)
+
+        now = datetime.now(UTC)
+        is_expired = now > job.created_at + REMOVE_TIMEOUT
+        try:
+            application = await self._argocd.get_application(
+                _argo_application_name(request.service_id)
+            )
+        except ExternalError:
+            if is_expired:
+                await self._block_remove(job, "argocd unreachable after remove commit")
+                return
+            logger.warning("application check failed", exc_info=True, extra={"action": "remove"})
+            await self._snooze(job, RECONCILE_INTERVAL)
+            return
+        if application is None:
+            async with self._session_factory.begin() as session:
+                await _move_request(session, request.id, DeploymentStatus.SUCCEEDED)
+                await JobRepository(session).mark_succeeded(job.id)
+            logger.info(
+                "service removed", extra={"action": "remove", "service_id": request.service_id}
+            )
+        elif is_expired:
+            await self._block_remove(job, "application still present after remove commit")
+        else:
+            await self._snooze(job, RECONCILE_INTERVAL)
+
+    async def _delete_service_directory(self, job: Job, service_id: int) -> None:
+        """services/{id}/prod 를 지우는 커밋을 main 에 올린다. 디렉터리가 이미 없으면 건너뛴다."""
+        token = await self._gitops_token()
+        path = _service_path(service_id)
+
+        async def create(head_sha: str) -> str:
+            subtree_sha = await self._github.find_subtree_sha(
+                token, self._repository, head_sha, path
+            )
+            if subtree_sha is None:
+                raise _AlreadyRemovedError
+            return await self._github.create_delete_commit(
+                token,
+                self._repository,
+                head_sha,
+                path,
+                _remove_commit_message(service_id, job.deployment_request_id),
+            )
+
+        async def record(commit_sha: str) -> None:
+            async with self._session_factory.begin() as session:
+                await JobRepository(session).record_external_id(job.id, commit_sha)
+
+        with contextlib.suppress(_AlreadyRemovedError):
+            await self._push(token, job.external_id, create, record)
+
+    async def _block_remove(self, job: Job, error: str) -> None:
+        """GitOps 는 이미 바뀌었는데 서비스가 내려갔는지 알 수 없다. 운영자에게 넘긴다."""
+        async with self._session_factory.begin() as session:
+            await _move_request(
+                session, job.deployment_request_id, DeploymentStatus.MANUAL_INTERVENTION
+            )
+            await JobRepository(session).mark_manual_intervention(job.id, error)
+        logger.error("remove blocked", extra={"action": "remove_blocked", "reason": error})
+
+    async def _give_up_remove(self, job: Job, error: str) -> None:
+        """커밋 전이면 서비스가 그대로라 FAILED, 커밋 후면 상태를 알 수 없어 운영자에게 넘긴다."""
+        async with self._session_factory.begin() as session:
+            stored = await session.get_one(Job, job.id)
+            request = await DeploymentRequestRepository(session).get_by_id(
+                job.deployment_request_id
+            )
+            is_committed = stored.external_id is not None
+            if request.status == DeploymentStatus.DEPLOYING:
+                if is_committed:
+                    await _move_request(session, request.id, DeploymentStatus.MANUAL_INTERVENTION)
+                else:
+                    await _move_request(
+                        session,
+                        request.id,
+                        DeploymentStatus.FAILED,
+                        FailureCode.DEPLOY_INFRA_ERROR,
+                    )
+            if is_committed:
+                await JobRepository(session).mark_manual_intervention(job.id, error)
+            else:
+                await JobRepository(session).mark_failed(job.id, error)
+        if is_committed:
+            logger.error("remove blocked", extra={"action": "remove_blocked", "reason": error})
+
     # --- 공용
 
     async def _push(
@@ -546,6 +671,9 @@ class DeployService:
 
         커밋 전이면 Git 이 바뀌지 않았으니 FAILED, 커밋 후면 상태를 알 수 없어 운영자에게 넘긴다.
         """
+        if job.kind == JobKind.REMOVE:
+            await self._give_up_remove(job, error)
+            return
         needs_manual = False
         async with self._session_factory.begin() as session:
             release = await ReleaseRepository(session).find_by_deployment_request_id(
@@ -627,6 +755,10 @@ def _deadline(deploy: DeployConfig) -> datetime:
     return datetime.now(UTC) + timedelta(seconds=deploy.healthcheck_timeout) + DEADLINE_MARGIN
 
 
+def _argo_application_name(service_id: int) -> str:
+    return f"svc-{service_id}"
+
+
 def _service_path(service_id: int) -> str:
     """Deploy Worker 가 통째로 쓰는 디렉터리. 이 디렉터리마다 Application 이 생긴다."""
     return f"services/{service_id}/{GITOPS_ENVIRONMENT}"
@@ -634,6 +766,10 @@ def _service_path(service_id: int) -> str:
 
 def _commit_message(subject: str, release_id: int) -> str:
     return f"{subject}\n\nIris-Release-Id: {release_id}\n"
+
+
+def _remove_commit_message(service_id: int, deployment_request_id: int) -> str:
+    return f"remove service {service_id}\n\nIris-Deployment-Request-Id: {deployment_request_id}\n"
 
 
 def _release_id(job: Job) -> int:

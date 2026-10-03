@@ -350,3 +350,183 @@ async def test_create_deployment_request_other_users_service_raises_not_found(
         await setup.manual_service().create_deployment_request(
             OWNER + 1, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
         )
+
+
+async def test_create_deployment_request_remove_takes_live_deployment_down_without_build(
+    setup: DeploymentSetup,
+) -> None:
+    live = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    builds_before = len(setup.builds.builds)
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+    )
+
+    assert (request.trigger_type, request.status) == (
+        DeploymentTrigger.REMOVE,
+        DeploymentStatus.DEPLOYING,
+    )
+    assert request.source_deployment_request_id == live.id
+    assert len(setup.builds.builds) == builds_before
+    assert setup.jobs.jobs[-1].kind == JobKind.REMOVE
+    assert [
+        (h.from_status, h.to_status)
+        for h in setup.histories.histories
+        if h.deployment_request_id == request.id
+    ] == [(None, DeploymentStatus.QUEUED), (DeploymentStatus.QUEUED, DeploymentStatus.DEPLOYING)]
+
+
+async def test_create_deployment_request_remove_without_succeeded_deployment_raises_conflict(
+    setup: DeploymentSetup,
+) -> None:
+    await _finished_request(setup, DeploymentStatus.FAILED)
+
+    with pytest.raises(NoSucceededDeploymentError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+        )
+
+
+@pytest.mark.parametrize("trigger_type", [DeploymentTrigger.REMOVE, DeploymentTrigger.RESTART])
+async def test_create_deployment_request_after_remove_has_no_running_deployment(
+    setup: DeploymentSetup, trigger_type: DeploymentTrigger
+) -> None:
+    await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    removal = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+    )
+    removal.status = DeploymentStatus.SUCCEEDED
+
+    with pytest.raises(NoSucceededDeploymentError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=trigger_type
+        )
+
+
+async def test_create_deployment_request_rollback_after_remove_brings_old_image_back(
+    setup: DeploymentSetup,
+) -> None:
+    old = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    removal = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+    )
+    removal.status = DeploymentStatus.SUCCEEDED
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER,
+        setup.service.id,
+        trigger_type=DeploymentTrigger.ROLLBACK,
+        source_deployment_request_id=old.id,
+    )
+
+    assert (request.trigger_type, request.status) == (
+        DeploymentTrigger.ROLLBACK,
+        DeploymentStatus.DEPLOYING,
+    )
+
+
+async def test_create_deployment_request_remove_while_active_raises_in_progress(
+    setup: DeploymentSetup,
+) -> None:
+    await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    with pytest.raises(DeploymentInProgressError):
+        await setup.manual_service().create_deployment_request(
+            OWNER, setup.service.id, trigger_type=DeploymentTrigger.REMOVE
+        )
+
+
+async def _put_variables(setup: DeploymentSetup, values: dict[str, str]) -> None:
+    await setup.variables.replace_all(setup.service.id, {k: f"enc({v})" for k, v in values.items()})
+
+
+async def test_create_deployment_request_manual_snapshots_current_variables(
+    setup: DeploymentSetup,
+) -> None:
+    await _put_variables(setup, {"A": "1", "B": "2"})
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    assert request.variables_snapshot == {"A": "enc(1)", "B": "enc(2)"}
+
+
+async def test_create_deployment_request_without_variables_snapshots_empty(
+    setup: DeploymentSetup,
+) -> None:
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.MANUAL
+    )
+
+    assert request.variables_snapshot == {}
+
+
+async def test_create_deployment_request_redeploy_uses_variables_edited_since(
+    setup: DeploymentSetup,
+) -> None:
+    await _put_variables(setup, {"A": "old"})
+    source = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    await _put_variables(setup, {"A": "new", "B": "added"})
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER,
+        setup.service.id,
+        trigger_type=DeploymentTrigger.REDEPLOY,
+        source_deployment_request_id=source.id,
+    )
+
+    assert source.variables_snapshot == {"A": "enc(old)"}
+    assert request.variables_snapshot == {"A": "enc(new)", "B": "enc(added)"}
+
+
+async def test_create_deployment_request_restart_uses_variables_edited_since(
+    setup: DeploymentSetup,
+) -> None:
+    await _put_variables(setup, {"A": "old"})
+    live = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    await _put_variables(setup, {"A": "new", "B": "added"})
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER, setup.service.id, trigger_type=DeploymentTrigger.RESTART
+    )
+
+    assert request.source_deployment_request_id == live.id
+    assert request.variables_snapshot == {"A": "enc(new)", "B": "enc(added)"}
+
+
+async def test_create_deployment_request_rollback_restores_source_variables(
+    setup: DeploymentSetup,
+) -> None:
+    await _put_variables(setup, {"A": "old"})
+    source = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    await _put_variables(setup, {"A": "new", "B": "added"})
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER,
+        setup.service.id,
+        trigger_type=DeploymentTrigger.ROLLBACK,
+        source_deployment_request_id=source.id,
+    )
+
+    assert request.variables_snapshot == {"A": "enc(old)"}
+
+
+async def test_create_deployment_request_rollback_to_request_without_snapshot_uses_current(
+    setup: DeploymentSetup,
+) -> None:
+    source = await _finished_request(setup, DeploymentStatus.SUCCEEDED)
+    source.variables_snapshot = None
+    await _put_variables(setup, {"A": "now"})
+
+    request = await setup.manual_service().create_deployment_request(
+        OWNER,
+        setup.service.id,
+        trigger_type=DeploymentTrigger.ROLLBACK,
+        source_deployment_request_id=source.id,
+    )
+
+    assert request.variables_snapshot == {"A": "enc(now)"}

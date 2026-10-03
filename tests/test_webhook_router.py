@@ -13,6 +13,7 @@ from app.models.service import Service
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.webhook_service import WebhookService
 from tests.fakes import FakeGithubInstallationRepository, FakeSession
+from tests.fakes_variable import FakeServiceVariableRepository
 from tests.fakes_webhook import (
     FakeBuildRepository,
     FakeDeploymentRequestRepository,
@@ -57,6 +58,7 @@ async def client() -> AsyncIterator[AsyncClient]:
             FakeJobRepository(),  # type: ignore[arg-type]
             FakeDeploymentStatusHistoryRepository(),  # type: ignore[arg-type]
             FakeBuildRepository(),  # type: ignore[arg-type]
+            FakeServiceVariableRepository(),  # type: ignore[arg-type]
         ),
         SECRET,
     )

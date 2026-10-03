@@ -6,8 +6,10 @@ from app.clients.oauth_client import InstallationInfo, OAuthUser
 from app.core.exceptions import UnauthorizedError
 from app.models.user import User
 from app.services.auth_service import AuthService
+from app.services.cli_login_service import CliLoginService
 from app.services.session_service import SessionService
 from tests.fakes import (
+    FakeCliLoginSessionRepository,
     FakeGithubInstallationRepository,
     FakeOAuthClient,
     FakeSession,
@@ -30,6 +32,12 @@ def _build(
         installations,  # type: ignore[arg-type]
         oauth_client,
         session_service,
+        CliLoginService(
+            session,  # type: ignore[arg-type]
+            FakeCliLoginSessionRepository(),  # type: ignore[arg-type]
+            users,  # type: ignore[arg-type]
+            session_service,
+        ),
         SECRET,
     )
     return service, users, installations, session

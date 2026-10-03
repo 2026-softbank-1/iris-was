@@ -6,6 +6,7 @@ class JobKind(StrEnum):
     DEPLOY = "DEPLOY"
     RECONCILE = "RECONCILE"
     ROLLBACK = "ROLLBACK"
+    REMOVE = "REMOVE"
 
 
 class JobStatus(StrEnum):
@@ -45,6 +46,9 @@ ACTIVE_DEPLOYMENT_STATUSES = (
     DeploymentStatus.DEPLOYING,
 )
 
+# 앱 컨테이너가 listen 하는 포트. Deploy Worker 가 chart 에 넘기고 `PORT` 환경변수로 주입된다.
+APP_PORT = 8080
+
 
 class DeploymentTrigger(StrEnum):
     MANUAL = "MANUAL"
@@ -53,6 +57,7 @@ class DeploymentTrigger(StrEnum):
     REDEPLOY = "REDEPLOY"
     ROLLBACK = "ROLLBACK"
     RESTART = "RESTART"
+    REMOVE = "REMOVE"
 
 
 class BuildStatus(StrEnum):
@@ -88,3 +93,11 @@ class FailureCode(StrEnum):
 class TargetKind(StrEnum):
     AWS = "AWS"
     LOCAL = "LOCAL"
+
+
+class CliLoginSessionStatus(StrEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    DENIED = "DENIED"
+    # 만료됐거나 토큰을 이미 내줬다. 토큰을 내준 세션은 consumed_at 이 채워진다.
+    EXPIRED = "EXPIRED"

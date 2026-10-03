@@ -1,6 +1,120 @@
 {
   "components": {
     "schemas": {
+      "ApiResponse_CliLoginSessionResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CliLoginSessionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CliLoginSessionResponse]",
+        "type": "object"
+      },
+      "ApiResponse_CliLoginTokenResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CliLoginTokenResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CliLoginTokenResponse]",
+        "type": "object"
+      },
       "ApiResponse_DeploymentDetailResponse_": {
         "properties": {
           "code": {
@@ -565,6 +679,63 @@
         "title": "ApiResponse[ServiceResponse]",
         "type": "object"
       },
+      "ApiResponse_ServiceVariablesResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceVariablesResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ServiceVariablesResponse]",
+        "type": "object"
+      },
       "ApiResponse_UserResponse_": {
         "properties": {
           "code": {
@@ -620,6 +791,63 @@
           }
         },
         "title": "ApiResponse[UserResponse]",
+        "type": "object"
+      },
+      "ApiResponse_VariableResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariableResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[VariableResponse]",
         "type": "object"
       },
       "ApiResponse_WebhookReceiptResponse_": {
@@ -1071,8 +1299,96 @@
         "title": "Builder",
         "type": "string"
       },
+      "CliLoginSessionResponse": {
+        "properties": {
+          "expiresIn": {
+            "description": "세션 유효 시간(초)",
+            "examples": [
+              600
+            ],
+            "title": "Expiresin",
+            "type": "integer"
+          },
+          "interval": {
+            "description": "폴링 간격(초). 이보다 빠르면 429 가 될 수 있다",
+            "examples": [
+              2
+            ],
+            "title": "Interval",
+            "type": "integer"
+          },
+          "pollSecret": {
+            "description": "CLI 만 아는 비밀. 폴링할 때만 쓰고, 이 응답 말고는 다시 볼 수 없다",
+            "examples": [
+              "Xy9Qw2Er4Ty6Ui8Op0As1Df3Gh5Jk7Lz9Cv1Bn3Mq5W"
+            ],
+            "title": "Pollsecret",
+            "type": "string"
+          },
+          "sessionId": {
+            "description": "추측할 수 없는 공개 ID. verificationUrl 에 들어간다",
+            "examples": [
+              "Zk3v1u0eQ8mY2nXr5oPq7sT9wUa4bC6dEfGhIjKlMnO"
+            ],
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "verificationUrl": {
+            "description": "브라우저로 열 주소. GitHub 로그인으로 이어진다",
+            "examples": [
+              "https://api.likelion.uk/api/v1/auth/cli/sessions/<sessionId>/authorize"
+            ],
+            "title": "Verificationurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "pollSecret",
+          "verificationUrl",
+          "expiresIn",
+          "interval"
+        ],
+        "title": "CliLoginSessionResponse",
+        "type": "object"
+      },
+      "CliLoginSessionStatus": {
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "DENIED",
+          "EXPIRED"
+        ],
+        "title": "CliLoginSessionStatus",
+        "type": "string"
+      },
+      "CliLoginTokenResponse": {
+        "properties": {
+          "accessToken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "세션 JWT. `Authorization: Bearer` 로 보낸다. APPROVED 로 처음 답할 때만 있다",
+            "title": "Accesstoken"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CliLoginSessionStatus",
+            "description": "PENDING 승인 전 · APPROVED 승인됨(처음 한 번만 accessToken 을 준다) · DENIED 거절됨 · EXPIRED 만료됐거나 토큰을 이미 가져감"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CliLoginTokenResponse",
+        "type": "object"
+      },
       "CreateDeploymentRequest": {
-        "description": "배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백·재시작에 쓴다.",
+        "description": "배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·재배포·롤백·재시작·삭제에 쓴다.",
         "properties": {
           "sourceDeploymentId": {
             "anyOf": [
@@ -1083,7 +1399,7 @@
                 "type": "null"
               }
             ],
-            "description": "REDEPLOY·ROLLBACK 에서 필수. 같은 서비스의 이전 배포 id. ROLLBACK 은 SUCCEEDED 여야 한다. MANUAL·RESTART 에서는 보내지 않는다.",
+            "description": "REDEPLOY·ROLLBACK 에서 필수. 같은 서비스의 이전 배포 id. ROLLBACK 은 SUCCEEDED 여야 한다. MANUAL·RESTART·REMOVE 에서는 보내지 않는다.",
             "examples": [
               12
             ],
@@ -1108,12 +1424,13 @@
             "title": "Sourcesha"
           },
           "triggerType": {
-            "description": "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 빌드해 배포한다. REDEPLOY: sourceDeploymentId 의 커밋을 다시 빌드해 배포한다. ROLLBACK: 성공했던 sourceDeploymentId 가 만든 이미지를 빌드 없이 그대로 배포한다. RESTART: 지금 떠 있는(마지막으로 성공한) 배포의 이미지를 빌드 없이 다시 띄워 Pod 를 새로 시작한다.",
+            "description": "MANUAL: 브랜치 최신 커밋(또는 sourceSha)을 빌드해 배포한다. REDEPLOY: sourceDeploymentId 의 커밋을 다시 빌드해 배포한다. ROLLBACK: 성공했던 sourceDeploymentId 가 만든 이미지를 빌드 없이 그대로 배포한다. RESTART: 지금 떠 있는(마지막으로 성공한) 배포의 이미지를 빌드 없이 다시 띄워 Pod 를 새로 시작한다. REMOVE: 지금 떠 있는 배포를 클러스터에서 내린다(서비스 정의는 남는다). 다시 배포하려면 MANUAL·REDEPLOY·ROLLBACK 을 쓴다.",
             "enum": [
               "MANUAL",
               "REDEPLOY",
               "ROLLBACK",
-              "RESTART"
+              "RESTART",
+              "REMOVE"
             ],
             "examples": [
               "MANUAL"
@@ -1198,7 +1515,7 @@
                 "type": "null"
               }
             ],
-            "description": "재배포·롤백·재시작이 따라간 원본 배포 id. 롤백·재시작은 이 배포가 만든 이미지를 쓴다.",
+            "description": "재배포·롤백·재시작·삭제가 따라간 원본 배포 id. 롤백·재시작은 이 배포가 만든 이미지를 쓰고, 삭제는 이 배포를 내린다.",
             "title": "Sourcedeploymentid"
           },
           "sourceSha": {
@@ -1303,7 +1620,7 @@
                 "type": "null"
               }
             ],
-            "description": "재배포·롤백·재시작이 따라간 원본 배포 id. 롤백·재시작은 이 배포가 만든 이미지를 쓴다.",
+            "description": "재배포·롤백·재시작·삭제가 따라간 원본 배포 id. 롤백·재시작은 이 배포가 만든 이미지를 쓰고, 삭제는 이 배포를 내린다.",
             "title": "Sourcedeploymentid"
           },
           "sourceSha": {
@@ -1439,7 +1756,8 @@
           "CLI",
           "REDEPLOY",
           "ROLLBACK",
-          "RESTART"
+          "RESTART",
+          "REMOVE"
         ],
         "title": "DeploymentTrigger",
         "type": "string"
@@ -1635,6 +1953,21 @@
             "title": "Metric",
             "type": "string"
           },
+          "pod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pod(replica) 이름. groupBy=pod 일 때만 있고 total 이면 생략된다.",
+            "examples": [
+              "app-5d9c7b8f6d-x2k4q"
+            ],
+            "title": "Pod"
+          },
           "points": {
             "items": {
               "$ref": "#/components/schemas/MetricPointResponse"
@@ -1746,6 +2079,22 @@
           "size"
         ],
         "title": "Page[RepositoryResponse]",
+        "type": "object"
+      },
+      "PollCliLoginTokenRequest": {
+        "properties": {
+          "pollSecret": {
+            "description": "세션을 만들 때 받은 pollSecret",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Pollsecret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pollSecret"
+        ],
+        "title": "PollCliLoginTokenRequest",
         "type": "object"
       },
       "ProjectCreateRequest": {
@@ -2296,6 +2645,69 @@
         "title": "ServiceUpdateRequest",
         "type": "object"
       },
+      "ServiceVariablesResponse": {
+        "properties": {
+          "systemVariables": {
+            "description": "플랫폼이 자동으로 주입하는 변수. 같은 이름의 사용자 변수는 만들 수 없다.",
+            "items": {
+              "$ref": "#/components/schemas/SystemVariableResponse"
+            },
+            "title": "Systemvariables",
+            "type": "array"
+          },
+          "variables": {
+            "description": "사용자가 등록한 변수. 키 순이다.",
+            "items": {
+              "$ref": "#/components/schemas/VariableResponse"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "variables",
+          "systemVariables"
+        ],
+        "title": "ServiceVariablesResponse",
+        "type": "object"
+      },
+      "SystemVariableResponse": {
+        "description": "플랫폼이 배포할 때 앱에 주입하는 변수. 사용자가 바꿀 수 없다.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "examples": [
+              "PORT"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "서비스만으로 값이 정해지는 변수만 있다. 타깃·배포마다 다른 값은 없다.",
+            "examples": [
+              "8080"
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "description"
+        ],
+        "title": "SystemVariableResponse",
+        "type": "object"
+      },
       "TargetKind": {
         "enum": [
           "AWS",
@@ -2383,6 +2795,90 @@
         "title": "UserResponse",
         "type": "object"
       },
+      "VariableCreateRequest": {
+        "description": "변수 하나를 만든다. 키는 영문·숫자·밑줄이고 숫자로 시작하지 않는다.",
+        "properties": {
+          "key": {
+            "examples": [
+              "DATABASE_URL"
+            ],
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "description": "빈 문자열도 허용한다.",
+            "examples": [
+              "postgres://..."
+            ],
+            "maxLength": 32768,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "VariableCreateRequest",
+        "type": "object"
+      },
+      "VariableResponse": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "VariableResponse",
+        "type": "object"
+      },
+      "VariableUpdateRequest": {
+        "properties": {
+          "value": {
+            "description": "빈 문자열도 허용한다.",
+            "examples": [
+              "postgres://..."
+            ],
+            "maxLength": 32768,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "VariableUpdateRequest",
+        "type": "object"
+      },
+      "VariablesRawRequest": {
+        "description": "`KEY=VALUE` 한 줄에 하나. `.env` 형식이고 큰따옴표 값은 JSON 이스케이프를 따른다.",
+        "properties": {
+          "raw": {
+            "description": "서비스의 변수 전체를 이 텍스트로 바꾼다. 텍스트에 없는 키는 지워진다. 빈 줄과 `#` 주석은 무시한다.",
+            "examples": [
+              "DATABASE_URL=\"postgres://...\"\nLOG_LEVEL=info"
+            ],
+            "maxLength": 1048576,
+            "title": "Raw",
+            "type": "string"
+          }
+        },
+        "required": [
+          "raw"
+        ],
+        "title": "VariablesRawRequest",
+        "type": "object"
+      },
       "WebhookReceiptResponse": {
         "properties": {
           "deploymentRequestIds": {
@@ -2434,6 +2930,192 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/cli/sessions": {
+      "post": {
+        "description": "인증 없이 호출한다. 응답의 `verificationUrl` 을 브라우저로 열어 GitHub 로그인을 승인하면,\nCLI 는 `sessionId`·`pollSecret` 으로 `/token` 을 폴링해 세션 토큰을 받는다.",
+        "operationId": "create_cli_login_session_api_v1_auth_cli_sessions_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CliLoginSessionResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "summary": "CLI 로그인 세션 생성",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/cli/sessions/{session_id}/authorize": {
+      "get": {
+        "description": "CLI 가 알려 준 주소를 브라우저로 여는 곳. GitHub 로그인이 끝나면 `/auth/github/callback` 이\n이 세션을 승인으로 바꾸고 \"터미널로 돌아가세요\" 화면을 보여 준다.\n만료됐거나 모르는 세션이면 404 다.",
+        "operationId": "authorize_cli_login_api_v1_auth_cli_sessions__session_id__authorize_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "summary": "CLI 로그인 승인 (GitHub 로그인으로 이동)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/cli/sessions/{session_id}/token": {
+      "post": {
+        "description": "`interval` 초마다 호출한다. `APPROVED` 일 때 `accessToken` 은 처음 한 번만 내려가고,\n그 뒤에는 `EXPIRED` 다. `pollSecret` 이 틀리면 401 이다(이 API 의 401 은 로그인 필요가 아니다).",
+        "operationId": "poll_cli_login_token_api_v1_auth_cli_sessions__session_id__token_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollCliLoginTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CliLoginTokenResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "summary": "CLI 로그인 폴링 (승인되면 토큰 발급)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/github": {
       "get": {
         "operationId": "start_github_login_api_v1_auth_github_get",
@@ -2465,7 +3147,7 @@
     },
     "/api/v1/auth/github/callback": {
       "get": {
-        "description": "GitHub 가 로그인(또는 App 설치 직후 사용자 인증) 뒤 돌려보내는 주소.\n\n이 주소를 GitHub App 의 Callback URL 로 등록하고 \"Request user authorization (OAuth)\nduring installation\" 을 켜 두면, 설치를 마친 사용자도 같은 흐름으로 설치 목록이 맞춰진다.",
+        "description": "GitHub 가 로그인(또는 App 설치 직후 사용자 인증) 뒤 돌려보내는 주소.\n\n이 주소를 GitHub App 의 Callback URL 로 등록하고 \"Request user authorization (OAuth)\nduring installation\" 을 켜 두면, 설치를 마친 사용자도 같은 흐름으로 설치 목록이 맞춰진다.\n\nstate 가 CLI 로그인 승인용이면 웹 세션 쿠키를 만들지 않고 해당 CLI 로그인 세션을 승인(취소면\n거절)한 뒤 안내 화면을 보여 준다.",
         "operationId": "complete_github_login_api_v1_auth_github_callback_get",
         "parameters": [
           {
@@ -2518,6 +3200,12 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "text/html": {}
+            },
+            "description": "CLI 로그인 승인(또는 취소) 안내 화면(HTML). 웹 로그인은 302 다."
+          },
           "302": {
             "content": {
               "application/json": {
@@ -2535,6 +3223,16 @@
               }
             },
             "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3138,7 +3836,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -3201,7 +3899,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3269,7 +3967,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3347,7 +4045,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -3357,7 +4055,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -3427,7 +4125,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3525,7 +4223,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -3535,7 +4233,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -3618,7 +4316,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3696,7 +4394,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -3784,7 +4482,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -3794,7 +4492,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -3909,7 +4607,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4006,7 +4704,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -4016,7 +4714,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
           },
           "422": {
             "content": {
@@ -4057,7 +4755,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "배포 요청 생성 (수동·재배포·롤백·재시작)",
+        "summary": "배포 요청 생성 (수동·재배포·롤백·재시작·삭제)",
         "tags": [
           "deployments"
         ]
@@ -4115,7 +4813,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4185,7 +4883,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4308,7 +5006,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4454,7 +5152,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4555,6 +5253,22 @@
               "title": "Step",
               "type": "integer"
             }
+          },
+          {
+            "description": "total 은 서비스 전체 합계(metric 당 시리즈 1개), pod 은 Pod(replica)별 시리즈(각 항목에 pod 이름). pod 은 범위 안의 Pod 이 metric 당 50개를 넘으면 422 이다.",
+            "in": "query",
+            "name": "groupBy",
+            "required": false,
+            "schema": {
+              "default": "total",
+              "description": "total 은 서비스 전체 합계(metric 당 시리즈 1개), pod 은 Pod(replica)별 시리즈(각 항목에 pod 이름). pod 은 범위 안의 Pod 이 metric 당 50개를 넘으면 422 이다.",
+              "enum": [
+                "total",
+                "pod"
+              ],
+              "title": "Groupby",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4586,7 +5300,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -4630,6 +5344,451 @@
         "summary": "서비스 CPU·메모리·네트워크 시계열 조회",
         "tags": [
           "observability"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/variables": {
+      "get": {
+        "operationId": "search_variables_api_v1_services__service_id__variables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ServiceVariablesResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "환경변수 목록 (자동 주입 변수 포함)",
+        "tags": [
+          "variables"
+        ]
+      },
+      "post": {
+        "operationId": "create_variable_api_v1_services__service_id__variables_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariableCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_VariableResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "환경변수 추가",
+        "tags": [
+          "variables"
+        ]
+      },
+      "put": {
+        "operationId": "replace_variables_api_v1_services__service_id__variables_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariablesRawRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ServiceVariablesResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "환경변수 Raw(.env) 일괄 저장 (전체 교체)",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/variables/{key}": {
+      "delete": {
+        "operationId": "delete_variable_api_v1_services__service_id__variables__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "환경변수 삭제",
+        "tags": [
+          "variables"
+        ]
+      },
+      "put": {
+        "operationId": "update_variable_api_v1_services__service_id__variables__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariableUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_VariableResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이 올바르지 않을 때 (UNAUTHORIZED)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "환경변수 값 수정",
+        "tags": [
+          "variables"
         ]
       }
     },
@@ -4806,7 +5965,7 @@
       "name": "observability"
     },
     {
-      "description": "GitHub 로그인·로그아웃",
+      "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)",
       "name": "auth"
     },
     {
@@ -4836,6 +5995,10 @@
     {
       "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회",
       "name": "domains"
+    },
+    {
+      "description": "서비스 환경변수 CRUD·Raw(.env) 일괄 저장, 플랫폼이 자동 주입하는 변수 조회",
+      "name": "variables"
     },
     {
       "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다",

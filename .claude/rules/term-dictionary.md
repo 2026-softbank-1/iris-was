@@ -45,9 +45,11 @@
 erDiagram
   users ||--o{ projects : "소유"
   users }o--o{ github_installations : "user_github_installations"
+  users ||--o{ cli_login_sessions : "CLI 로그인 승인"
   projects ||--o{ services : "포함"
   github_installations ||--o{ services : "소스 접근"
   services }o--o{ targets : "service_targets"
+  services ||--o{ service_variables : "환경변수"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
@@ -98,10 +100,12 @@ erDiagram
 | `requested_by`\* | 요청자 (`users.id`). push 웹훅 요청은 비어 있다 |
 | `status` | `deployment_status` Enum (§5). 원문의 "최종 상태" |
 | `failure_code`\* | 실패 사유 코드 (§5) |
-| `variables_snapshot`\* | 요청 시점의 환경변수(jsonb). 재배포·롤백·재시작은 원본 요청의 값을 그대로 가져온다 |
+| `variables_snapshot`\* | 요청 시점의 환경변수(jsonb, `{key: 암호문}`). 평문은 담지 않는다. 롤백은 원본 요청의 값을 그대로 가져오고, 그 밖의 요청(재배포·재시작 포함)은 그 시점의 서비스 변수를 담는다 (§4.11) |
 | `source_deployment_request_id`\* | 재배포·롤백·재시작이 따라가는 원본 배포 요청 (`deployment_requests.id`). 직접 만든 요청은 비어 있다 |
 
 서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
+
+`REMOVE` 요청은 지금 떠 있는 배포(`source_deployment_request_id`)를 클러스터에서 내린다. 빌드·release 를 만들지 않고 REMOVE job 으로 시작하며, 서비스 정의는 남는다 (ADR 0016).
 
 `ROLLBACK`·`RESTART` 요청은 소스를 다시 빌드하지 않는다. 원본 요청의 빌드가 만든 이미지를 가리키는 성공한 `builds` 행을 복사해 새 요청에 붙이고, BUILD 대신 DEPLOY job 으로 시작한다 (ADR 0015). 새 release 가 만들어지므로 같은 digest 라도 Pod 가 새로 뜬다.
 
@@ -219,7 +223,46 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | `failure_code`\* | `FAILED` 로 바뀐 전이에만 있다 (§5) |
 | `created_at` | 전이 시각 |
 
+### 4.11 서비스 변수 (ServiceVariable) — `service_variables`\*
+
+서비스가 앱 컨테이너에 넘기는 환경변수 1건이다. 도메인 용어는 `variable` 이다(`variables_snapshot`·`VariableService` 와 같다). 서비스 하나에 키마다 한 건이고, 타깃·환경에 따라 나누지 않는다.
+
+| 필드 | 설명 |
+|---|---|
+| `service_id`\* | 소속 서비스. `(service_id, key)` 는 유일하다 |
+| `key`\* | 변수 이름. 영문·숫자·밑줄이고 숫자로 시작하지 않으며 128자 이하다. `PORT` 와 `IRIS_` 로 시작하는 이름은 플랫폼이 쓰므로 만들 수 없다 |
+| `encrypted_value`\* | 값의 Fernet 암호문. 평문은 저장하지 않고 응답을 만들 때만 복호화한다 |
+
+- 한 서비스에 최대 100개, 값은 최대 32KiB 다. 삭제는 소프트 삭제가 아니라 물리 삭제다(값을 남기지 않는다).
+- **배포 스냅샷**: 배포 요청을 만들 때 `deployment_requests.variables_snapshot` 에 `{key: encrypted_value}` 를 복사한다. `ROLLBACK` 요청은 원본 요청의 스냅샷을, 그 밖의 요청(`MANUAL`·`PUSH`·`REDEPLOY`·`RESTART`)은 그 시점의 서비스 변수를 담는다. 그래서 변수를 고친 뒤 재배포하면 고친 값이 반영된다.
+- **자동 주입 변수**(system variables): 플랫폼이 배포할 때 앱에 넣는다. 사용자 변수보다 우선해 덮어쓸 수 없다. 저장하지 않고 `build_system_variables`(`app/services/variable_service.py`)가 이름·설명을 만든다.
+
+| 이름 | 값 | 주입 |
+|---|---|---|
+| `PORT` | `APP_PORT`(8080) | chart |
+| `IRIS_SERVICE_NAME` | 서비스 이름 | chart 에 추가 필요 |
+| `IRIS_TARGET_NAME` | 배포되는 타깃 이름 | chart 에 추가 필요 |
+| `IRIS_DEPLOYMENT_ID` | 앱을 띄운 배포 요청 id | chart 에 추가 필요 |
+| `IRIS_PUBLIC_DOMAIN` | 서비스의 공개 도메인 | chart |
+| `IRIS_GIT_COMMIT_SHA` | 배포한 소스 커밋 SHA | chart |
+
 > 프로젝트·서비스·타깃의 삭제는 소프트 삭제(`is_deleted`, `deleted_at`)를 쓴다. 배포 이력(`deployment_requests`·`deployment_status_histories`·`jobs`·`builds`·`releases`)은 지우지 않는다.
+
+### 4.12 CLI 로그인 세션 (CliLoginSession) — `cli_login_sessions`\*
+
+CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 1건이다. 승인되면 CLI 가 폴링으로 세션 토큰을 받아 간다. 이 행은 토큰을 넘기기 위한 대기용이고, 토큰 자체는 저장하지 않는다 (ADR 0018).
+
+| 필드 | 설명 |
+|---|---|
+| `public_id`\* | 인증 URL 에 들어가는 추측 불가한 공개 ID(256비트 무작위). unique. 비밀이 아니라 세션을 가리키는 주소다 |
+| `poll_secret_hash`\* | 폴링 비밀(`pollSecret`)의 SHA-256(hex). 평문은 CLI 만 갖고, 비교는 상수 시간으로 한다 |
+| `status`\* | `cli_login_session_status` Enum (§5) |
+| `user_id`\* | 승인한 사용자. `APPROVED` 가 될 때 채운다 |
+| `expires_at`\* | 만료 시각. 만든 때부터 10분 |
+| `consumed_at`\* | 토큰을 내준 시각. 토큰은 한 번만 내주므로 값이 있으면 다시 주지 않는다 |
+| `last_polled_at`\* | 마지막 폴링 시각. `interval`(2초)보다 빠른 폴링을 `429` 로 막는 기준이다 |
+
+- 만료된 지 하루가 지난 행은 새 세션을 만들 때 지운다(인증 없이 만들 수 있는 행이라 쌓이지 않게 한다). 소프트 삭제를 쓰지 않는다.
 
 ---
 
@@ -233,6 +276,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | `DEPLOY` | Deploy Worker | GitOps manifest 의 digest 를 바꾸는 PR·commit 을 만든다 |
 | `RECONCILE` | Deploy Worker | Argo CD 상태를 수집해 release 상태를 맞춘다\* |
 | `ROLLBACK` | Deploy Worker | 실패한 digest 를 되돌리는 revert commit 을 만든다 |
+| `REMOVE` | Deploy Worker | GitOps 의 서비스 디렉터리를 지우고 Argo CD Application 이 사라질 때까지 기다린다 |
 
 ### 작업 상태 (`job_status`) — `jobs.status`
 
@@ -255,7 +299,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 ### 배포 시작 방식 (`deployment_trigger`)\* — `deployment_requests.trigger_type`
 
-`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 커밋을 다시 빌드해 배포) · `ROLLBACK`(성공했던 이전 배포의 이미지를 빌드 없이 다시 배포) · `RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작)
+`MANUAL`(화면에서 직접) · `PUSH`(연결 브랜치 push 웹훅) · `CLI` · `REDEPLOY`(같은 커밋을 다시 빌드해 배포) · `ROLLBACK`(성공했던 이전 배포의 이미지를 빌드 없이 다시 배포) · `RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작) · `REMOVE`(지금 떠 있는 배포를 클러스터에서 내림)
 
 사용자가 시작하는 `ROLLBACK`(이 값)과 Deploy Worker 가 실패한 release 를 자동으로 되돌리는 job `ROLLBACK` 은 다르다. 앞쪽은 새 배포 요청이고 뒤쪽은 revert commit 이다 (§7).
 
@@ -279,11 +323,18 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | `FAILED` | `ROLLED_BACK`, `MANUAL_INTERVENTION` |
 | `SUCCEEDED` · `ROLLED_BACK` · `MANUAL_INTERVENTION` · `SUPERSEDED` | (끝) |
 
-`QUEUED → DEPLOYING` 은 빌드를 건너뛰는 `ROLLBACK`·`RESTART` 요청이 만들어지는 순간에만 쓴다. 이 요청은 `BUILDING` 을 거치지 않는다.
+`QUEUED → DEPLOYING` 은 빌드를 건너뛰는 `ROLLBACK`·`RESTART`·`REMOVE` 요청이 만들어지는 순간에만 쓴다. 이 요청은 `BUILDING` 을 거치지 않는다. `REMOVE` 요청은 Application 이 사라지면 `SUCCEEDED`, 기한 안에 사라지지 않거나 GitOps 를 바꾼 뒤 실패하면 `MANUAL_INTERVENTION`, GitOps 를 바꾸기 전에 재시도를 소진하면 `FAILED` 다.
 
 ### 빌드 상태 (`build_status`)\* — `builds.status`
 
 `PENDING`(Worker 대기) → `SNAPSHOTTING`(소스 스냅샷 중) → `BUILDING`(CodeBuild 실행 중) → `SUCCEEDED` / `FAILED` / `CANCELLED`. 요청의 `status` 는 빌드가 직접 바꾸지 않고 Worker 가 `DeploymentStatusService` 로 옮긴다.
+
+### CLI 로그인 세션 상태 (`cli_login_session_status`)\* — `cli_login_sessions.status`
+
+- `PENDING`(승인 대기) → `APPROVED`(브라우저에서 GitHub 로그인 승인) · `DENIED`(GitHub 에서 승인을 취소) · `EXPIRED`(10분 만료)
+- `APPROVED` → `EXPIRED`: 토큰을 내줬을 때(`consumed_at` 이 채워진다). 토큰을 가져가기 전에 만료돼도 같다.
+- `DENIED`·`EXPIRED` 는 끝이다. 한번 `APPROVED` 가 되면 다시 승인할 수 없다.
+- API 응답의 `status` 도 같은 코드다. 만료는 읽을 때 `expires_at` 으로 판단하고, 폴링이 만료를 보면 `EXPIRED` 로 저장한다.
 
 ### 릴리스 상태 (`release_status`)\* — `releases.status`
 
@@ -323,10 +374,12 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | image digest | `image_digest` | 이미지 내용 해시 (`sha256:...`). 배포의 유일한 기준 |
 | desired state | — | GitOps 저장소 manifest 의 내용. Argo CD 가 Prod 를 이 상태로 맞춘다 |
 | Sync | `argo_sync_status` | Argo CD 가 desired state 를 클러스터에 적용하는 것. Control Plane 은 직접 호출하지 않고 Git 변경으로 유도한다 |
-| lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념) |
+| lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념). 그 뒤에 성공한 `REMOVE` 요청이 있으면 서비스가 내려간 것이라 없다 |
 | revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
 | 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
 | 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
+| pollSecret | `poll_secret`\* | CLI 로그인 세션을 만든 CLI 만 아는 폴링 비밀. 서버에는 해시(`poll_secret_hash`)만 둔다 |
+| 폴링 간격 | `interval`\* | CLI 가 `/token` 을 부르는 간격(2초). 이보다 빠르면 `429` 와 `Retry-After` 로 답한다 |
 
 ---
 
@@ -340,6 +393,7 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 | Application | Argo CD `Application` 리소스 | 사용자 앱 | `argo_application`. 사용자 앱은 Service |
 | Build | `Build` 레코드 | CodeBuild 의 빌드 실행 | 외부 ID 는 `codebuild_build_id` |
 | Release | GitOps 반영 결과 (`Release`) | Helm release | Helm 쪽은 `helm_release` |
-| Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `env_vars`, 배포 대상은 `target` |
+| Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `variable`(엔티티 `ServiceVariable`, §4.11), 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
+| Session | 로그인 상태를 나르는 세션 토큰(JWT). 변수·함수는 `session_token`, `SessionService` | CLI 로그인 세션(`CliLoginSession`), DB 세션(`AsyncSession`) | CLI 로그인 세션은 토큰을 CLI 로 넘기려고 기다리는 행이라 항상 `cli_login_session`. DB 세션 변수는 `session`(Repository·Service 관례) |
 | Rollback | job `ROLLBACK` = revert commit(자동). 트리거 `ROLLBACK` = 사용자가 이전 이미지로 시작한 새 배포 요청 | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분. 요청은 `deployment_request`, revert 는 `revert_commit` |

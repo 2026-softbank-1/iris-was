@@ -27,15 +27,21 @@ logger = logging.getLogger(__name__)
 _SOURCE_COPYING_TRIGGERS = frozenset({DeploymentTrigger.REDEPLOY, DeploymentTrigger.ROLLBACK})
 # 원본이 만든 이미지를 빌드 없이 다시 배포하는 요청.
 _IMAGE_REUSING_TRIGGERS = frozenset({DeploymentTrigger.ROLLBACK, DeploymentTrigger.RESTART})
+# 지금 떠 있는(마지막으로 성공한) 배포를 대상으로 하는 요청.
+_LIVE_DEPLOYMENT_TRIGGERS = frozenset({DeploymentTrigger.RESTART, DeploymentTrigger.REMOVE})
 _MANUAL_TRIGGERS = (
-    frozenset({DeploymentTrigger.MANUAL}) | _SOURCE_COPYING_TRIGGERS | _IMAGE_REUSING_TRIGGERS
+    frozenset({DeploymentTrigger.MANUAL})
+    | _SOURCE_COPYING_TRIGGERS
+    | _IMAGE_REUSING_TRIGGERS
+    | _LIVE_DEPLOYMENT_TRIGGERS
 )
 
 
 class ManualDeploymentService:
-    """사용자가 직접 만드는 배포 요청: 첫 배포·재배포·롤백·재시작. 웹훅과 같은 생성 로직을 쓴다.
+    """사용자가 직접 만드는 배포 요청: 첫 배포·재배포·롤백·재시작·삭제. 웹훅과 로직을 공유한다.
 
     재배포는 같은 커밋을 다시 빌드한다. 롤백과 재시작은 이미 빌드한 이미지를 그대로 다시 배포한다.
+    삭제는 지금 떠 있는 배포를 클러스터에서 내린다.
     """
 
     def __init__(
@@ -71,7 +77,15 @@ class ManualDeploymentService:
         # 전역으로 유일한 키라서 서비스 id 를 붙여 다른 서비스의 키와 섞이지 않게 한다.
         key = f"manual:{service.id}:{idempotency_key or uuid.uuid4()}"
 
-        if trigger_type in _IMAGE_REUSING_TRIGGERS:
+        if trigger_type == DeploymentTrigger.REMOVE:
+            live = await self._get_live_deployment(service)
+            request = await self._deployment_request_service.create_removal_request(
+                service,
+                source_deployment_request=live,
+                idempotency_key=key,
+                requested_by=owner_id,
+            )
+        elif trigger_type in _IMAGE_REUSING_TRIGGERS:
             source = await self._find_image_source(
                 service, trigger_type, source_deployment_request_id
             )
@@ -131,13 +145,15 @@ class ManualDeploymentService:
         """롤백은 사용자가 고른 성공한 배포, 재시작은 지금 떠 있는(마지막으로 성공한) 배포다."""
         if trigger_type == DeploymentTrigger.ROLLBACK:
             return await self._get_source(service, trigger_type, source_deployment_request_id)
+        return await self._get_live_deployment(service)
+
+    async def _get_live_deployment(self, service: Service) -> DeploymentRequest:
+        """지금 떠 있는 배포. 성공한 배포가 없거나 마지막 성공이 서비스를 내린 요청이면 없다."""
         live = await self._deployment_request_repository.find_latest_succeeded_by_service_id(
             service.id
         )
-        if live is None:
-            raise NoSucceededDeploymentError(
-                "no succeeded deployment to restart", service_id=service.id
-            )
+        if live is None or live.trigger_type == DeploymentTrigger.REMOVE:
+            raise NoSucceededDeploymentError("no running deployment", service_id=service.id)
         return live
 
     async def _get_reusable_build(self, source: DeploymentRequest) -> Build:

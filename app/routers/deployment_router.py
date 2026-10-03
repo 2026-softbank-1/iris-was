@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/v1", tags=["deployments"])
     response_model=ApiResponse[DeploymentResponse],
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
-    summary="배포 요청 생성 (수동·재배포·롤백·재시작)",
+    summary="배포 요청 생성 (수동·재배포·롤백·재시작·삭제)",
     responses=error_responses(401, 404, 409, 422, 502, 503),
 )
 async def create_deployment_request(

@@ -81,6 +81,20 @@ class JobRepository:
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
+    async def find_seconds_until_next_run(self, kinds: frozenset[JobKind]) -> float | None:
+        """가장 이른 미래 run_after 까지 남은 초. DB 시계로 계산해 Pod 와의 시계 차이를 타지 않는다.
+
+        지난 시각은 빌드 제한에 막힌 job 이라 뺀다. 넣으면 바쁜 루프가 된다.
+        """
+        seconds = await self._session.scalar(
+            select(func.extract("epoch", func.min(Job.run_after) - func.now())).where(
+                Job.kind.in_(kinds),
+                Job.status.in_((JobStatus.QUEUED, JobStatus.RETRY_WAIT)),
+                Job.run_after > func.now(),
+            )
+        )
+        return None if seconds is None else float(seconds)
+
     async def renew_lease(self, job_id: int, worker_id: str) -> bool:
         """lease 를 연장한다. 다른 Worker 가 가져갔으면 False."""
         result = await self._session.execute(
@@ -124,9 +138,6 @@ class JobRepository:
 
     async def record_external_id(self, job_id: int, external_id: str) -> None:
         await self._update(job_id, external_id=external_id)
-
-    def add(self, job: Job) -> None:
-        self._session.add(job)
 
     async def save(self, job: Job) -> Job:
         self._session.add(job)

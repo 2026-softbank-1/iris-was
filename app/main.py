@@ -18,6 +18,7 @@ from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.routers import (
     auth_router,
+    cli_login_router,
     deployment_router,
     domain_router,
     github_router,
@@ -26,6 +27,7 @@ from app.routers import (
     service_router,
     target_router,
     user_router,
+    variable_router,
     webhook_router,
 )
 
@@ -48,7 +50,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 OPENAPI_TAGS = [
     {"name": "observability", "description": "서비스 런타임 로그·메트릭·SSE"},
-    {"name": "auth", "description": "GitHub 로그인·로그아웃"},
+    {"name": "auth", "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)"},
     {"name": "user", "description": "현재 사용자"},
     {"name": "github", "description": "GitHub App 설치와 저장소·브랜치 조회"},
     {"name": "projects", "description": "서비스를 묶는 프로젝트"},
@@ -56,6 +58,10 @@ OPENAPI_TAGS = [
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {"name": "targets", "description": "배포 타깃(aws · local)"},
     {"name": "domains", "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회"},
+    {
+        "name": "variables",
+        "description": "서비스 환경변수 CRUD·Raw(.env) 일괄 저장, 플랫폼이 자동 주입하는 변수 조회",
+    },
     {"name": "webhooks", "description": "외부 서비스(GitHub)가 호출하는 웹훅. 서명으로 인증한다"},
 ]
 
@@ -80,6 +86,7 @@ app.add_middleware(
 )
 register_exception_handlers(app)
 app.include_router(auth_router.router)
+app.include_router(cli_login_router.router)
 app.include_router(observability_router.router)
 app.include_router(user_router.router)
 app.include_router(github_router.router)
@@ -88,6 +95,7 @@ app.include_router(service_router.router)
 app.include_router(deployment_router.router)
 app.include_router(target_router.router)
 app.include_router(domain_router.router)
+app.include_router(variable_router.router)
 app.include_router(webhook_router.router)
 
 

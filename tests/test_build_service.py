@@ -8,12 +8,15 @@ import asyncio
 import io
 import tarfile
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import asyncpg
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.clients.aws_clients import CodeBuildResult
@@ -35,9 +38,11 @@ from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
 )
 from app.repositories.job_repository import JobRepository
+from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.build_service import BuildService
 from app.services.deployment_request_service import DeploymentRequestService
 from tests.worker_support import (
+    TEST_DATABASE_URL,
     add,
     requires_database,
     seed_service,
@@ -223,6 +228,53 @@ async def test_claim_next_job_expired_lease_reclaims(session_factory: Any) -> No
     assert (second.id, second.locked_by, second.attempts) == (first.id, "alive", 2)
 
 
+async def test_jobs_trigger_notifies_on_insert_retry_and_build_finish_only(
+    session_factory: Any,
+) -> None:
+    dsn = make_url(TEST_DATABASE_URL or "").set(drivername="postgresql")
+    listener = await asyncpg.connect(dsn.render_as_string(hide_password=False))
+    payloads: list[str] = []
+    await listener.add_listener("jobs", lambda *args: payloads.append(args[3]))
+    deploy_kinds = frozenset({JobKind.DEPLOY})
+    try:
+        # BUILD: 생성 알림 → 선점·lease 갱신은 조용 → 종료 알림(빌드 제한 해제)
+        build_job = await _seed(session_factory)
+        await _claim(_service(session_factory, FakeCodeBuild(IN_PROGRESS)))
+        async with session_factory.begin() as session:
+            await JobRepository(session).renew_lease(build_job.id, "worker-1")
+            await JobRepository(session).mark_succeeded(build_job.id)
+        # DEPLOY: 생성 알림 → 재시도 알림 → 종료는 조용
+        async with session_factory.begin() as session:
+            deploy_job = await add(
+                session,
+                Job(deployment_request_id=build_job.deployment_request_id, kind=JobKind.DEPLOY),
+            )
+        async with session_factory.begin() as session:
+            await JobRepository(session).claim_next_job("worker-1", deploy_kinds, 0)
+            await JobRepository(session).retry_later(deploy_job.id, "boom", timedelta(0))
+        async with session_factory.begin() as session:
+            await JobRepository(session).claim_next_job("worker-1", deploy_kinds, 0)
+            await JobRepository(session).mark_succeeded(deploy_job.id)
+        await asyncio.sleep(0.2)
+    finally:
+        await listener.close()
+
+    assert payloads == ["BUILD", "BUILD", "DEPLOY", "DEPLOY"]
+
+
+async def test_find_seconds_until_next_run_skips_due_jobs(session_factory: Any) -> None:
+    job = await _seed(session_factory)
+    service = _service(session_factory, FakeCodeBuild(IN_PROGRESS))
+    due = await service.find_seconds_until_next_run()
+    async with session_factory.begin() as session:
+        await JobRepository(session).retry_later(job.id, "boom", timedelta(seconds=30))
+
+    seconds = await service.find_seconds_until_next_run()
+
+    assert due is None
+    assert seconds is not None and 0 < seconds <= 30
+
+
 async def test_run_success_hands_off_to_deploy(session_factory: Any) -> None:
     await _seed(session_factory)
     codebuild = FakeCodeBuild(IN_PROGRESS, SUCCEEDED)
@@ -257,6 +309,7 @@ async def test_run_job_from_deployment_request_service_builds_and_records_histor
             JobRepository(session),
             DeploymentStatusHistoryRepository(session),
             BuildRepository(session),
+            ServiceVariableRepository(session),
         ).create_deployment_request(
             service_row,
             source_sha="a" * 40,
