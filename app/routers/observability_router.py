@@ -8,7 +8,12 @@ from fastapi.responses import StreamingResponse
 from app.clients.observability_client import MetricGrouping
 from app.core.exceptions import InvalidInputError
 from app.dependencies import CurrentUserDep, ObservabilityServiceDep, SessionDep
-from app.schemas.observability import LogEntryResponse, LogsResponse, MetricSeriesResponse
+from app.schemas.observability import (
+    LogEntryResponse,
+    LogsResponse,
+    MetricSeriesResponse,
+    TrafficMetricsResponse,
+)
 from app.schemas.response import ApiResponse, error_responses
 
 router = APIRouter(prefix="/api/v1/services", tags=["observability"])
@@ -88,6 +93,35 @@ async def search_metrics(
     await session.close()
     series = await service.search_metrics(target_id, namespace, start, end, step, group_by)
     return ApiResponse(data=[MetricSeriesResponse.from_series(item) for item in series])
+
+
+@router.get(
+    "/{service_id}/traffic-metrics",
+    response_model=ApiResponse[TrafficMetricsResponse],
+    response_model_exclude_none=True,
+    summary="서비스 외부 트래픽 지표 조회 (요청 수·오류율·응답 시간·공용 네트워크)",
+    description=(
+        "ALB 접근 로그로 만든 지표다. start~end 는 이벤트 시각이고 step 초 버킷으로 돌려준다. "
+        "timestamp 는 버킷이 끝나는 이벤트 시각이다. 집계에 약 15분이 걸려 availableUntil 이후는 "
+        "아직 모르는 구간이다. 점이 없는 버킷은 결측이며 0 이 아니다."
+    ),
+    responses=error_responses(401, 404, 422, 502, 503),
+)
+async def search_traffic_metrics(
+    service_id: int,
+    target_id: TargetQuery,
+    start: datetime,
+    end: datetime,
+    user: CurrentUserDep,
+    service: ObservabilityServiceDep,
+    session: SessionDep,
+    step: Annotated[int, Query(ge=60, le=86400)] = 60,
+) -> ApiResponse[TrafficMetricsResponse]:
+    namespace = await service.get_scope(user.id, service_id, target_id)
+    service.validate_range(start, end)
+    await session.close()
+    traffic = await service.search_traffic_metrics(target_id, namespace, start, end, step)
+    return ApiResponse(data=TrafficMetricsResponse.from_traffic(traffic))
 
 
 @router.get(

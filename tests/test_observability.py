@@ -11,6 +11,7 @@ from app.clients.observability_client import (
     LokiPrometheusObservabilityClient,
     MetricPoint,
     MetricSeries,
+    TrafficMetrics,
 )
 from app.core.config import Settings
 from app.core.exceptions import ExternalError, InvalidInputError, ServiceNotFoundError
@@ -474,3 +475,244 @@ async def test_metrics_api_rejects_unknown_group_by(api_client):
         },
     )
     assert response.status_code == 422
+
+
+TRAFFIC_EVENT_START = 1767225600  # 2026-01-01T00:00:00Z
+TRAFFIC_SELECTOR = 'cluster="iris-dev-workload",k8s_namespace_name="svc-42"'
+
+
+def _traffic_handler(requests, values_by_prefix=None):
+    values_by_prefix = values_by_prefix or {}
+
+    def handler(request):
+        query = request.url.params["query"]
+        requests.append(request)
+        for prefix, result in values_by_prefix.items():
+            if query.startswith(prefix):
+                return _matrix_response(result)
+        return _matrix_response([])
+
+    return handler
+
+
+async def test_traffic_queries_use_step_windows_and_shift_points_to_event_time():
+    requests = []
+    sample_start = TRAFFIC_EVENT_START + 60 + 900
+    handler = _traffic_handler(
+        requests,
+        {
+            "sum_over_time(iris_service_requests_1m": [
+                {"metric": {}, "values": [[sample_start, "12"], [sample_start + 60, "NaN"]]}
+            ],
+            "last_over_time(iris_service_response_time_seconds_p95_5m": [
+                {"metric": {}, "values": [[sample_start + 120, "0.25"]]}
+            ],
+        },
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        traffic = await LokiPrometheusObservabilityClient(http).search_traffic_metrics(
+            "http://prom",
+            "svc-42",
+            "iris-dev-workload",
+            TRAFFIC_EVENT_START,
+            TRAFFIC_EVENT_START + 3600,
+            60,
+        )
+    selector = TRAFFIC_SELECTOR
+    errors = 'iris_service_errors_1m{%s,status_class="%s"}'
+    requests_sum = f"sum_over_time(iris_service_requests_1m{{{selector}}}[60s])"
+    bytes_name = "iris_service_public_network_bytes_1m"
+    assert [request.url.params["query"] for request in requests] == [
+        requests_sum,
+        f"sum_over_time({errors % (selector, '4xx')}[60s]) / ignoring(status_class) {requests_sum}",
+        f"sum_over_time({errors % (selector, '5xx')}[60s]) / ignoring(status_class) {requests_sum}",
+        f'sum_over_time({bytes_name}{{{selector},direction="receive"}}[60s]) / 60',
+        f'sum_over_time({bytes_name}{{{selector},direction="transmit"}}[60s]) / 60',
+        f"last_over_time(iris_service_response_time_seconds_avg5m{{{selector}}}[60s])",
+        f"last_over_time(iris_service_response_time_seconds_p50_5m{{{selector}}}[60s])",
+        f"last_over_time(iris_service_response_time_seconds_p95_5m{{{selector}}}[60s])",
+    ]
+    params = requests[0].url.params
+    assert (float(params["start"]), float(params["end"]), params["step"]) == (
+        sample_start,
+        TRAFFIC_EVENT_START + 3600 + 900,
+        "60",
+    )
+    assert [(item.metric, item.unit) for item in traffic.series] == [
+        ("requests", "requests"),
+        ("error_rate_4xx", "ratio"),
+        ("error_rate_5xx", "ratio"),
+        ("public_network_receive", "bytes/s"),
+        ("public_network_transmit", "bytes/s"),
+        ("response_time_avg", "seconds"),
+        ("response_time_p50", "seconds"),
+        ("response_time_p95", "seconds"),
+    ]
+    # 샘플 시각은 이벤트 시각보다 15분 늦다. 결과는 버킷이 끝나는 이벤트 시각이다.
+    assert traffic.series[0].points == [MetricPoint(TRAFFIC_EVENT_START + 60, 12)]
+    assert traffic.series[7].points == [MetricPoint(TRAFFIC_EVENT_START + 180, 0.25)]
+    # 샘플이 없는 지표는 결측이라 0 으로 채우지 않는다.
+    assert traffic.series[1].points == []
+    assert traffic.available_until == pytest.approx(time.time() - 900, abs=5)
+
+
+async def test_traffic_range_inside_the_pending_window_returns_empty_series_without_query():
+    def fail(request):
+        raise AssertionError("no query expected")
+
+    now = time.time()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(fail)) as http:
+        traffic = await LokiPrometheusObservabilityClient(http).search_traffic_metrics(
+            "http://prom", "svc-42", "iris-dev-workload", now - 600, now - 60, 60
+        )
+    assert len(traffic.series) == 8
+    assert all(item.points == [] for item in traffic.series)
+
+
+async def test_traffic_query_end_is_clamped_to_now(monkeypatch):
+    requests = []
+    monkeypatch.setattr("app.clients.observability_client.time.time", lambda: 1_000_000.0)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_traffic_handler(requests))) as http:
+        await LokiPrometheusObservabilityClient(http).search_traffic_metrics(
+            "http://prom", "svc-42", "iris-dev-workload", 990_000.0, 999_500.0, 60
+        )
+    assert float(requests[0].url.params["end"]) == 1_000_000.0
+
+
+async def test_traffic_rejects_more_than_one_series():
+    two_series = [
+        {"metric": {"pod": "a"}, "values": [[TRAFFIC_EVENT_START + 960, "1"]]},
+        {"metric": {"pod": "b"}, "values": [[TRAFFIC_EVENT_START + 960, "1"]]},
+    ]
+    handler = _traffic_handler([], {"sum_over_time(iris_service_requests_1m": two_series})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(ExternalError):
+            await LokiPrometheusObservabilityClient(http).search_traffic_metrics(
+                "http://prom",
+                "svc-42",
+                "iris-dev-workload",
+                TRAFFIC_EVENT_START,
+                TRAFFIC_EVENT_START + 3600,
+                60,
+            )
+
+
+async def test_traffic_backend_failure_is_a_domain_error():
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(503))
+    ) as http:
+        with pytest.raises(ExternalError):
+            await LokiPrometheusObservabilityClient(http).search_traffic_metrics(
+                "http://prom",
+                "svc-42",
+                "iris-dev-workload",
+                TRAFFIC_EVENT_START,
+                TRAFFIC_EVENT_START + 3600,
+                60,
+            )
+
+
+async def test_traffic_service_rejects_excessive_samples_before_query():
+    service = make_service(prometheus_url="http://prom")
+    end = datetime.now(UTC)
+    with pytest.raises(InvalidInputError):
+        await service.search_traffic_metrics(1, "svc-42", end - timedelta(days=7), end, 60)
+    service._client.search_traffic_metrics.assert_not_awaited()
+
+
+async def test_traffic_service_passes_configured_cluster_and_range():
+    client = AsyncMock()
+    expected = TrafficMetrics(1.0, [])
+    client.search_traffic_metrics.return_value = expected
+    repository = AsyncMock()
+    service = ObservabilityService(
+        repository, client, None, "http://prom", traffic_cluster="iris-prod-workload"
+    )
+    end = datetime.now(UTC)
+    start = end - timedelta(hours=1)
+    assert await service.search_traffic_metrics(1, "svc-42", start, end, 60) is expected
+    assert client.search_traffic_metrics.await_args.args == (
+        "http://prom",
+        "svc-42",
+        "iris-prod-workload",
+        start.timestamp(),
+        end.timestamp(),
+        60,
+    )
+
+
+async def test_traffic_service_is_not_configured_without_prometheus():
+    from app.core.exceptions import NotConfiguredError
+
+    end = datetime.now(UTC)
+    with pytest.raises(NotConfiguredError):
+        await make_service().search_traffic_metrics(1, "svc-42", end - timedelta(hours=1), end, 60)
+
+
+async def test_traffic_api_serializes_camelcase_and_omits_pod(api_client):
+    http, service, session = api_client
+    service.search_traffic_metrics = AsyncMock(
+        return_value=TrafficMetrics(
+            1767225600.0,
+            [MetricSeries("requests", "requests", [MetricPoint(1767225540, 3)])],
+        )
+    )
+    response = await http.get(
+        "/api/v1/services/42/traffic-metrics",
+        params={"targetId": 1, "start": "2026-01-01T00:00:00Z", "end": "2026-01-01T01:00:00Z"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "availableUntil": 1767225600.0,
+        "series": [
+            {
+                "metric": "requests",
+                "unit": "requests",
+                "points": [{"timestamp": 1767225540, "value": 3}],
+            }
+        ],
+    }
+    assert service.search_traffic_metrics.call_args.args[-1] == 60
+    session.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("step", [30, 59, 0, 86401])
+async def test_traffic_api_rejects_step_outside_range(api_client, step):
+    http, _, _ = api_client
+    response = await http.get(
+        "/api/v1/services/42/traffic-metrics",
+        params={
+            "targetId": 1,
+            "start": "2026-01-01T00:00:00Z",
+            "end": "2026-01-01T01:00:00Z",
+            "step": step,
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_traffic_api_other_owner_returns_404_before_backend_request(api_client):
+    http, service, _ = api_client
+    service._service_repository.find_by_id_and_owner_id.return_value = None
+    response = await http.get(
+        "/api/v1/services/42/traffic-metrics",
+        params={"targetId": 1, "start": "2026-01-01T00:00:00Z", "end": "2026-01-01T01:00:00Z"},
+    )
+    assert response.status_code == 404
+    service._client.search_traffic_metrics.assert_not_awaited()
+
+
+async def test_traffic_api_requires_login(api_client):
+    from app.core.exceptions import UnauthorizedError
+
+    http, _, _ = api_client
+
+    async def no_user():
+        raise UnauthorizedError("login required")
+
+    app.dependency_overrides[get_current_user] = no_user
+    response = await http.get(
+        "/api/v1/services/42/traffic-metrics",
+        params={"targetId": 1, "start": "2026-01-01T00:00:00Z", "end": "2026-01-01T01:00:00Z"},
+    )
+    assert response.status_code == 401

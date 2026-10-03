@@ -76,6 +76,7 @@ LOG_LEVEL=INFO
 |---|---|
 | `DATABASE_URL` | PostgreSQL 접속 URL. `postgresql+asyncpg://<USER>:<PASSWORD>@<HOST>:5432/<DB>` |
 | `LOKI_URL`, `PROMETHEUS_URL` | 로그·메트릭 백엔드 내부 주소. 없으면 관측 API 503. [로그·메트릭 연결 및 API](docs/observability-api.md) |
+| `TRAFFIC_CLUSTER` | 서비스 외부 트래픽 지표(요청 수·오류율·응답 시간·공용 네트워크)의 `cluster` 라벨 값. 기본 `iris-dev-workload` |
 | `DIAGNOSIS_AGENT_URL`, `DIAGNOSIS_AGENT_API_KEY` | 에러 진단 에이전트 서버(`iris-error-check-agent`) 주소와 `X-API-Key` 값. dev 클러스터 주소는 `http://iris-platform-error-agent.iris-platform.svc.cluster.local:8001`, 키는 Secret `iris-error-agent` 의 `AGENT_API_KEY` 와 같은 값. 둘 중 하나라도 없으면 진단 시작이 `503 NOT_CONFIGURED`(저장된 진단 조회는 가능). [AI 진단 API](docs/diagnosis-api.md) |
 | `DIAGNOSIS_AGENT_TIMEOUT_SECONDS` | 에이전트 응답을 기다리는 시간(초). 기본 150 (모델 호출 최대 2번 × 60초 + 여유) |
 | `REPAIR_AGENT_URL`, `REPAIR_AGENT_API_KEY`, `REPAIR_AGENT_SOURCE_HOSTS` | 수정 후보 에이전트 주소·인증 키·허용할 source snapshot 호스트. 특정 진단 원문과 고정 소스를 보내고 결과·검토용 파일을 저장한다. [연동 계약](docs/repair-agent-integration.md) |
