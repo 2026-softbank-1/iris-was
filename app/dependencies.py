@@ -41,6 +41,7 @@ from app.repositories.service_variable_repository import ServiceVariableReposito
 from app.repositories.target_repository import TargetRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.automatic_repair_service import AutomaticRepairOpener, AutomaticRepairService
 from app.services.cli_login_service import CliLoginService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_log_service import DeploymentLogService
@@ -622,3 +623,43 @@ def get_repair_publication_service(
 RepairPublicationServiceDep = Annotated[
     RepairPublicationService, Depends(get_repair_publication_service)
 ]
+
+
+def build_automatic_repair_service(
+    session: AsyncSession, settings: Settings, http_client: httpx.AsyncClient
+) -> AutomaticRepairService:
+    credentials = get_github_app_credentials(settings)
+    repositories = get_source_repository_service(session, settings, credentials, http_client)
+    candidates = build_repair_service(session, settings, http_client)
+    auth = RepairGithubAuthService(ServiceRepository(session), repositories)
+    publication = RepairPublicationService(
+        session,
+        DeploymentRepairRepository(session),
+        ServiceRepository(session),
+        candidates,
+        auth,
+        settings.github_api_base_url,
+    )
+    return AutomaticRepairService(
+        session, DeploymentRepairRepository(session), candidates, publication
+    )
+
+
+def get_automatic_repair_service(
+    session: SessionDep, settings: SettingsDep, http_client: HttpClientDep
+) -> AutomaticRepairService:
+    return build_automatic_repair_service(session, settings, http_client)
+
+
+def build_automatic_repair_opener(
+    settings: Settings, http_client: httpx.AsyncClient
+) -> AutomaticRepairOpener:
+    @asynccontextmanager
+    async def open_service() -> AsyncIterator[AutomaticRepairService]:
+        async with get_session_factory()() as session:
+            yield build_automatic_repair_service(session, settings, http_client)
+
+    return open_service
+
+
+AutomaticRepairServiceDep = Annotated[AutomaticRepairService, Depends(get_automatic_repair_service)]

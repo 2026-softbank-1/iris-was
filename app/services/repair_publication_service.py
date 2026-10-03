@@ -81,6 +81,33 @@ class RepairPublicationService:
         self._auth = auth
         self._api_base_url = api_base_url
 
+    async def preflight(
+        self, owner_id: int, service_id: int, source_sha: str | None = None
+    ) -> None:
+        service = await self._services.find_by_id_and_owner_id(service_id, owner_id)
+        if service is None:
+            await self._candidates._get_owned_service(owner_id, service_id)
+            return
+        if service.source_branch != "main":
+            raise RepairError("TARGET_BRANCH_INVALID", "Automatic repair requires main", 409)
+        owner, name = parse_repository_url(service.source_repository_url)
+        repository = f"{owner}/{name}"
+        token = await self._auth.issue_token(owner_id, service_id, repository)
+        if source_sha is not None:
+            async with httpx.AsyncClient(
+                base_url=self._api_base_url,
+                timeout=15,
+                follow_redirects=False,
+                headers={
+                    "Authorization": f"Bearer {token.token}",
+                    "Accept": "application/vnd.github+json",
+                },
+            ) as http:
+                if await GitHubPublisher(http).head(repository, "main") != source_sha:
+                    raise RepairError(
+                        "SOURCE_HEAD_CHANGED", "Main changed since the failed deployment", 409
+                    )
+
     async def execute(
         self, owner_id: int, service_id: int, repair_id: int, action: Literal["publish", "merge"]
     ) -> DeploymentRepair:

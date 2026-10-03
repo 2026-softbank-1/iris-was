@@ -101,6 +101,8 @@ class RepairService:
         diagnosis_id: int,
         plan_ids: list[str],
         idempotency_key: str,
+        *,
+        auto_merge: bool = False,
     ) -> StartedRepair:
         service = await self._get_owned_service(owner_id, service_id)
         request = await self._deployments.find_by_id_and_service_id(deployment_id, service_id)
@@ -118,6 +120,7 @@ class RepairService:
                 or existing.diagnosis_id != diagnosis_id
                 or existing.plan_ids != plan_ids
                 or existing.diagnosis_result != diagnosis.result
+                or bool(existing.request_metadata.get("autoMerge")) != auto_merge
             ):
                 raise ConflictError("repair idempotency input changed", repair_id=existing.id)
             return StartedRepair(existing, False)
@@ -174,7 +177,19 @@ class RepairService:
             "root_directory": root,
             "plan_ids": plan_ids,
             "diagnosis_result": copy.deepcopy(diagnosis.result),
-            "request_metadata": {"snapshotBuildId": build.id, "policy": policy},
+            "request_metadata": {
+                "snapshotBuildId": build.id,
+                "policy": policy,
+                **(
+                    {
+                        "autoMerge": True,
+                        "autoDeadlineAt": (now_utc() + timedelta(minutes=30)).isoformat(),
+                        "publication": {"status": "QUEUED"},
+                    }
+                    if auto_merge
+                    else {}
+                ),
+            },
             "deadline_at": now_utc() + timedelta(seconds=self._deadline_seconds),
         }
         repair = await self._repairs.add_running_if_absent(values)
@@ -185,6 +200,7 @@ class RepairService:
                 and concurrent.deployment_request_id == deployment_id
                 and concurrent.diagnosis_id == diagnosis_id
                 and concurrent.plan_ids == plan_ids
+                and bool(concurrent.request_metadata.get("autoMerge")) == auto_merge
             ):
                 return StartedRepair(concurrent, False)
             raise ConflictError(
