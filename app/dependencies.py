@@ -12,7 +12,7 @@ from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.aws_clients import ArtifactStore
+from app.clients.aws_clients import ArtifactStore, BuildLogReader, CloudWatchBuildLogClient
 from app.clients.diagnosis_agent_client import HttpDiagnosisAgentClient
 from app.clients.oauth_client import GithubOAuthClient
 from app.clients.observability_client import LokiPrometheusObservabilityClient
@@ -40,6 +40,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.cli_login_service import CliLoginService
 from app.services.deployment_history_service import DeploymentHistoryService
+from app.services.deployment_log_service import DeploymentLogService
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.diagnosis_service import DiagnosisService, DiagnosisServiceOpener
@@ -306,6 +307,9 @@ def get_deployment_history_service(session: SessionDep) -> DeploymentHistoryServ
         ServiceRepository(session),
         DeploymentRequestRepository(session),
         DeploymentStatusHistoryRepository(session),
+        BuildRepository(session),
+        ReleaseRepository(session),
+        TargetRepository(session),
     )
 
 
@@ -440,3 +444,35 @@ def get_diagnosis_service_opener(
 
 DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
 DiagnosisServiceOpenerDep = Annotated[DiagnosisServiceOpener, Depends(get_diagnosis_service_opener)]
+
+
+@lru_cache
+def _get_build_log_reader(region: str) -> CloudWatchBuildLogClient:
+    # boto3 클라이언트는 만드는 데 시간이 걸려 요청마다 만들지 않는다.
+    return CloudWatchBuildLogClient.create_reader(region)
+
+
+def get_build_log_reader(settings: SettingsDep) -> BuildLogReader | None:
+    """로그 전체를 읽으려면 AWS_REGION 과 BUILD_LOG_GROUP 이 모두 있어야 한다. 없으면 None 이다."""
+    if settings.aws_region is None or settings.build_log_group is None:
+        return None
+    return _get_build_log_reader(settings.aws_region)
+
+
+def get_deployment_log_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    deployment_history_service: DeploymentHistoryServiceDep,
+    observability_service: ObservabilityServiceDep,
+) -> DeploymentLogService:
+    return DeploymentLogService(
+        deployment_history_service,
+        DeploymentRequestRepository(session),
+        BuildRepository(session),
+        observability_service,
+        get_build_log_reader(settings),
+        settings.build_log_group,
+    )
+
+
+DeploymentLogServiceDep = Annotated[DeploymentLogService, Depends(get_deployment_log_service)]

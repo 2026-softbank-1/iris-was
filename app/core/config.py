@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # 둘 다 있어야 소스를 보내고, 없으면 로그만 진단한다.
     aws_region: str | None = None
     artifact_bucket: str | None = None
+    # 배포 상세의 빌드 로그 전체(CodeBuild → CloudWatch Logs) 읽기 전용 조회. AWS_REGION 과
+    # 둘 다 있어야 한다. 없으면 Build Worker 가 남긴 실패한 빌드의 끝부분(builds.log_tail)만
+    # 보여 준다. 그룹은 iris-infra foundation 의 CodeBuild 로그 그룹이다(dev:
+    # /aws/codebuild/iris-dev-build). Control API Role 에 그 그룹의 logs:GetLogEvents 가 필요하다.
+    build_log_group: str | None = None
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
