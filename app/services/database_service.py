@@ -7,7 +7,8 @@
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +44,8 @@ class DatabasePlan:
     database: str | None = None
     stack_id: int | None = None
     stack_unit_id: str | None = None
+    # 첫 기동에 한 번 실행할 초기화 스크립트 메타데이터(apply 가 분석 결과에서 복사한다).
+    init_scripts: list[dict[str, Any]] = field(default_factory=list)
 
 
 def check_networking(is_enabled: bool, target_kind: TargetKind, field: str) -> None:
@@ -129,6 +132,15 @@ class DatabaseService:
         spec = get_engine_spec(plan.engine)
         image = resolve_image(plan.engine, self._database_images)
         credentials = generate_credentials(plan.engine, plan.user, plan.database)
+        config: dict[str, Any] = {
+            "image": image.reference,
+            "storageGi": plan.storage_gi,
+            "port": spec.port,
+            "user": credentials.get(spec.user_key) if spec.user_key else "default",
+            "database": credentials.get(spec.database_key) if spec.database_key else None,
+        }
+        if plan.init_scripts:
+            config["initScripts"] = [dict(script) for script in plan.init_scripts]
         service = await self._service_repository.save(
             Service(
                 project_id=project.id,
@@ -140,13 +152,7 @@ class DatabaseService:
                 is_auto_deploy=False,
                 kind=ServiceKind.DATABASE,
                 database_engine=plan.engine,
-                database_config={
-                    "image": image.reference,
-                    "storageGi": plan.storage_gi,
-                    "port": spec.port,
-                    "user": credentials.get(spec.user_key) if spec.user_key else "default",
-                    "database": credentials.get(spec.database_key) if spec.database_key else None,
-                },
+                database_config=config,
                 stack_id=plan.stack_id,
                 stack_unit_id=plan.stack_unit_id,
             )

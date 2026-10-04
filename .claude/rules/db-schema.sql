@@ -82,7 +82,8 @@ CREATE TABLE services (
     scaling_config JSONB,
     deployment_strategy VARCHAR(32) DEFAULT 'ROLLING' NOT NULL,
     -- APP(소스 빌드) · DATABASE(고정 공식 이미지 관리형 DB). DATABASE 는 github_installation_id 가 없고
-    -- 저장소 주소·브랜치가 빈 문자열이다. database_config = {image, storageGi, port, user, database}.
+    -- 저장소 주소·브랜치가 빈 문자열이다. database_config = {image, storageGi, port, user, database,
+    -- initScripts?: [{name, path, kind, sha256, size}]} (initScripts 내용은 database_init_scripts).
     kind VARCHAR(32) DEFAULT 'APP' NOT NULL,
     database_engine VARCHAR(32),
     database_config JSONB,
@@ -523,3 +524,15 @@ CREATE TABLE stack_deployment_steps (
 );
 
 CREATE INDEX ix_stack_deployment_steps_stack_deployment_id ON stack_deployment_steps (stack_deployment_id);
+
+-- 관리형 DB 초기화 스크립트 내용(/docker-entrypoint-initdb.d). sha256 으로 찾고 같은 내용은 한 번만 둔다.
+-- 분석 결과 dependencies[].initScripts 와 services.database_config.initScripts 가 sha256 으로 가리킨다.
+CREATE TABLE database_init_scripts (
+    sha256 VARCHAR(64) NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    content BYTEA NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    CONSTRAINT pk_database_init_scripts PRIMARY KEY (sha256),
+    CONSTRAINT ck_database_init_scripts_content_size CHECK (octet_length(content) = size_bytes),
+    CONSTRAINT ck_database_init_scripts_size_bytes CHECK (size_bytes >= 0 AND size_bytes <= 1048576)
+);

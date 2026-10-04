@@ -167,11 +167,32 @@ class DatabaseConnectionResponse(ApiModel):
     properties: list[ReferenceProperty] = Field(description="참조 변수로 쓸 수 있는 속성")
 
 
+class DatabaseInitScriptResponse(ApiModel):
+    """DB 를 처음 만들 때 한 번 실행하는 초기화 스크립트. 내용은 내지 않는다."""
+
+    name: str = Field(
+        description="`/docker-entrypoint-initdb.d` 의 파일 이름(실행 순서)",
+        examples=["00-schema.sql"],
+    )
+    path: str | None = Field(
+        default=None, description="레포 안 원본 경로", examples=["db/schema.sql"]
+    )
+    sha256: str
+    size: int = Field(description="바이트 수", examples=[1827])
+
+
 class DatabaseSettingsResponse(ApiModel):
     image: str | None = None
     storage_gi: int | None = Field(default=None, description="만든 뒤에는 바꿀 수 없다")
     user: str | None = None
     database: str | None = None
+    init_scripts: list[DatabaseInitScriptResponse] | None = Field(
+        default=None,
+        description=(
+            "레포 분석에서 옮긴 초기화 스크립트(apply 로 만든 DB 만). 데이터가 빈 첫 기동에만"
+            " 이름순으로 한 번 실행되고, 이미 초기화된 DB 에는 다시 실행되지 않는다."
+        ),
+    )
 
 
 class ServiceStackResponse(ApiModel):
@@ -298,6 +319,17 @@ def _database_settings(service: Any) -> DatabaseSettingsResponse | None:
         storage_gi=config.get("storageGi"),
         user=config.get("user"),
         database=config.get("database"),
+        init_scripts=[
+            DatabaseInitScriptResponse(
+                name=str(script.get("name")),
+                path=script.get("path"),
+                sha256=str(script.get("sha256")),
+                size=int(script.get("size") or 0),
+            )
+            for script in config.get("initScripts") or []
+            if isinstance(script, dict)
+        ]
+        or None,
     )
 
 

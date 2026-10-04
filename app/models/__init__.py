@@ -2,6 +2,7 @@
 from app.models.base import Base
 from app.models.build import Build
 from app.models.cli_login_session import CliLoginSession
+from app.models.database_init_script import DatabaseInitScript
 from app.models.deployment_diagnosis import DeploymentDiagnosis
 from app.models.deployment_repair import DeploymentRepair
 from app.models.deployment_request import DeploymentRequest
@@ -21,6 +22,7 @@ __all__ = [
     "Base",
     "Build",
     "CliLoginSession",
+    "DatabaseInitScript",
     "DeploymentDiagnosis",
     "DeploymentRepair",
     "DeploymentRequest",

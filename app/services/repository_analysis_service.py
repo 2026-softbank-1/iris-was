@@ -71,6 +71,9 @@ class AppliedAnalysis:
     stack_deployment_id: int | None = None
     # 환경변수 error 로 배포를 접수하지 않았으면 그 검증 결과(서비스마다). 서비스는 만들어져 있다.
     variable_validations: list[VariableValidation] = field(default_factory=list)
+    # 증분 apply 에서 이미 있는 DB 의 초기화 스크립트가 달라진 것(DEPENDENCY_CHANGED). 다시 실행하지
+    # 않는다.
+    changes: list[dict[str, Any]] = field(default_factory=list)
 
 
 class RepositoryAnalysisService:
@@ -191,6 +194,7 @@ class RepositoryAnalysisService:
                 owner_id, analysis, selections, should_deploy, target_ids, is_auto_deploy
             )
         assert self._stack_apply_service is not None and self._stack_service is not None
+        changes: list[dict[str, Any]] = []
         if analysis.status != RepositoryAnalysisStatus.APPLIED:
             plans = self._plans(analysis, selections)
             applied = await self._stack_apply_service.apply(
@@ -202,6 +206,7 @@ class RepositoryAnalysisService:
                 is_auto_deploy=is_auto_deploy,
             )
             analysis.stack_id = analysis.stack_id or applied.stack.id
+            changes = applied.changes
             analysis.mark_as_applied(
                 [s.id for s in applied.apps] + [s.id for s in applied.databases]
             )
@@ -234,6 +239,7 @@ class RepositoryAnalysisService:
             stack_id=stack_id,
             stack_deployment_id=stack_deployment_id,
             variable_validations=validations,
+            changes=changes,
         )
 
     @property

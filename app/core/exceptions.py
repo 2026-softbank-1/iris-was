@@ -255,6 +255,13 @@ class VariablesInvalidError(InvalidInputError):
         self.data = data
 
 
+class DatabaseInitScriptsInvalidError(AppError):
+    """DB 초기화 스크립트를 values 로 옮길 수 없다(내용 없음·해시 불일치·ConfigMap 한도 초과).
+    다시 해도 같으니 Deploy Worker 는 재시도하지 않는다."""
+
+    code = "DATABASE_INIT_SCRIPTS_INVALID"
+
+
 class VariableDecryptionError(AppError):
     """저장된 변수 값을 복호화하지 못했다. 암호화 키가 바뀌었거나 값이 손상됐다."""
 

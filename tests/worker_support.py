@@ -27,7 +27,7 @@ _DATA_TABLES = (
     "stack_deployment_steps, stack_deployments, service_variables, "
     "jobs, releases, builds, deployment_status_histories, deployment_requests, service_uploads, "
     "service_targets, services, repository_analyses, service_stacks, projects, "
-    "user_github_installations, "
+    "user_github_installations, database_init_scripts, "
     "github_installations, users"
 )
 

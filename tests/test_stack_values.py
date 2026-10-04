@@ -156,3 +156,58 @@ def test_host_alias_named_app_fails_chart_schema() -> None:
     )
     with pytest.raises(jsonschema.ValidationError):
         _validate(rendered)
+
+
+def _db_values(engine: DatabaseEngine, init_scripts: list[dict[str, str]] | None) -> str:
+    return render_database_values(
+        release_id=7,
+        project_id="3",
+        engine=engine,
+        image=resolve_image(engine, {}).reference,
+        storage_gi=5,
+        port=ENGINE_SPECS[engine].port,
+        init_scripts=init_scripts,
+    )
+
+
+@requires_chart
+@pytest.mark.parametrize(
+    ("engine", "init_scripts"),
+    [
+        (
+            DatabaseEngine.POSTGRES,
+            [
+                {"name": "00-schema.sql", "content": "CREATE TABLE jobs (id int);\n"},
+                {"name": "01-seed.sql.gz", "binaryContent": "H4sIAAAAAAAAAwMAAAAAAAAAAAA="},
+            ],
+        ),
+        (DatabaseEngine.MYSQL, [{"name": "00-schema.sql", "content": "SELECT 1;\n"}]),
+        (DatabaseEngine.MONGODB, [{"name": "00-mongo-init.js", "content": "db.logs.insert({})"}]),
+    ],
+)
+def test_database_values_with_init_scripts_pass_chart_schema(
+    engine: DatabaseEngine, init_scripts: list[dict[str, str]]
+) -> None:
+    values = _validate(_db_values(engine, init_scripts))
+    assert values["database"]["initScripts"] == init_scripts
+
+
+def test_database_values_without_init_scripts_omit_the_key() -> None:
+    assert "initScripts" not in json.loads(_db_values(DatabaseEngine.POSTGRES, []))["database"]
+
+
+@requires_chart
+@pytest.mark.parametrize(
+    ("engine", "name"),
+    [
+        (DatabaseEngine.REDIS, "00-schema.sql"),
+        (DatabaseEngine.MONGODB, "00-schema.sql"),
+        (DatabaseEngine.POSTGRES, "00-init.js"),
+        (DatabaseEngine.POSTGRES, "schema.sql"),
+    ],
+)
+def test_database_values_with_engine_mismatched_init_scripts_fail_chart_schema(
+    engine: DatabaseEngine, name: str
+) -> None:
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(_db_values(engine, [{"name": name, "content": "x"}]))

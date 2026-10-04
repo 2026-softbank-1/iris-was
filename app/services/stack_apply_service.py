@@ -22,10 +22,16 @@ from app.enums import (
 from app.models.repository_analysis import RepositoryAnalysis
 from app.models.service import Service
 from app.models.service_stack import ServiceStack
+from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_stack_repository import ServiceStackRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
-from app.schemas.analysis_gate import AnalysisGateResult, AnalysisGateUnit
+from app.schemas.analysis_gate import AnalysisGateDependency, AnalysisGateResult, AnalysisGateUnit
+from app.services.database_init_scripts import (
+    init_scripts_change,
+    init_scripts_fingerprint,
+    select_init_scripts,
+)
 from app.services.database_service import DatabasePlan, DatabaseService, check_networking
 from app.services.service_networking import is_networking_available, is_valid_alias_name
 from app.services.service_registry_service import (
@@ -59,6 +65,8 @@ class AppliedStack:
     databases: list[Service] = field(default_factory=list)
     # 이번 apply 로 새로 만든 DB(첫 배포 대상).
     created_databases: list[Service] = field(default_factory=list)
+    # 이미 있는 DB 의 초기화 스크립트가 분석과 달라진 것(DEPENDENCY_CHANGED). DB 는 그대로 둔다.
+    changes: list[dict[str, Any]] = field(default_factory=list)
 
 
 class StackApplyService:
@@ -69,9 +77,11 @@ class StackApplyService:
         service_repository: ServiceRepository,
         service_variable_repository: ServiceVariableRepository,
         stack_repository: ServiceStackRepository,
+        init_script_repository: DatabaseInitScriptRepository,
         *,
         is_networking_enabled: bool,
     ) -> None:
+        self._init_script_repository = init_script_repository
         self._service_registry_service = service_registry_service
         self._database_service = database_service
         self._service_repository = service_repository
@@ -113,6 +123,7 @@ class StackApplyService:
             if service is not None and service.kind != ServiceKind.DATABASE:
                 # 같은 id 의 앱이 있다(분석이 의존성을 unit 으로 바꿨다). 만들지 않는다.
                 continue
+            init_scripts = await self._init_scripts(dependency)
             if service is None:
                 service = await self._database_service.add_database(
                     project,
@@ -124,11 +135,22 @@ class StackApplyService:
                         database=dependency.database,
                         stack_id=stack.id,
                         stack_unit_id=dependency.id,
+                        init_scripts=init_scripts,
                     ),
                     resolved_target_ids,
                 )
                 applied.created_databases.append(service)
                 existing[dependency.id] = service
+            else:
+                # 이미 초기화된 DB 에는 스크립트를 다시 실행하지 않는다. 바뀐 것만 알린다.
+                change = init_scripts_change(
+                    dependency.id,
+                    init_scripts_fingerprint((service.database_config or {}).get("initScripts")),
+                    init_scripts_fingerprint(init_scripts),
+                    service_id=service.id,
+                )
+                if change is not None:
+                    applied.changes.append(change)
             applied.databases.append(service)
 
         # 2) 앱 서비스: 있는 unit 은 고치고 새 unit 만 만든다.
@@ -209,6 +231,12 @@ class StackApplyService:
             check_networking(self._is_networking_enabled, target_kind, "dependencies")
             chosen.append((dependency.id, selection))
         return chosen
+
+    async def _init_scripts(self, dependency: AnalysisGateDependency) -> list[dict[str, Any]]:
+        """Build Worker 가 확인·저장한 초기화 스크립트만 DB 서비스로 옮긴다(메타데이터)."""
+        sha256s = {s.sha256 for s in dependency.init_scripts if s.supported and s.sha256}
+        stored = await self._init_script_repository.search_existing_sha256s(sha256s)
+        return select_init_scripts(dependency.engine, dependency.init_scripts, stored)
 
     async def _find_or_create_stack(self, analysis: RepositoryAnalysis) -> ServiceStack:
         if analysis.stack_id is not None:

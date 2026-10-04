@@ -64,3 +64,4 @@
 | [0028](0028-deployment-strategy-selection.md) | 서비스마다 배포 방식(롤링·카나리·블루그린)을 고르고, Pod 가 2개 미만이면 롤링으로 대체한다 | 제안됨 (iris-infra chart 0.7.0 반영 대기) |
 | [0029](0029-repository-analysis-gate.md) | 서비스 생성 전 레포 구성 분석(Analysis Gate)은 Build Worker 가 실행하고, 단순 레포는 분석을 생략한다 | 제안됨 (분석기 wheel 고정·웹 연동 대기) |
 | [0030](0030-project-stacks-databases-and-variable-references.md) | 한 레포의 여러 이미지를 스택으로 묶어 의존 순서로 반복 배포하고, 개발용 DB·참조 변수·호스트 별칭을 붙인다 | 제안됨 (chart 0.8.0 pin 후 플래그 켬 대기) |
+| [0031](0031-database-init-scripts.md) | 관리형 DB 는 레포의 `/docker-entrypoint-initdb.d` 스크립트를 첫 기동에 한 번 실행하고, 이미 있는 DB 에는 다시 실행하지 않는다 | 제안됨 (chart 0.8.0 과 함께) |

@@ -11,6 +11,7 @@ import logging
 import tarfile
 import tempfile
 import zlib
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
@@ -34,10 +35,12 @@ from app.core.exceptions import (
 )
 from app.enums import AnalysisErrorCode, RepositoryAnalysisStatus
 from app.models.repository_analysis import RepositoryAnalysis
+from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
 from app.repositories.service_stack_repository import ServiceStackRepository
 from app.schemas.analysis_gate import AnalysisGateRequest
+from app.services.database_init_scripts import read_init_scripts
 from app.services.repository_url import parse_repository_url
 from app.services.source_archive import ArchiveLimits
 from app.services.stack_changes import compute_stack_changes
@@ -50,6 +53,15 @@ MAX_ATTEMPTS = 3
 _LEASE_MARGIN = timedelta(minutes=5)
 _MAX_ERROR_LENGTH = 1000
 _CORRUPT_ARCHIVE_ERRORS = (tarfile.TarError, gzip.BadGzipFile, EOFError, zlib.error)
+
+
+@dataclass(frozen=True)
+class AnalyzedSource:
+    """분석기 응답과, 소스가 풀려 있는 동안 읽어 확인한 DB 초기화 스크립트 내용
+    ({sha256: 바이트})."""
+
+    response: AnalysisGateResponse
+    init_scripts: dict[str, bytes] = field(default_factory=dict)
 
 
 class AnalysisGateService:
@@ -91,7 +103,7 @@ class AnalysisGateService:
             )
             return
         try:
-            response = await self._analyze(analysis)
+            analyzed = await self._analyze(analysis)
         except RepositoryAnalysisFailedError as exc:
             logger.info(
                 "repository analysis failed",
@@ -99,14 +111,14 @@ class AnalysisGateService:
             )
             await self._record_failure(analysis.id, exc)
             return
-        await self._record_success(analysis.id, response)
+        await self._record_success(analysis.id, analyzed)
 
     async def release(self, analysis_id: int) -> None:
         """종료 신호로 멈춘 분석을 대기열로 돌려 다른 Worker 가 바로 이어 가게 한다."""
         async with self._session_factory.begin() as session:
             await RepositoryAnalysisRepository(session).release(analysis_id, self._worker_id)
 
-    async def _analyze(self, analysis: RepositoryAnalysis) -> AnalysisGateResponse:
+    async def _analyze(self, analysis: RepositoryAnalysis) -> AnalyzedSource:
         owner, repository_name = parse_repository_url(analysis.source_repository_url)
         full_name = f"{owner}/{repository_name}"
         token = await self._create_token(analysis, repository_name)
@@ -161,7 +173,7 @@ class AnalysisGateService:
                 mode=analysis.mode,
             )
             try:
-                return await self._analyzer.analyze(request)
+                response = await self._analyzer.analyze(request)
             except NotConfiguredError as exc:
                 raise RepositoryAnalysisFailedError(
                     AnalysisErrorCode.ANALYZER_UNAVAILABLE, "analyzer is unavailable"
@@ -174,6 +186,11 @@ class AnalysisGateService:
                 raise RepositoryAnalysisFailedError(
                     AnalysisErrorCode.ANALYZER_FAILED, exc.message, **exc.fields
                 ) from exc
+            # 분석기는 경로·해시만 낸다. 소스가 풀려 있는 지금 내용을 읽어 해시를 다시 확인한다.
+            init_scripts = await asyncio.to_thread(
+                read_init_scripts, source_root, analysis.root_directory, response.raw
+            )
+            return AnalyzedSource(response, init_scripts)
 
     async def _create_token(self, analysis: RepositoryAnalysis, repository_name: str) -> str:
         if analysis.github_installation_id is None:
@@ -200,13 +217,15 @@ class AnalysisGateService:
             )
             analysis.source_sha = source_sha
 
-    async def _record_success(self, analysis_id: int, response: AnalysisGateResponse) -> None:
+    async def _record_success(self, analysis_id: int, analyzed: AnalyzedSource) -> None:
+        response = analyzed.response
         async with self._session_factory.begin() as session:
             analysis = await RepositoryAnalysisRepository(session).get_by_id(
                 analysis_id, for_update=True
             )
             if not self._is_still_owned(analysis):
                 return
+            await DatabaseInitScriptRepository(session).add_all_if_absent(analyzed.init_scripts)
             analysis.succeed(response.result.decision, response.result.complexity, response.raw)
             if analysis.stack_id is not None:
                 await self._record_stack_changes(session, analysis)
@@ -217,6 +236,7 @@ class AnalysisGateService:
                 "decision": response.result.decision,
                 "complexity": response.result.complexity,
                 "unit_count": len(response.result.units),
+                "init_script_count": len(analyzed.init_scripts),
             },
         )
 

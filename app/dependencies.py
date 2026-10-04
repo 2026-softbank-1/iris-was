@@ -25,6 +25,7 @@ from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.build_repository import BuildRepository
 from app.repositories.cli_login_session_repository import CliLoginSessionRepository
+from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
 from app.repositories.deployment_repair_repository import DeploymentRepairRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -442,6 +443,7 @@ def get_repository_analysis_service(
             ServiceRepository(session),
             ServiceVariableRepository(session),
             ServiceStackRepository(session),
+            DatabaseInitScriptRepository(session),
             is_networking_enabled=settings.project_networking_enabled,
         ),
         stack_service=stack_service,

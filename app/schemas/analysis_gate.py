@@ -56,6 +56,21 @@ class AnalysisGateHostAlias(_WireModel):
     target_id: str
 
 
+class AnalysisGateInitScript(_WireModel):
+    """compose 가 `/docker-entrypoint-initdb.d` 에 넣는 초기화 스크립트. 내용은 분석기가 내지
+    않는다.
+
+    path 는 레포 루트 기준이다. sha256 은 아주 큰 파일이면 null(그때는 supported=false)이다.
+    """
+
+    path: str = Field(min_length=1, max_length=1024)
+    kind: str
+    sha256: str | None = None
+    size: int = Field(ge=0)
+    order: int = Field(ge=0)
+    supported: bool = False
+
+
 class AnalysisGateDependency(_WireModel):
     """compose 이미지 전용 서비스(DB 등). 비밀번호는 분석기가 내지 않는다."""
 
@@ -65,6 +80,7 @@ class AnalysisGateDependency(_WireModel):
     port: int | None = None
     database: str | None = None
     user: str | None = None
+    init_scripts: list[AnalysisGateInitScript] = Field(default_factory=list)
 
 
 class AnalysisGateUnit(_WireModel):

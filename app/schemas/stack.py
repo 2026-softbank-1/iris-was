@@ -67,12 +67,34 @@ class StackServiceResponse(ApiModel):
 
 class StackChangeResponse(ApiModel):
     type: str = Field(
-        description="UNIT_ADDED·UNIT_REMOVED·UNIT_CHANGED·DEPENDENCY_ADDED·DEPENDENCY_REMOVED"
+        description=(
+            "UNIT_ADDED·UNIT_REMOVED·UNIT_CHANGED·DEPENDENCY_ADDED·DEPENDENCY_REMOVED·"
+            "DEPENDENCY_CHANGED"
+        )
     )
     unit_id: str
-    field: str | None = None
-    from_: Any = Field(default=None, alias="from")
+    field: str | None = Field(default=None, examples=["initScripts"])
+    from_: Any = Field(
+        default=None,
+        alias="from",
+        description="이전 값. initScripts 면 [{path, sha256}] (실행될 스크립트만, 순서대로)",
+    )
     to: Any = None
+    reason: str | None = Field(
+        default=None,
+        description="DEPENDENCY_CHANGED 의 사유. init_scripts_changed = 초기화 스크립트가 바뀜",
+        examples=["init_scripts_changed"],
+    )
+    message: str | None = Field(
+        default=None,
+        description=(
+            "사용자 안내. 초기화 스크립트는 DB 를 처음 만들 때만 실행되고 이미 있는 DB 에는 다시"
+            " 실행되지 않는다."
+        ),
+    )
+    service_id: int | None = Field(
+        default=None, description="apply 응답에서 바뀐 의존성의 기존 DB 서비스 id"
+    )
 
 
 class StackPendingChangesResponse(ApiModel):

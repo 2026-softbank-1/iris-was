@@ -25,6 +25,7 @@ from app.core.config import DeployWorkerSettings
 from app.core.crypto import VariableCipher
 from app.core.exceptions import (
     ConflictError,
+    DatabaseInitScriptsInvalidError,
     ExternalError,
     GitOpsConflictError,
     NotConfiguredError,
@@ -45,6 +46,7 @@ from app.enums import (
 from app.models import Job, Release
 from app.models.target import AWS_TARGET_NAME
 from app.repositories.build_repository import BuildRepository
+from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
@@ -52,6 +54,7 @@ from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.builder_detection import DeployConfig
 from app.services.database_engines import DEFAULT_STORAGE_GI, get_engine_spec
+from app.services.database_init_scripts import render_init_scripts
 from app.services.deployment_request_service import SNAPSHOT_REFERENCE_KEY
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.deployment_strategy import PROGRESSIVE_TARGET_KINDS, strategy_extra_wait
@@ -207,11 +210,14 @@ def render_database_values(
     iris: Mapping[str, Any] | None = None,
     variables: Mapping[str, Any] | None = None,
     replicas: int = 1,
+    init_scripts: list[dict[str, str]] | None = None,
 ) -> str:
     """관리형 DB 의 values.yaml(chart 0.8.0 `workload.kind: database`). 빌드 이미지·command 는 없다.
 
     자격 증명은 봉인한 variables 로만 들어간다. storageClassName·resources 는 chart·타깃 기본값이다.
-    replicas 는 0(정지) 또는 1 이다.
+    replicas 는 0(정지) 또는 1 이다. init_scripts(`[{name, content|binaryContent}]`)는 chart 가
+    ConfigMap `app-initdb` 로 `/docker-entrypoint-initdb.d` 에 넣어 데이터 디렉터리가 빈 첫 기동에만
+    실행된다. 없으면 키를 쓰지 않는다.
     """
     values: dict[str, Any] = {
         "workload": {"kind": "database"},
@@ -225,6 +231,8 @@ def render_database_values(
             "port": port,
         },
     }
+    if init_scripts:
+        values["database"]["initScripts"] = [dict(script) for script in init_scripts]
     if iris is not None:
         values["iris"] = dict(iris)
     if variables is not None:
@@ -314,9 +322,9 @@ class DeployService:
         if release.deadline_at is None:
             try:
                 await self._push_deploy_commit(job, release)
-            except VariableReferenceBrokenError as exc:
-                # 참조 대상이 지워졌다. 다시 해도 같으니 재시도하지 않는다(배포 전 검증이 보통
-                # 막는다).
+            except (VariableReferenceBrokenError, DatabaseInitScriptsInvalidError) as exc:
+                # 참조 대상이 지워졌거나 초기화 스크립트를 values 로 옮길 수 없다. 다시 해도 같으니
+                # 재시도하지 않는다(배포 전 검증·분석 한도가 보통 막는다).
                 await self._give_up(job, _describe(exc))
                 return
         deploy = DeployConfig.model_validate(release.build.deploy_config or {})
@@ -430,6 +438,7 @@ class DeployService:
                 iris=self._identity(release),
                 variables=variables,
                 replicas=scaling.replicas if scaling is not None else 1,
+                init_scripts=await self._init_scripts(config.get("initScripts")),
             )
         assert build.image_repository is not None and build.source_sha is not None
         assert build.builder is not None
@@ -450,6 +459,16 @@ class DeployService:
             deployment_strategy=self._deployment_strategy(release),
             networking=await self._networking_values(release) if is_networking else None,
         )
+
+    async def _init_scripts(self, scripts: object) -> list[dict[str, str]] | None:
+        """DB 서비스의 초기화 스크립트를 내용과 함께 values 로. ConfigMap 한도를 미리 본다."""
+        if not isinstance(scripts, list) or not scripts:
+            return None
+        async with self._session_factory() as session:
+            rows = await DatabaseInitScriptRepository(session).search_by_sha256s(
+                [str(script.get("sha256")) for script in scripts]
+            )
+        return render_init_scripts(scripts, {row.sha256: row.content for row in rows})
 
     def _is_networking(self, release: Release) -> bool:
         """chart 0.8.0 키를 쓸지. 기능을 켠 Worker 가 AWS 타깃 release 에만 쓴다(on-prem 은 이전

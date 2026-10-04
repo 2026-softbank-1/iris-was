@@ -14,6 +14,7 @@ from app.enums import (
 from app.models.repository_analysis import RepositoryAnalysis
 from app.schemas.response import ApiModel
 from app.schemas.service import Branch, Command, PathText, Port, ServiceName, ServiceResponse
+from app.schemas.stack import StackChangeResponse
 from app.schemas.variable import VariablesValidationResponse
 from app.services.repository_analysis_service import AppliedAnalysis, UnitSelection
 from app.services.stack_apply_service import DependencySelection
@@ -193,6 +194,14 @@ class ApplyRepositoryAnalysisResponse(ApiModel):
         ),
     )
 
+    changes: list[StackChangeResponse] | None = Field(
+        default=None,
+        description=(
+            "증분 apply 에서 이미 있는 DB 의 초기화 스크립트가 분석과 달라졌으면 DEPENDENCY_CHANGED"
+            "(reason init_scripts_changed). 이미 초기화된 DB 에는 다시 실행하지 않는다."
+        ),
+    )
+
     @classmethod
     def from_applied(cls, applied: AppliedAnalysis) -> "ApplyRepositoryAnalysisResponse":
         return cls(
@@ -211,4 +220,5 @@ class ApplyRepositoryAnalysisResponse(ApiModel):
                 ]
                 or None
             ),
+            changes=[StackChangeResponse.model_validate(c) for c in applied.changes] or None,
         )

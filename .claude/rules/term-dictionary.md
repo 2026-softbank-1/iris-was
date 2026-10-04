@@ -96,7 +96,7 @@ erDiagram
 | `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
 | `scaling_config`\* | 원하는 Pod 수(replicas 0~10)와 Pod 당 리소스(jsonb). 비어 있으면 replicas 1 이다 |
 | `kind`\* | `service_kind` Enum (§5). 기본 `APP`. `DATABASE` 는 빌드 없이 고정 공식 이미지로 띄우는 개발용 관리형 DB 다(단일 인스턴스, 백업 없음, 삭제 시 데이터 소실). DB 는 `github_installation_id` 가 없고 저장소 주소·브랜치가 빈 문자열이며 push 로 다시 배포하지 않는다 (ADR 0030) |
-| `database_engine`\*, `database_config`\* | DB 엔진(`database_engine` Enum, §5)과 설정(jsonb `{image, storageGi, port, user, database}`). 자격 증명은 여기 두지 않고 암호화한 서비스 변수(`POSTGRES_PASSWORD` 등)로 둔다 |
+| `database_engine`\*, `database_config`\* | DB 엔진(`database_engine` Enum, §5)과 설정(jsonb `{image, storageGi, port, user, database, initScripts?}`). 자격 증명은 여기 두지 않고 암호화한 서비스 변수(`POSTGRES_PASSWORD` 등)로 둔다. `initScripts`(`[{name, path, kind, sha256, size}]`)는 apply 가 분석에서 복사한 초기화 스크립트로, 내용은 `database_init_scripts`(§4.18)에 있고 데이터 디렉터리가 빈 첫 기동에만 실행된다 (ADR 0031) |
 | `host_aliases`\* | 서비스 namespace 의 호스트 별칭(jsonb `[{name, targetServiceId, port}]`). 코드가 compose 호스트명(`api`, `postgres`)을 그대로 쓰게 같은 프로젝트 서비스의 `app` Service 로 잇는다(chart 0.8.0 ExternalName) |
 | `stack_id`\*, `stack_unit_id`\* | 소속 스택(§4.16)과 그 안의 분석기 unit·dependency id. 스택 안에서 unit id 는 유일하다(증분 apply 의 매칭 기준) |
 | `deployment_strategy`\* | `deployment_strategy` Enum (§5). 기본 `ROLLING`. 저장만 하고 다음 배포부터 적용한다. `CANARY`·`BLUE_GREEN` 은 AWS 타깃이고 저장된 replicas 가 2 이상이고 기능 플래그(`DEPLOYMENT_STRATEGY_ENABLED`)가 켜져 있을 때만 저장할 수 있다 (ADR 0028) |
@@ -347,7 +347,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 |---|---|
 | `project_id`\*, `source_repository_url`\*, `source_branch`\*, `root_directory`\*, `github_installation_id`\* | 소속 프로젝트와 분석한 저장소·브랜치·위치 |
 | `analysis_id`\* | 기준 분석(마지막으로 apply 한 분석) |
-| `pending_changes`\*, `pending_analysis_id`\* | push 재분석 결과가 기준과 다를 때의 변경(jsonb `{analysisId, sourceSha, detectedAt, changes: [{type, unitId, field?, from?, to?}]}`, type: `UNIT_ADDED`·`UNIT_REMOVED`·`UNIT_CHANGED`·`DEPENDENCY_ADDED`·`DEPENDENCY_REMOVED`). 그 분석을 apply 하면 지워진다 |
+| `pending_changes`\*, `pending_analysis_id`\* | push 재분석 결과가 기준과 다를 때의 변경(jsonb `{analysisId, sourceSha, detectedAt, changes: [{type, unitId, field?, from?, to?}]}`, type: `UNIT_ADDED`·`UNIT_REMOVED`·`UNIT_CHANGED`·`DEPENDENCY_ADDED`·`DEPENDENCY_REMOVED`·`DEPENDENCY_CHANGED`(초기화 스크립트가 바뀜, `reason: init_scripts_changed`. 이미 있는 DB 에는 다시 실행하지 않는다)). 그 분석을 apply 하면 지워진다 |
 
 - **의존 그래프**: 호스트 별칭 대상 ∪ 참조 변수 대상 ∪ 분석기 `dependsOn`. 순서(order)는 깊이 + 1 이다(DB 1 → DB 를 쓰는 앱 2 → 그 앱을 쓰는 앱 3).
 - push 는 스택 레포면 같은 커밋으로 force 모드 재분석을 접수한다(`repository_analyses.stack_id`, 스택·커밋마다 한 번).
@@ -363,6 +363,15 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `depends_on_deployment_request_ids`\* | 이 요청이 시작하기 전에 SUCCEEDED 여야 하는 같은 스택 배포의 요청 id |
 | `status`\* | `stack_deployment_step_status` Enum (§5) |
 | `held_by_deployment_request_id`\* | HELD 일 때 막은 앞 단계 요청 |
+
+### 4.18 DB 초기화 스크립트 (DatabaseInitScript) — `database_init_scripts`\*
+
+관리형 DB 의 `/docker-entrypoint-initdb.d` 스크립트 내용 1건이다. sha256 으로 찾고 같은 내용은 한 번만 둔다. Build Worker 가 분석할 때 풀어 둔 소스에서 읽어 해시·크기를 다시 확인한 뒤 넣는다. 분석 결과(`dependencies[].initScripts`)와 DB 서비스(`database_config.initScripts`)가 sha256 으로 가리키고, Deploy Worker 만 values(`database.initScripts`)로 옮긴다. 응답에 내용을 내지 않는다 (ADR 0031).
+
+| 필드 | 설명 |
+|---|---|
+| `sha256`\* | 내용의 sha256(hex). 기본 키 |
+| `size_bytes`\*, `content`\* | 바이트 수(1 MiB 이하)와 원본 바이트(bytea, `.sql.gz` 도 그대로) |
 
 ---
 

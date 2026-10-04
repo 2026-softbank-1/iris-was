@@ -169,9 +169,45 @@
             "requests": { "$ref": "#/definitions/quantities" },
             "limits": { "$ref": "#/definitions/quantities" }
           }
+        },
+        "initScripts": {
+          "description": "/docker-entrypoint-initdb.d 로 mount 하는 초기화 스크립트(ConfigMap app-initdb). 데이터 디렉터리가 비어 있는 첫 기동에서만 이름순으로 실행됩니다. postgres·mysql 은 .sql/.sql.gz, mongodb 는 .js, redis 는 쓸 수 없습니다. 0.8.0 부터.",
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "description": "{NN}-{이름}.{sql|sql.gz|js}. 이름순이 실행 순서입니다.",
+                "type": "string",
+                "maxLength": 100,
+                "pattern": "^[0-9]{2}-[A-Za-z0-9._-]+\\.(sql|sql\\.gz|js)$"
+              },
+              "content": { "description": "텍스트 스크립트(ConfigMap data)", "type": "string", "maxLength": 1048576 },
+              "binaryContent": { "description": "base64 바이너리(ConfigMap binaryData). .sql.gz 용", "type": "string", "maxLength": 1398104, "pattern": "^[A-Za-z0-9+/]*={0,2}$" }
+            },
+            "oneOf": [
+              { "required": ["content"], "not": { "required": ["binaryContent"] } },
+              { "required": ["binaryContent"], "not": { "required": ["content"] } }
+            ]
+          }
         }
       },
       "allOf": [
+        {
+          "if": { "required": ["engine"], "properties": { "engine": { "const": "redis" } } },
+          "then": { "properties": { "initScripts": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "required": ["engine"], "properties": { "engine": { "const": "mongodb" } } },
+          "then": { "properties": { "initScripts": { "items": { "properties": { "name": { "pattern": "\\.js$" } } } } } }
+        },
+        {
+          "if": { "required": ["engine"], "properties": { "engine": { "enum": ["postgres", "mysql"] } } },
+          "then": { "properties": { "initScripts": { "items": { "properties": { "name": { "pattern": "\\.(sql|sql\\.gz)$" } } } } } }
+        },
         { "$ref": "#/definitions/databaseImage/postgres" },
         { "$ref": "#/definitions/databaseImage/mysql" },
         { "$ref": "#/definitions/databaseImage/mongodb" },

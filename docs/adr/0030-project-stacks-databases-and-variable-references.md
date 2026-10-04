@@ -35,7 +35,8 @@ ADR 0029 로 compose 같은 멀티 이미지 레포를 unit 마다 서비스로 
 | D-9 | chart 0.8.0 키(`projectId`·`service.exposeContainerPort`·`hostAliases`·`workload`·`database`)는 `PROJECT_NETWORKING_ENABLED` 를 켠 Worker 가 AWS 타깃 release 에만 쓴다. 꺼져 있거나 on-prem 이면 values 가 이전과 바이트까지 같고, DB 생성·별칭·참조 변수는 422 다. 스택 앱의 `containerPort` 는 분석한 포트(없으면 8080)라 `api:3000` 이 그대로 풀린다 | 0.7.1 schema 는 모르는 키를 거절한다. pin 과 WAS 배포 순서를 설정으로 끊는다 |
 
 ## 결과
-- 롤아웃 순서: ① iris-infra chart 0.8.0 + AWS ApplicationSet pin(0.8.0) 적용 ② WAS 이미지 배포(`alembic upgrade head`: `6b1f0c2d9a41`, `c4e2a7b81f30`) ③ Control API·Deploy Worker 에 `PROJECT_NETWORKING_ENABLED=true`. ③ 뒤 첫 배포에서 기존 AWS 앱에도 `projectId` 라벨이 붙어 Pod 가 한 번 다시 뜬다(롤링). 다른 서비스 values 는 그대로다.
+- 롤아웃 순서: ① iris-infra chart 0.8.0 + AWS ApplicationSet pin(0.8.0) 적용 ② WAS 이미지 배포(`alembic upgrade head`: `6b1f0c2d9a41`, `c4e2a7b81f30`, 초기화 스크립트 `663b24ad4296`) ③ Control API·Deploy Worker 에 `PROJECT_NETWORKING_ENABLED=true`. ③ 뒤 첫 배포에서 기존 AWS 앱에도 `projectId` 라벨이 붙어 Pod 가 한 번 다시 뜬다(롤링). 다른 서비스 values 는 그대로다.
 - on-prem 은 chart 0.6.0 에 남는다. 스택 순서 배포는 on-prem 에서도 동작하지만 DB·별칭·참조 변수는 쓰지 않는다.
 - ponytail: 스택 배포 단계는 순서만 보장하고 앱의 런타임 readiness(예: DB 마이그레이션 완료)는 보지 않는다. DB Ready 는 release SUCCEEDED(Argo Healthy = TCP readiness)다.
 - ponytail: DB 비밀번호 교체·용량 변경은 지원하지 않는다(StatefulSet volumeClaimTemplates 고정).
+- 추가(2026-10-04): apply 로 만든 DB 는 레포의 `/docker-entrypoint-initdb.d` 스크립트를 첫 기동에 한 번 실행한다(chart 0.8.0 `database.initScripts`). 이미 있는 DB 에는 다시 실행하지 않고 `DEPENDENCY_CHANGED` 로만 알린다. [ADR 0031](0031-database-init-scripts.md)

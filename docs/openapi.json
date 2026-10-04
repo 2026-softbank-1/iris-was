@@ -2359,6 +2359,21 @@
             "title": "Analysisid",
             "type": "integer"
           },
+          "changes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StackChangeResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "증분 apply 에서 이미 있는 DB 의 초기화 스크립트가 분석과 달라졌으면 DEPENDENCY_CHANGED(reason init_scripts_changed). 이미 초기화된 DB 에는 다시 실행하지 않는다.",
+            "title": "Changes"
+          },
           "databases": {
             "description": "이 분석으로 만들었거나 이어 쓰는 관리형 DB 서비스",
             "items": {
@@ -3062,6 +3077,53 @@
         "title": "DatabaseEngine",
         "type": "string"
       },
+      "DatabaseInitScriptResponse": {
+        "description": "DB 를 처음 만들 때 한 번 실행하는 초기화 스크립트. 내용은 내지 않는다.",
+        "properties": {
+          "name": {
+            "description": "`/docker-entrypoint-initdb.d` 의 파일 이름(실행 순서)",
+            "examples": [
+              "00-schema.sql"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "레포 안 원본 경로",
+            "examples": [
+              "db/schema.sql"
+            ],
+            "title": "Path"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "바이트 수",
+            "examples": [
+              1827
+            ],
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "sha256",
+          "size"
+        ],
+        "title": "DatabaseInitScriptResponse",
+        "type": "object"
+      },
       "DatabaseSettingsResponse": {
         "properties": {
           "database": {
@@ -3085,6 +3147,21 @@
               }
             ],
             "title": "Image"
+          },
+          "initScripts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DatabaseInitScriptResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "레포 분석에서 옮긴 초기화 스크립트(apply 로 만든 DB 만). 데이터가 빈 첫 기동에만 이름순으로 한 번 실행되고, 이미 초기화된 DB 에는 다시 실행되지 않는다.",
+            "title": "Initscripts"
           },
           "storageGi": {
             "anyOf": [
@@ -6445,16 +6522,59 @@
                 "type": "null"
               }
             ],
+            "examples": [
+              "initScripts"
+            ],
             "title": "Field"
           },
           "from": {
+            "description": "이전 값. initScripts 면 [{path, sha256}] (실행될 스크립트만, 순서대로)",
             "title": "From"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "사용자 안내. 초기화 스크립트는 DB 를 처음 만들 때만 실행되고 이미 있는 DB 에는 다시 실행되지 않는다.",
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DEPENDENCY_CHANGED 의 사유. init_scripts_changed = 초기화 스크립트가 바뀜",
+            "examples": [
+              "init_scripts_changed"
+            ],
+            "title": "Reason"
+          },
+          "serviceId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "apply 응답에서 바뀐 의존성의 기존 DB 서비스 id",
+            "title": "Serviceid"
           },
           "to": {
             "title": "To"
           },
           "type": {
-            "description": "UNIT_ADDED·UNIT_REMOVED·UNIT_CHANGED·DEPENDENCY_ADDED·DEPENDENCY_REMOVED",
+            "description": "UNIT_ADDED·UNIT_REMOVED·UNIT_CHANGED·DEPENDENCY_ADDED·DEPENDENCY_REMOVED·DEPENDENCY_CHANGED",
             "title": "Type",
             "type": "string"
           },
