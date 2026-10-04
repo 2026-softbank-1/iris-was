@@ -24,7 +24,11 @@ from app.schemas.service import (
 )
 from app.schemas.stack import StackChangeResponse
 from app.schemas.variable import VariablesValidationResponse
-from app.services.repository_analysis_service import AppliedAnalysis, UnitSelection
+from app.services.repository_analysis_service import (
+    AppliedAnalysis,
+    DependencyProvisioning,
+    UnitSelection,
+)
 from app.services.stack_apply_service import DependencySelection
 
 UnitId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -55,6 +59,14 @@ class CreateRepositoryAnalysisRequest(ApiModel):
     )
 
 
+class DependencyProvisioningResponse(ApiModel):
+    engine: str = Field(examples=["mongodb"])
+    image: str = Field(
+        description="플랫폼이 띄우는 고정 공식 이미지(digest 고정). compose 이미지와 다를 수 있다.",
+        examples=["docker.io/library/mongo:7@sha256:..."],
+    )
+
+
 class RepositoryAnalysisResponse(ApiModel):
     id: int
     project_id: int
@@ -82,12 +94,32 @@ class RepositoryAnalysisResponse(ApiModel):
     applied_service_ids: list[int] | None = Field(
         default=None, description="apply 로 만든 서비스 id. APPLIED 일 때만 있다."
     )
+    provisioning: dict[str, DependencyProvisioningResponse] | None = Field(
+        default=None,
+        description=(
+            "`result.dependencies[].id` 마다 플랫폼이 개발용 DB 로 띄울 엔진·이미지(지원 엔진만)."
+            " 분석 조회(GET)에만 있다."
+        ),
+    )
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_model(cls, analysis: RepositoryAnalysis) -> "RepositoryAnalysisResponse":
+    def from_model(
+        cls,
+        analysis: RepositoryAnalysis,
+        provisioning: dict[str, DependencyProvisioning] | None = None,
+    ) -> "RepositoryAnalysisResponse":
         return cls(
+            provisioning=(
+                {
+                    key: DependencyProvisioningResponse(engine=p.engine.value, image=p.image)
+                    for key, p in provisioning.items()
+                }
+                or None
+            )
+            if provisioning is not None
+            else None,
             id=analysis.id,
             project_id=analysis.project_id,
             status=analysis.status,
@@ -189,6 +221,13 @@ class ServiceVariablesValidationResponse(VariablesValidationResponse):
     service_id: int
 
 
+class GeneratedSecretResponse(ApiModel):
+    id: str = Field(description="분석의 `result.secrets[].id`", examples=["MONGO_APP_PASSWORD"])
+    service_ids: list[int] = Field(
+        description="이번 apply 가 같은 값을 변수로 저장한 서비스(앱·DB). 값은 변수 탭에서 본다."
+    )
+
+
 class ApplyRepositoryAnalysisResponse(ApiModel):
     analysis_id: int
     services: list[ServiceResponse] = Field(description="앱 서비스(unit)")
@@ -215,9 +254,22 @@ class ApplyRepositoryAnalysisResponse(ApiModel):
         ),
     )
 
+    generated_secrets: list[GeneratedSecretResponse] | None = Field(
+        default=None,
+        description=(
+            "분석이 찾은 `generate: random` 비밀값을 플랫폼이 만들어(이미 있으면 그 값을 나눠)"
+            " consumer 에 저장한 것. 값은 응답에 없다. 처음 apply 한 호출에만 있다."
+        ),
+    )
+
     @classmethod
     def from_applied(cls, applied: AppliedAnalysis) -> "ApplyRepositoryAnalysisResponse":
         return cls(
+            generated_secrets=[
+                GeneratedSecretResponse(id=g.id, service_ids=g.service_ids)
+                for g in applied.generated_secrets
+            ]
+            or None,
             analysis_id=applied.analysis_id,
             services=[ServiceResponse.from_detail(detail) for detail in applied.services],
             databases=[ServiceResponse.from_detail(detail) for detail in applied.databases],

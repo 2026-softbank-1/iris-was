@@ -200,3 +200,62 @@ def test_url_template_masks_password_with_suffix() -> None:
         suffix="?sslmode=disable",
     )
     assert template == f"postgresql://shop:****@{HOST}:5432/shop?sslmode=disable"
+
+
+def test_reference_user_and_password_variable_rules() -> None:
+    ok = VariableReference(
+        service_id=3, property=ReferenceProperty.URL, user="archlog", password_variable="APP_PW"
+    )
+    assert ok.to_json() == {
+        "serviceId": 3,
+        "property": "url",
+        "user": "archlog",
+        "passwordVariable": "APP_PW",
+    }
+    with pytest.raises(ValidationError):
+        VariableReference(service_id=3, property=ReferenceProperty.URL, password_variable="X")
+    with pytest.raises(ValidationError):
+        VariableReference(service_id=3, property=ReferenceProperty.HOST, user="archlog")
+    with pytest.raises(ValidationError):
+        VariableReference(service_id=3, property=ReferenceProperty.URL, user="bad user")
+    dropped = reference_from_parts(
+        3, ReferenceProperty.URL, None, None, user="bad user", password_variable="X"
+    )
+    assert dropped.user is None and dropped.password_variable is None
+
+
+def test_binding_with_password_secret_maps_user_otherwise_managed_credentials() -> None:
+    binding = AnalysisGateBinding.model_validate(
+        {
+            "kind": "dependency",
+            "targetId": "mongo",
+            "property": "url",
+            "scheme": "mongodb",
+            "urlSuffix": "/archlog?authSource=archlog",
+            "user": "archlog",
+            "passwordSecretId": "MONGO_APP_PASSWORD",
+        }
+    )
+    with_secret = _binding_reference(7, ReferenceProperty.URL, binding, "MONGO_APP_PASSWORD")
+    assert with_secret["user"] == "archlog"
+    assert with_secret["passwordVariable"] == "MONGO_APP_PASSWORD"
+    assert "user" not in _binding_reference(7, ReferenceProperty.URL, binding, None)
+
+
+def test_app_user_url_skips_admin_auth_source_and_encodes_password() -> None:
+    connection = build_connection(
+        DatabaseEngine.MONGODB,
+        "h",
+        27017,
+        {
+            "MONGO_INITDB_ROOT_USERNAME": "root",
+            "MONGO_INITDB_ROOT_PASSWORD": "rootpw",
+            "MONGO_INITDB_DATABASE": "app",
+        },
+    ).with_user("archlog", "p@ss/w")
+    assert connection.url(scheme="mongodb", suffix="/archlog") == (
+        "mongodb://archlog:p%40ss%2Fw@h:27017/archlog"
+    )
+    assert url_template(
+        DatabaseEngine.MONGODB, "h", 27017, {"user": "root"}, suffix="/archlog", user="archlog"
+    ) == ("mongodb://archlog:****@h:27017/archlog")

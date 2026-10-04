@@ -79,7 +79,7 @@ async def _apply_shop(world: World, client: AsyncClient) -> int:
     first = await _apply(world, client, analysis_id, ["web", "api", "worker"])
     assert first.status_code == 201, first.text
     services = await _services(world)
-    await _set_variable(world, client, services["api"].id, "JWT_SECRET", "jwt-value")
+    await _set_variable(world, client, services["api"].id, "API_TOKEN", "jwt-value")
     second = await _apply(world, client, analysis_id, ["web"])
     assert second.status_code == 201, second.text
     return analysis_id

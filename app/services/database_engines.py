@@ -8,7 +8,8 @@
 import re
 import secrets
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from urllib.parse import quote
 
 from app.core.exceptions import InvalidInputError
 from app.enums import DatabaseEngine, ReferenceProperty
@@ -224,27 +225,35 @@ class DatabaseConnection:
     user: str
     password: str
     database: str | None
+    # 코드가 쓴 사용자(초기화 스크립트가 만든 앱 사용자)다. 루트 사용자 규칙(authSource=admin)을
+    # 쓰지 않는다.
+    is_custom_user: bool = False
+
+    def with_user(self, user: str, password: str) -> "DatabaseConnection":
+        return replace(self, user=user, password=password, is_custom_user=True)
 
     def url(
         self, *, masked: bool = False, scheme: str | None = None, suffix: str | None = None
     ) -> str:
-        """연결 URL. 자격 증명은 항상 플랫폼이 만든 값이다.
+        """연결 URL. 자격 증명은 플랫폼이 만든 값이고, `with_user` 면 코드가 쓴 사용자와
+        그 비밀값이다.
 
         `scheme`·`suffix` 는 코드가 쓴 URL 에서 읽은 값이다(`postgres+asyncpg`,
         `/db?sslmode=disable`).
         suffix 에 경로(`/` 이상)가 있으면 기본 데이터베이스 경로 대신 쓰고, 쿼리·프래그먼트는 그대로
-        붙인다.
+        붙인다. 사용자·비밀번호는 URL 인코딩한다.
         """
         spec = get_engine_spec(self.engine)
-        password = MASK if masked else self.password
-        base = f"{scheme or spec.url_scheme}://{self.user}:{password}@{self.host}:{self.port}"
+        password = MASK if masked else quote(self.password, safe="")
+        user = quote(self.user, safe="")
+        base = f"{scheme or spec.url_scheme}://{user}:{password}@{self.host}:{self.port}"
         path, rest = split_url_suffix(suffix)
         if path in ("", "/"):
             path = (
                 f"/{self.database}" if self.database and self.engine != DatabaseEngine.REDIS else ""
             )
-        if self.engine == DatabaseEngine.MONGODB:
-            # 루트 사용자는 admin DB 에 만들어진다.
+        if self.engine == DatabaseEngine.MONGODB and not self.is_custom_user:
+            # 루트 사용자는 admin DB 에 만들어진다. 앱 사용자는 경로의 DB(또는 코드의 authSource)다.
             rest = _with_auth_source(rest)
         return f"{base}{path}{rest}"
 
@@ -297,11 +306,16 @@ def url_template(
     *,
     scheme: str | None = None,
     suffix: str | None = None,
+    user: str | None = None,
 ) -> str:
-    """비밀번호를 가린 연결 문자열. 서비스 응답의 connection.urlTemplate 이다."""
+    """비밀번호를 가린 연결 문자열. 서비스 응답의 connection.urlTemplate 이다.
+
+    `user` 가 있으면 코드가 쓴 사용자로 만든다(참조 변수 미리보기).
+    """
     spec = get_engine_spec(engine)
-    user = str(config.get("user") or "") if spec.has_user and spec.user_key else _REDIS_USER
+    managed_user = str(config.get("user") or "") if spec.has_user and spec.user_key else _REDIS_USER
     database = str(config.get("database") or "") if spec.has_database else None
-    return DatabaseConnection(engine, host, port, user, "", database).url(
-        masked=True, scheme=scheme, suffix=suffix
-    )
+    connection = DatabaseConnection(engine, host, port, managed_user, "", database)
+    if user is not None:
+        connection = connection.with_user(user, "")
+    return connection.url(masked=True, scheme=scheme, suffix=suffix)

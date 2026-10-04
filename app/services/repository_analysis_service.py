@@ -22,6 +22,7 @@ from app.enums import (
     AnalysisGateDecision,
     AnalysisGateMode,
     Builder,
+    DatabaseEngine,
     DeploymentTrigger,
     RepositoryAnalysisStatus,
     ServiceKind,
@@ -33,6 +34,7 @@ from app.repositories.project_repository import ProjectRepository
 from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
 from app.schemas.analysis_gate import AnalysisGateResult, AnalysisGateUnit
 from app.services.builder_detection import is_valid_docker_target
+from app.services.database_engines import resolve_image
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.service_registry_service import (
     AnalyzedServicePlan,
@@ -42,7 +44,11 @@ from app.services.service_registry_service import (
     slugify_service_name,
 )
 from app.services.source_repository_service import SourceRepositoryService
-from app.services.stack_apply_service import DependencySelection, StackApplyService
+from app.services.stack_apply_service import (
+    DependencySelection,
+    GeneratedSecret,
+    StackApplyService,
+)
 from app.services.stack_service import StackService
 from app.services.variable_validation import VariableValidation, VariableValidationService
 
@@ -76,6 +82,14 @@ class AppliedAnalysis:
     # 증분 apply 에서 이미 있는 DB 의 초기화 스크립트가 달라진 것(DEPENDENCY_CHANGED). 다시 실행하지
     # 않는다.
     changes: list[dict[str, Any]] = field(default_factory=list)
+    # 이번 apply 가 consumer 에 저장한 공유 비밀값(id·서비스). 값은 담지 않는다.
+    generated_secrets: list[GeneratedSecret] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DependencyProvisioning:
+    engine: DatabaseEngine
+    image: str
 
 
 class RepositoryAnalysisService:
@@ -92,7 +106,9 @@ class RepositoryAnalysisService:
         stack_apply_service: StackApplyService | None = None,
         stack_service: StackService | None = None,
         variable_validation_service: VariableValidationService | None = None,
+        database_images: dict[str, str] | None = None,
     ) -> None:
+        self._database_images = database_images or {}
         # 셋이 다 있으면 분석 결과를 스택으로 적용한다(DB·참조 변수·별칭·의존 순서 배포).
         self._stack_apply_service = stack_apply_service
         self._stack_service = stack_service
@@ -169,6 +185,25 @@ class RepositoryAnalysisService:
     ) -> RepositoryAnalysis:
         return await self._get_owned(owner_id, project_id, analysis_id)
 
+    def provisioning(self, analysis: RepositoryAnalysis) -> dict[str, DependencyProvisioning]:
+        """플랫폼이 의존성마다 실제로 띄울 엔진·고정 이미지(compose 이미지가 아니다).
+        지원 엔진만."""
+        if not analysis.result:
+            return {}
+        try:
+            result = AnalysisGateResult.model_validate(analysis.result)
+        except ValueError:
+            return {}
+        provisioning: dict[str, DependencyProvisioning] = {}
+        for dependency in result.dependencies:
+            try:
+                engine = DatabaseEngine(dependency.engine)
+            except ValueError:
+                continue
+            image = resolve_image(engine, self._database_images)
+            provisioning[dependency.id] = DependencyProvisioning(engine, image.reference)
+        return provisioning
+
     async def apply_analysis(
         self,
         owner_id: int,
@@ -197,6 +232,7 @@ class RepositoryAnalysisService:
             )
         assert self._stack_apply_service is not None and self._stack_service is not None
         changes: list[dict[str, Any]] = []
+        generated_secrets: list[GeneratedSecret] = []
         if analysis.status != RepositoryAnalysisStatus.APPLIED:
             plans = self._plans(analysis, selections)
             applied = await self._stack_apply_service.apply(
@@ -209,6 +245,7 @@ class RepositoryAnalysisService:
             )
             analysis.stack_id = analysis.stack_id or applied.stack.id
             changes = applied.changes
+            generated_secrets = applied.generated_secrets
             analysis.mark_as_applied(
                 [s.id for s in applied.apps] + [s.id for s in applied.databases]
             )
@@ -242,6 +279,7 @@ class RepositoryAnalysisService:
             stack_deployment_id=stack_deployment_id,
             variable_validations=validations,
             changes=changes,
+            generated_secrets=generated_secrets,
         )
 
     @property

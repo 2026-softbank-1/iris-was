@@ -43,6 +43,10 @@ class AnalysisGateBinding(_WireModel):
     scheme: str | None = None
     url_suffix: str = ""
     has_credentials: bool = False
+    # URL userinfo 가 코드에 적힌 사용자(리터럴일 때만)와 비밀번호 자리의 `${VAR}`(secrets[].id).
+    # 있으면 플랫폼은 DB 관리 자격 증명 대신 이 사용자와 그 비밀값으로 URL 을 만든다.
+    user: str | None = None
+    password_secret_id: str | None = None
 
 
 class AnalysisGateEnv(_WireModel):
@@ -50,6 +54,8 @@ class AnalysisGateEnv(_WireModel):
     stage: str = "runtime"
     required: bool = False
     binding: AnalysisGateBinding | None = None
+    # 이 키의 값이 secrets[].id 인 비밀값이다.
+    secret_id: str | None = None
 
 
 class AnalysisGateHostAlias(_WireModel):
@@ -75,6 +81,13 @@ class AnalysisGateInitScript(_WireModel):
     supported: bool = False
 
 
+class AnalysisGateDependencyEnv(_WireModel):
+    """DB 컨테이너가 읽는 비관리 env(초기화 스크립트가 쓰는 `MONGO_APP_PASSWORD` 등). 값은 없다."""
+
+    key: str
+    secret_id: str | None = None
+
+
 class AnalysisGateDependency(_WireModel):
     """compose 이미지 전용 서비스(DB 등). 비밀번호는 분석기가 내지 않는다."""
 
@@ -85,6 +98,7 @@ class AnalysisGateDependency(_WireModel):
     database: str | None = None
     user: str | None = None
     init_scripts: list[AnalysisGateInitScript] = Field(default_factory=list)
+    env: list[AnalysisGateDependencyEnv] = Field(default_factory=list)
 
 
 class AnalysisGateUnit(_WireModel):
@@ -106,6 +120,36 @@ class AnalysisGateUnit(_WireModel):
     depends_on: list[str] = Field(default_factory=list)
 
 
+class AnalysisGateSecretConsumer(_WireModel):
+    """비밀값을 쓰는 곳. kind 는 unit|dependency, via 는 env(그 키의 값)|url_password(URL userinfo
+    비밀번호). 모르는 값은 WAS 가 건너뛴다."""
+
+    kind: str
+    target_id: str
+    key: str
+    via: str = "env"
+
+
+class AnalysisGatePlatformManaged(_WireModel):
+    """DB 엔진이 관리하는 키에 매핑된 비밀값(`MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}`).
+    플랫폼이 만든 그 DB 의 속성(password)을 쓴다."""
+
+    dependency_id: str
+    property: str = "password"
+
+
+class AnalysisGateSecret(_WireModel):
+    """compose 가 값 없이 넘기는 비밀값(`${SESSION_SECRET}`). 값·기본값은 분석기가 내지 않는다.
+
+    generate=random 이면 WAS 가 한 번 만들어 모든 consumer 에 같은 값으로 저장한다.
+    """
+
+    id: str = Field(min_length=1, max_length=200)
+    generate: str | None = None
+    platform_managed: AnalysisGatePlatformManaged | None = None
+    consumers: list[AnalysisGateSecretConsumer] = Field(default_factory=list)
+
+
 class AnalysisGateResult(_WireModel):
     schema_version: Literal["iris.analysis-gate.v1"]
     source_sha: str | None = None
@@ -114,6 +158,7 @@ class AnalysisGateResult(_WireModel):
     simple_build: AnalysisGateSimpleBuild | None = None
     units: list[AnalysisGateUnit] = Field(default_factory=list)
     dependencies: list[AnalysisGateDependency] = Field(default_factory=list)
+    secrets: list[AnalysisGateSecret] = Field(default_factory=list)
     # 분석 결과는 실행 승인이 아니다. 분석기가 다른 값을 주면 계약 위반이다.
     execution_authorized: Literal[False] = False
 

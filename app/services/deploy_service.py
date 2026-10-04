@@ -592,8 +592,12 @@ class DeployService:
                     cipher=self._cipher,
                 )
                 owner = release.deployment_request.service
+                # 값 변수는 요청 시점 스냅샷 값이다(참조의 passwordVariable 도 같은 값을 쓴다).
+                values = dict(plaintexts)
                 for key, reference in references.items():
-                    resolved = await resolver.resolve(owner, reference, masked=False)
+                    resolved = await resolver.resolve(
+                        owner, reference, masked=False, owner_values=values
+                    )
                     plaintexts[key] = resolved.value
         # 빈 값은 chart schema(minLength 1)가 받지 않아 Secret 에 넣지 않는다.
         return {key: value for key, value in plaintexts.items() if value != ""}

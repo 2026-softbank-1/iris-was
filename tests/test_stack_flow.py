@@ -98,7 +98,7 @@ SHOP_FILES: dict[str, bytes] = {
     environment:
       DATABASE_URL: postgres://shop:secret@postgres:5432/shop
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET}
+      API_TOKEN: ${API_TOKEN}
     depends_on: [postgres, redis]
   worker:
     build: ./worker
@@ -337,12 +337,12 @@ async def _set_variable(
 
 
 async def _applied_shop(world: World, client: AsyncClient) -> dict[str, Any]:
-    """apply 한 번(환경변수 부족으로 배포 보류) → JWT_SECRET 추가 → 같은 apply 재전송(배포 접수)."""
+    """apply 한 번(환경변수 부족으로 배포 보류) → API_TOKEN 추가 → 같은 apply 재전송(배포 접수)."""
     analysis_id = await _analyze(world, client, SHOP_FILES)
     first = await _apply(world, client, analysis_id, ["web", "api", "worker"])
     assert first.status_code == 201, first.text
     services = await _services(world)
-    await _set_variable(world, client, services["api"].id, "JWT_SECRET", "jwt-value")
+    await _set_variable(world, client, services["api"].id, "API_TOKEN", "jwt-value")
     second = await _apply(world, client, analysis_id, ["web"])
     assert second.status_code == 201, second.text
     return {
@@ -382,7 +382,7 @@ async def test_apply_creates_databases_apps_references_aliases_and_ordered_stack
     applied = await _applied_shop(world, client)
     first, second = applied["first"], applied["second"]
 
-    # 첫 apply: 서비스는 만들고, api 의 필수 변수(JWT_SECRET)가 없어 배포는 보류했다.
+    # 첫 apply: 서비스는 만들고, api 의 필수 변수(API_TOKEN)가 없어 배포는 보류했다.
     assert sorted(s["stack"]["unitId"] for s in first["services"]) == ["api", "web", "worker"]
     assert sorted(d["stack"]["unitId"] for d in first["databases"]) == ["postgres", "redis"]
     assert "stackDeploymentId" not in first
@@ -390,7 +390,7 @@ async def test_apply_creates_databases_apps_references_aliases_and_ordered_stack
     services = await _services(world)
     api_issue = issues[services["api"].id]["issues"]
     assert [(i["key"], i["code"], i["severity"]) for i in api_issue] == [
-        ("JWT_SECRET", "REQUIRED_MISSING", "error")
+        ("API_TOKEN", "REQUIRED_MISSING", "error")
     ]
     assert second["stackDeploymentId"] > 0 and "variableIssues" not in second
     assert {s["id"] for s in second["services"]} == {s["id"] for s in first["services"]}
@@ -1199,7 +1199,7 @@ async def test_deploy_worker_commits_database_and_stack_app_values_with_resolved
     assert unseal(key, api_sealed["REDIS_URL"], f"svc-{api.id}", api_name).startswith(
         "redis://default:"
     )
-    assert unseal(key, api_sealed["JWT_SECRET"], f"svc-{api.id}", api_name) == "jwt-value"
+    assert unseal(key, api_sealed["API_TOKEN"], f"svc-{api.id}", api_name) == "jwt-value"
     # 평문 비밀은 Git(values)·응답·로그 어디에도 없다.
     assert password not in json.dumps(api_values) and password not in json.dumps(db_values)
     assert password not in caplog.text
