@@ -1,7 +1,7 @@
-"""Deploy Worker 가 쓰는 GitOps values 가 iris-service chart 0.8.0 schema 를 통과하는지 본다.
+"""Deploy Worker 가 쓰는 GitOps values 가 iris-service chart 0.9.0 schema 를 통과하는지 본다.
 
 schema 는 `IRIS_SERVICE_CHART_DIR`, 같은 작업 공간의 iris-infra 체크아웃(`../infra`), 없으면
-`tests/fixtures/iris-service-chart`(chart 0.8.0 의 values.schema.json·values.yaml 사본) 순서로
+`tests/fixtures/iris-service-chart`(chart 0.9.0 의 values.schema.json·values.yaml 사본) 순서로
 읽는다.
 helm 처럼 chart 기본값(values.yaml)에 Worker 값을 덮어 합친 뒤 검사한다. 기능이 꺼진 Worker 의
 values 는 이전과 같아야 한다(새 키가 없다).
@@ -20,6 +20,7 @@ from app.enums import Builder, DatabaseEngine
 from app.services.builder_detection import DeployConfig
 from app.services.database_engines import ENGINE_SPECS, resolve_image
 from app.services.deploy_service import (
+    ONPREM_ECR_PULL_SECRET,
     NetworkingValues,
     render_database_values,
     render_service_values,
@@ -104,10 +105,33 @@ def test_standalone_app_with_networking_omits_empty_host_aliases() -> None:
     assert values["containerPort"] == 8080
 
 
-def test_app_values_without_networking_have_no_chart_080_keys() -> None:
+def test_app_values_without_networking_have_no_chart_090_keys() -> None:
     values = json.loads(_app_values(None))
     assert not {"projectId", "service", "hostAliases", "workload", "database"} & set(values)
     assert values["containerPort"] == 8080
+
+
+@requires_chart
+def test_registered_server_values_keep_image_pull_secrets_without_chart_090_keys() -> None:
+    # 사용자가 등록한 서버 타깃(ONPREM)은 프로젝트 통신 키 없이 imagePullSecrets 만 더한다.
+    values = _validate(
+        render_service_values(
+            host_label="api-12-k3x9q2ma",
+            release_id=7,
+            image_repository="123.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/12",
+            image_digest=DIGEST,
+            source_sha="a" * 40,
+            builder=Builder.DOCKERFILE,
+            deploy=DeployConfig(),
+            base_domain="internal.likelion.uk",
+            iris={"serviceName": "api", "targetName": "onprem-k3x9q2ma", "deploymentId": 9},
+            variables=SEALED,
+            scaling=ScalingConfig.defaults(),
+            image_pull_secrets=[ONPREM_ECR_PULL_SECRET],
+        )
+    )
+    assert values["imagePullSecrets"] == [{"name": "iris-ecr-pull"}]
+    assert not {"projectId", "service", "hostAliases", "workload", "database"} & set(values)
 
 
 @requires_chart

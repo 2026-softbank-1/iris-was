@@ -31,13 +31,13 @@
       "additionalProperties": false,
       "properties": {
         "kind": {
-          "description": "app: Rollout·Ingress(기본). database: 고정 공식 이미지 StatefulSet·PVC. 0.8.0 부터.",
+          "description": "app: Rollout·Ingress(기본). database: 고정 공식 이미지 StatefulSet·PVC. 0.9.0 부터.",
           "enum": ["app", "database"]
         }
       }
     },
     "projectId": {
-      "description": "Pod 라벨 iris.io/project-id. 같은 값의 Pod 끼리 namespace 를 넘어 통신합니다. 0.8.0 부터.",
+      "description": "Pod 라벨 iris.io/project-id. 같은 값의 Pod 끼리 namespace 를 넘어 통신합니다. 0.9.0 부터.",
       "oneOf": [
         { "type": "string", "maxLength": 63, "pattern": "^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$" },
         { "type": "integer", "minimum": 1 }
@@ -73,7 +73,7 @@
       "properties": {
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "exposeContainerPort": {
-          "description": "true 면 app Service 에 name container, port containerPort 를 더합니다. 0.8.0 부터.",
+          "description": "true 면 app Service 에 name container, port containerPort 를 더합니다. 0.9.0 부터.",
           "type": "boolean"
         }
       }
@@ -98,6 +98,18 @@
         "serviceName": { "$ref": "#/definitions/dnsLabel" },
         "targetName": { "$ref": "#/definitions/dnsLabel" },
         "deploymentId": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": { "name": { "$ref": "#/definitions/dnsLabel" } }
       }
     },
     "variables": {
@@ -125,7 +137,7 @@
       }
     },
     "hostAliases": {
-      "description": "이 namespace 의 ExternalName Service. 다른 서비스의 app Service(svc-* namespace)로만 잇습니다. 0.8.0 부터.",
+      "description": "이 namespace 의 ExternalName Service. 다른 서비스의 app Service(svc-* namespace)로만 잇습니다. 0.9.0 부터.",
       "type": "array",
       "maxItems": 20,
       "items": {
@@ -149,7 +161,7 @@
       }
     },
     "database": {
-      "description": "workload.kind 가 database 일 때만 씁니다. 자격 증명은 variables 로 받습니다. 0.8.0 부터.",
+      "description": "workload.kind 가 database 일 때만 씁니다. 자격 증명은 variables 로 받습니다. 0.9.0 부터.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -171,7 +183,7 @@
           }
         },
         "initScripts": {
-          "description": "/docker-entrypoint-initdb.d 로 mount 하는 초기화 스크립트(ConfigMap app-initdb). 데이터 디렉터리가 비어 있는 첫 기동에서만 이름순으로 실행됩니다. postgres·mysql 은 .sql/.sql.gz, mongodb 는 .js, redis 는 쓸 수 없습니다. 0.8.0 부터.",
+          "description": "/docker-entrypoint-initdb.d 로 mount 하는 초기화 스크립트(ConfigMap app-initdb). 데이터 디렉터리가 비어 있는 첫 기동에서만 이름순으로 실행됩니다. postgres·mysql 은 .sql/.sql.gz, mongodb 는 .js, redis 는 쓸 수 없습니다. 0.9.0 부터.",
           "type": "array",
           "maxItems": 20,
           "items": {

@@ -24,18 +24,19 @@ _ZERO_NONCE = bytes(12)
 
 
 class SecretSealer:
-    def __init__(self, certificate_pem: str) -> None:
+    def __init__(self, certificate_pem: str, setting: str = "SEALED_SECRETS_CERT") -> None:
+        """setting 은 인증서가 어디서 왔는지다. 잘못된 인증서일 때 오류에 남긴다."""
         # 환경변수에는 줄바꿈을 `\n` 두 글자로 적어도 된다.
         pem = certificate_pem.replace("\\n", "\n").strip().encode()
         try:
             public_key = x509.load_pem_x509_certificate(pem).public_key()
         except ValueError as exc:
             raise NotConfiguredError(
-                "sealed secrets certificate is invalid", setting="SEALED_SECRETS_CERT"
+                "sealed secrets certificate is invalid", setting=setting
             ) from exc
         if not isinstance(public_key, rsa.RSAPublicKey):
             raise NotConfiguredError(
-                "sealed secrets certificate must hold an RSA key", setting="SEALED_SECRETS_CERT"
+                "sealed secrets certificate must hold an RSA key", setting=setting
             )
         self._public_key = public_key
 

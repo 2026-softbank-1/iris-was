@@ -1,4 +1,5 @@
-"""세션 토큰과 OAuth state 의 서명·검증(모두 HS256 JWT), CLI 로그인 폴링 비밀의 해시·비교."""
+"""세션 토큰과 OAuth state 의 서명·검증(모두 HS256 JWT), 무작위 비밀(CLI 로그인 폴링 비밀·
+온프레미스 서버 등록 토큰·서버 비밀)의 해시·비교."""
 
 import hashlib
 import hmac
@@ -77,14 +78,26 @@ def generate_url_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def hash_url_token(token: str) -> str:
+    """generate_url_token 으로 만든 비밀의 저장용 해시(SHA-256 hex).
+
+    256비트 무작위 값이라 무차별 대입이 불가능하다. 느린 해시·salt 없이 SHA-256 으로 충분하다.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def verify_url_token(token: str, expected_hash: str) -> bool:
+    """비밀을 해시해 저장된 해시와 상수 시간으로 비교한다."""
+    return hmac.compare_digest(hash_url_token(token), expected_hash)
+
+
 def hash_poll_secret(poll_secret: str) -> str:
-    # 256비트 무작위 값이라 무차별 대입이 불가능하다. 느린 해시·salt 없이 SHA-256 으로 충분하다.
-    return hashlib.sha256(poll_secret.encode()).hexdigest()
+    return hash_url_token(poll_secret)
 
 
 def verify_poll_secret(poll_secret: str, expected_hash: str) -> bool:
     """폴링 비밀을 해시해 저장된 해시와 상수 시간으로 비교한다."""
-    return hmac.compare_digest(hash_poll_secret(poll_secret), expected_hash)
+    return verify_url_token(poll_secret, expected_hash)
 
 
 def _encode(claims: dict[str, object], purpose: TokenPurpose, secret: str, ttl: timedelta) -> str:

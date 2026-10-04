@@ -38,9 +38,11 @@ from app.enums import (
     DeploymentTrigger,
     FailureCode,
     JobKind,
+    OnpremServerStatus,
     RepositoryAnalysisStatus,
     ServiceKind,
     StackDeploymentStepStatus,
+    TargetKind,
 )
 from app.main import app
 from app.models import (
@@ -48,15 +50,18 @@ from app.models import (
     DeploymentRequest,
     GithubInstallation,
     Job,
+    OnpremServer,
     Project,
     RepositoryAnalysis,
     Service,
     ServiceStack,
     ServiceVariable,
     StackDeploymentStep,
+    Target,
     User,
     UserGithubInstallation,
 )
+from app.models.base import now_utc
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.services.analysis_gate_service import AnalysisGateService
 from app.services.deployment_status_service import DeploymentStatusService
@@ -935,6 +940,102 @@ async def test_apply_on_onprem_target_skips_databases_and_networking(
     assert rejected.json()["details"][0]["reason"] == "networking_unsupported_target"
 
 
+async def test_registered_server_target_rejects_networking_but_keeps_stack(
+    world: World, client: AsyncClient
+) -> None:
+    # 사용자가 등록한 서버 타깃도 kind 가 ONPREM 이라 공용 onprem 과 같은 규칙이다: DB·별칭·참조
+    # 변수는 거절하고(chart 0.9.0 키를 받지 않는다) 스택 묶음·순서는 그대로 쓴다.
+    async with world.factory.begin() as session:
+        target = await add(
+            session,
+            Target(
+                name="onprem-k3x9q2ma",
+                kind=TargetKind.ONPREM,
+                domain_suffix="internal.likelion.uk",
+                owner_id=world.user.id,
+            ),
+        )
+        await add(
+            session,
+            OnpremServer(
+                owner_id=world.user.id,
+                name="home-lab",
+                server_key="k3x9q2ma",
+                target_id=target.id,
+                status=OnpremServerStatus.CONNECTED,
+                registration_token_hash="0" * 64,
+                registration_expires_at=now_utc(),
+            ),
+        )
+    url = f"/api/v1/projects/{world.project_id}/databases"
+    database = await _call(
+        world,
+        client,
+        "POST",
+        url,
+        json={"name": "pg", "engine": "postgres", "targetIds": [target.id]},
+    )
+    assert database.status_code == 422
+    assert database.json()["details"] == [
+        {"field": "engine", "reason": "networking_unsupported_target"}
+    ]
+
+    analysis_id = await _analyze(world, client, SHOP_FILES)
+    applied = await _apply(
+        world, client, analysis_id, ["api", "web", "worker"], targetIds=[target.id], deploy=False
+    )
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["data"]["databases"] == []
+    services = await _services(world)
+    assert {s.stack_id for s in services.values()} != {None}
+    assert all(s.host_aliases is None for s in services.values())
+    async with world.factory() as session:
+        assert (await session.scalars(select(ServiceVariable))).all() == []
+
+    web, api = services["web"], services["api"]
+    alias = await _call(
+        world,
+        client,
+        "PATCH",
+        f"/api/v1/services/{web.id}",
+        json={"hostAliases": [{"name": "backend", "targetServiceId": api.id}]},
+    )
+    assert alias.status_code == 422
+    assert alias.json()["details"][0]["reason"] == "networking_unsupported_target"
+    reference = await _call(
+        world,
+        client,
+        "POST",
+        f"/api/v1/services/{web.id}/variables",
+        json={"key": "API_URL", "reference": {"serviceId": api.id, "property": "url"}},
+    )
+    assert reference.status_code == 422
+
+    # 서버가 연결되지 않았으면 스택 push 는 그 서비스만 건너뛰고(409 로 웹훅을 실패시키지 않는다)
+    # 재분석은 그대로 접수한다. 연결되면 같은 스택 순서로 다시 배포한다.
+    async with world.factory.begin() as session:
+        await session.execute(update(OnpremServer).values(status=OnpremServerStatus.PENDING))
+    raw, headers = _push("d-server-1", ["web/nginx/default.conf"])
+    skipped = await _call(
+        world, client, "POST", "/api/v1/webhooks/github", content=raw, headers=headers
+    )
+    assert skipped.status_code == 200, skipped.text
+    assert skipped.json()["data"]["deploymentRequestIds"] == []
+    assert len(skipped.json()["data"]["repositoryAnalysisIds"]) == 1
+    assert "web" not in await _latest_requests(world)
+
+    async with world.factory.begin() as session:
+        await session.execute(update(OnpremServer).values(status=OnpremServerStatus.CONNECTED))
+    raw, headers = _push("d-server-2", ["web/nginx/default.conf"], sha="c" * 40)
+    pushed = await _call(
+        world, client, "POST", "/api/v1/webhooks/github", content=raw, headers=headers
+    )
+    assert pushed.status_code == 200, pushed.text
+    web_request = (await _latest_requests(world))["web"]
+    assert pushed.json()["data"]["deploymentRequestIds"] == [web_request.id]
+    assert web_request.trigger_type == DeploymentTrigger.PUSH
+
+
 async def test_apply_without_provisioning_keeps_dependencies_unbound(
     world: World, client: AsyncClient
 ) -> None:
@@ -980,7 +1081,7 @@ async def test_deploy_worker_commits_database_and_stack_app_values_with_resolved
     world: World, client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     """DB 는 빌드 없이 DEPLOY job 으로 values(workload database)를 커밋하고, 앱은 참조 변수를 DB 의
-    현재 자격 증명으로 풀어 봉인한다. 두 values 모두 chart 0.8.0 schema 를 통과한다."""
+    현재 자격 증명으로 풀어 봉인한다. 두 values 모두 chart 0.9.0 schema 를 통과한다."""
     from app.clients.secret_sealer import SecretSealer
     from app.core.config import DeployWorkerSettings
     from app.services.deploy_service import DeployService

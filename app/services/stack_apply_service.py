@@ -102,7 +102,7 @@ class StackApplyService:
         result = AnalysisGateResult.model_validate(analysis.result or {})
         project = await self._service_registry_service.get_project(owner_id, analysis.project_id)
         resolved_target_ids, target_kind = await self._service_registry_service.resolve_targets(
-            target_ids
+            owner_id, target_ids
         )
         networking = is_networking_available(self._is_networking_enabled, target_kind)
         stack = await self._find_or_create_stack(analysis)

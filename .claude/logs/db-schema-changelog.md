@@ -6,6 +6,7 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
+- 2026-10-03T15:32Z · app/models/onprem_server.py (Write) · 신규/동일
 - 2026-10-03T14:34Z · app/models/deployment_request.py (Edit) · requested_deployment_strategy, deployment_strategy 컬럼 추가
 - 2026-10-03T14:34Z · app/models/service.py (Edit) · deployment_strategy 컬럼 추가
 - 2026-10-03T03:10Z · app/models/deployment_request.py (Edit) · service_upload_id 컬럼 추가
@@ -46,6 +47,8 @@
 
 - 2026-10-03: `deployment_repairs` 추가. 배포·성공한 진단 FK, 서비스 범위 멱등 키, 배포별 RUNNING 부분 unique index, 고정 원문/소스/정책·digest, generation claim 및 UNKNOWN_OUTCOME 기록. revision `9f81c52a01bd`; DDL 동기화.
 - 2026-10-03: `services.deployment_strategy`(NOT NULL, 기본 ROLLING)·`deployment_requests.requested_deployment_strategy`·`deployment_strategy`(nullable) 추가, 각각 CHECK 제약. revision `f49792bf1fcc`; DDL 동기화.
+- 2026-10-04: `onprem_servers` 추가(소유자 안 이름 부분 unique, server_key·target_id·토큰 해시 unique, connect_generation·lease·next_check_at 으로 Worker 선점). `targets.owner_id`(FK users)·소프트 삭제 컬럼 추가. revision `e98de0d34fa3`; DDL 동기화.
+- 2026-10-04: main 병합. `repository_analyses`(`061a382166d5`)의 down_revision 을 `e98de0d34fa3` 로 옮겨 head 를 하나로 잇는다(스키마 변경 없음).
 - 2026-10-04: `repository_analyses` 추가(레포 구성 분석. 프로젝트·사용자·설치 FK, 고정 source_sha, mode·status·decision·complexity·error_code CHECK, 분석기 응답 result·applied_service_ids JSONB, attempts·locked_by·locked_until lease, QUEUED·RUNNING 부분 index, NOTIFY jobs 트리거). revision `061a382166d5`; DDL 동기화.
 - 2026-10-04: 관리형 DB·참조 변수. `services.kind`(APP·DATABASE, 기본 APP)·`database_engine`·`database_config`·`host_aliases` 추가, `services.github_installation_id` nullable, `service_variables.reference` JSONB 추가·`encrypted_value` nullable + `value_or_reference` CHECK, failure_code CHECK 에 VARIABLES_INVALID. revision `6b1f0c2d9a41`; DDL 동기화.
 - 2026-10-04: 스택. `service_stacks`·`stack_deployments`·`stack_deployment_steps` 추가, `services.stack_id`·`stack_unit_id`(스택·unit 부분 unique), `repository_analyses.stack_id`(스택·커밋 부분 unique), failure_code CHECK 에 DEPENDENCY_FAILED. revision `c4e2a7b81f30`; DDL 동기화.

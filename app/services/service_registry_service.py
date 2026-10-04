@@ -85,7 +85,7 @@ class ServiceDetail:
     service: Service
     target_ids: list[int]
     latest_deployment: DeploymentRequest | None = None
-    # 프로젝트 내부 통신(chart 0.8.0)을 쓰는 서비스인지. 내부 포트 계산에 쓴다.
+    # 프로젝트 내부 통신(chart 0.9.0)을 쓰는 서비스인지. 내부 포트 계산에 쓴다.
     is_networking: bool = False
 
 
@@ -179,7 +179,7 @@ class ServiceRegistryService:
             await self._ensure_branch_exists(owner_id, repository.full_name, branch)
         service_name = name or slugify_service_name(repository.full_name.split("/", 1)[1])
         await self._ensure_name_available(project.id, service_name)
-        resolved_target_ids = await self._resolve_target_ids(target_ids)
+        resolved_target_ids = await self._resolve_target_ids(owner_id, target_ids)
         normalized_root = normalize_root_directory(root_directory)
         service = Service(
             project_id=project.id,
@@ -242,7 +242,7 @@ class ServiceRegistryService:
                 )
             names.add(plan.name)
             await self._ensure_name_available(project.id, plan.name)
-        resolved_target_ids = await self._resolve_target_ids(target_ids)
+        resolved_target_ids = await self._resolve_target_ids(owner_id, target_ids)
         installation_row_id = await self._get_installation_row_id(repository)
 
         services: list[Service] = []
@@ -337,7 +337,7 @@ class ServiceRegistryService:
             setattr(service, field, value)
 
         if "target_ids" in changes:
-            target_ids = await self._resolve_target_ids(changes["target_ids"])
+            target_ids = await self._resolve_target_ids(owner_id, changes["target_ids"])
             await self._ensure_target_kept_after_deploy(service.id, target_ids)
             await self._service_repository.replace_targets(service.id, set(target_ids))
         await self._session.commit()
@@ -357,9 +357,11 @@ class ServiceRegistryService:
     async def ensure_name_available(self, project_id: int, name: str) -> None:
         await self._ensure_name_available(project_id, name)
 
-    async def resolve_targets(self, target_ids: list[int] | None) -> tuple[list[int], TargetKind]:
-        """서비스가 배포될 타깃 id(1개)와 그 종류."""
-        resolved = await self._resolve_target_ids(target_ids)
+    async def resolve_targets(
+        self, owner_id: int, target_ids: list[int] | None
+    ) -> tuple[list[int], TargetKind]:
+        """서비스가 배포될 타깃 id(1개)와 그 종류. 사용자가 등록한 서버 타깃은 ONPREM 이다."""
+        resolved = await self._resolve_target_ids(owner_id, target_ids)
         targets = await self._target_repository.search_by_ids(resolved)
         return resolved, targets[0].kind if targets else TargetKind.AWS
 
@@ -476,15 +478,19 @@ class ServiceRegistryService:
         if branch not in {b.name for b in branches}:
             raise InvalidInputError("branch not found in repository", field="branch", branch=branch)
 
-    async def _resolve_target_ids(self, target_ids: list[int] | None) -> list[int]:
-        """서비스는 타깃 하나에만 배포한다. 지정이 없으면 `aws` 타깃이다."""
+    async def _resolve_target_ids(self, owner_id: int, target_ids: list[int] | None) -> list[int]:
+        """서비스는 타깃 하나에만 배포한다. 지정이 없으면 `aws` 타깃이다.
+
+        고를 수 있는 타깃은 공용 타깃과 이 사용자가 등록한 서버의 타깃이다. 남의 서버 타깃은 없는
+        타깃과 같게 거절한다.
+        """
         if target_ids is None:
             targets = await self._target_repository.search_all()
             return [t.id for t in targets if t.name == AWS_TARGET_NAME]
         wanted = sorted(set(target_ids))
         if len(wanted) != 1:
             raise InvalidInputError("exactly one target is required", field="targetIds")
-        if not await self._target_repository.search_by_ids(wanted):
+        if not await self._target_repository.search_visible_by_ids(wanted, owner_id):
             raise InvalidInputError("unknown target", field="targetIds", target_ids=wanted)
         return wanted
 

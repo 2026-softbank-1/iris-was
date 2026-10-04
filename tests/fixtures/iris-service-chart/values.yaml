@@ -1,7 +1,7 @@
 # 공통 기본값입니다. 배포마다 달라지는 값(image, release, command, health.path, route.host)은
 # Deploy Worker 가 GitOps 저장소의 services/{service_id}/prod/values.yaml 로 넘깁니다.
 # 실제 Secret 값은 기록하지 않습니다.
-# app: Rollout·Ingress(기본). database: 빌드 없는 고정 공식 이미지 StatefulSet·PVC(아래 database). 0.8.0 부터.
+# app: Rollout·Ingress(기본). database: 빌드 없는 고정 공식 이미지 StatefulSet·PVC(아래 database). 0.9.0 부터.
 workload:
   kind: app
 replicas: 1
@@ -34,7 +34,7 @@ networkPolicy:
   egressDeniedCidrs: ["10.40.0.0/16", "169.254.0.0/16"]
   # 위에서 막은 VPC 안에서 예외로 열 대상(예: 사용자 DB {cidr, port}). 사용자 DB 설계 때 채웁니다.
   egressAllowed: []
-# 0.8.0 부터 Deploy Worker 가 넣는 값입니다(기본 없음).
+# 0.9.0 부터 Deploy Worker 가 넣는 값입니다(기본 없음).
 # projectId: Pod 라벨 iris.io/project-id. 같은 값의 Pod 끼리 namespace 를 넘어 통신합니다(allow-project-*).
 # hostAliases: [{name, target}] → 이 namespace 의 ExternalName Service {name} → target(app.svc-{id}.svc.cluster.local).
 hostAliases: []

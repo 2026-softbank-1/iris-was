@@ -25,6 +25,7 @@ from app.core.exceptions import (
     InvalidInputError,
     ProjectNotFoundError,
     StackNotFoundError,
+    TargetNotConnectedError,
 )
 from app.enums import (
     ACTIVE_DEPLOYMENT_STATUSES,
@@ -301,30 +302,38 @@ class StackService:
             is_blocked = service.id in blocked_service_ids
             is_started = not waits_for and not is_blocked
             request_key = f"{idempotency_key}:{service.id}"
-            if service.kind == ServiceKind.DATABASE:
-                assert service.database_engine is not None
-                request = await self._deployment_request_service.create_database_deployment_request(
-                    service,
-                    image=resolve_image(
-                        DatabaseEngine(service.database_engine), self._database_images
-                    ),
-                    trigger_type=trigger_type,
-                    idempotency_key=request_key,
-                    requested_by=requested_by,
-                    is_started=is_started,
-                )
-            else:
-                if resolved_source is None:
-                    resolved_source = await source()
-                request = await self._deployment_request_service.create_deployment_request(
-                    service,
-                    source_sha=resolved_source[0],
-                    source_commit_message=resolved_source[1],
-                    trigger_type=trigger_type,
-                    idempotency_key=request_key,
-                    requested_by=requested_by,
-                    is_started=is_started,
-                )
+            try:
+                if service.kind == ServiceKind.DATABASE:
+                    assert service.database_engine is not None
+                    request = (
+                        await self._deployment_request_service.create_database_deployment_request(
+                            service,
+                            image=resolve_image(
+                                DatabaseEngine(service.database_engine), self._database_images
+                            ),
+                            trigger_type=trigger_type,
+                            idempotency_key=request_key,
+                            requested_by=requested_by,
+                            is_started=is_started,
+                        )
+                    )
+                else:
+                    if resolved_source is None:
+                        resolved_source = await source()
+                    request = await self._deployment_request_service.create_deployment_request(
+                        service,
+                        source_sha=resolved_source[0],
+                        source_commit_message=resolved_source[1],
+                        trigger_type=trigger_type,
+                        idempotency_key=request_key,
+                        requested_by=requested_by,
+                        is_started=is_started,
+                    )
+            except TargetNotConnectedError:
+                # 연결되지 않은 등록 서버로는 배포하지 않는다. 푸시는 그 서비스만 건너뛴다.
+                if is_strict:
+                    raise
+                request = None
             if request is None:
                 if is_strict:
                     raise DeploymentInProgressError(

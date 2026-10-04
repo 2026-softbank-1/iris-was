@@ -29,10 +29,10 @@ flowchart LR
 | 컴포넌트 | 진입점 | 하는 일 |
 |---|---|---|
 | Control API | `app/main.py` | 배포 요청 접수·상태 조회, 로그·메트릭 조회, AI 진단·수정 조정 |
-| Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다. 서비스 생성 전 레포 구성 분석(`repository_analyses`)도 선점해 분석기(vendored `iris-analyzer` wheel)를 실행한다([ADR 0029](docs/adr/0029-repository-analysis-gate.md)) |
+| Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다. 서비스 생성 전 레포 구성 분석(`repository_analyses`)도 선점해 분석기(vendored `iris-analyzer` wheel)를 실행한다([ADR 0030](docs/adr/0030-repository-analysis-gate.md)) |
 | Deploy Worker | `app/workers/deploy_worker.py` | `DEPLOY`·`ROLLBACK`·`RECONCILE` job 을 선점해 GitOps 저장소를 바꾸고 Argo CD 상태를 수집한다 |
 
-CodeBuild·GitOps·Argo CD 호출은 Worker 에서만 한다. Control API 는 GitHub 로그인·저장소 조회, 읽기 전용 Loki·Prometheus 조회, 진단·수정 에이전트 호출만 한다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
+CodeBuild·GitOps·Argo CD 호출은 Worker 에서만 한다. Control API 는 GitHub 로그인·저장소 조회, 읽기 전용 Loki·Prometheus 조회, 진단·수정 에이전트 호출, 온프레미스 서버용 ECR pull 자격증명 발급(STS AssumeRole)만 한다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
 
 ## 배포 요청과 상태
 
@@ -130,7 +130,7 @@ uv run pytest                                  # DB 없이 도는 테스트
 | `POST /services/{id}/deployments/{deploymentId}/auto-repair` | 원클릭 AI 수정 시작 |
 
 - 전체 목록·규칙: [docs/api.md](docs/api.md). 명세: [Swagger](https://api.likelion.uk/docs) · [docs/openapi.json](docs/openapi.json)(엔드포인트를 바꾸면 `uv run python -m scripts.export_openapi` 로 갱신, 테스트가 검사한다).
-- GitOps 계약: Deploy Worker 가 `iris-gitops-environments` 의 `services/{service_id}/prod/values.yaml` 을 `main` 에 fast-forward 커밋한다.
+- GitOps 계약: Deploy Worker 가 `iris-gitops-environments` 의 `services/{service_id}/{prod|onprem|onprem-{serverKey}}/values.yaml` 과 등록 서버의 `platform/onprem-servers/{serverKey}/values.yaml` 을 `main` 에 fast-forward 커밋한다.
 
 ## 배포
 
@@ -139,13 +139,14 @@ GitHub Actions **Deploy platform**(`workflow_dispatch`, main 전용)으로만 �
 ## 현재 상태 / 한계
 
 - 서비스는 타깃(aws·onprem) 하나에만 배포한다([ADR 0027](docs/adr/0027-single-deploy-target-per-service.md)). 카나리·블루그린은 AWS 타깃에서 `DEPLOYMENT_STRATEGY_ENABLED` 를 켠 경우만 쓰고, on-prem 은 롤링만 한다([ADR 0028](docs/adr/0028-deployment-strategy-selection.md)).
-- 한 레포 분석에서 만든 서비스(앱 + 개발용 관리형 DB)는 스택으로 묶여 DB → 앱 → 나머지 순서로 배포되고, push 는 바뀐 앱만 같은 순서로 다시 빌드하며 레포를 다시 분석해 구성 변경을 알린다. 앱 변수는 DB 연결 정보를 참조 변수로 받고, compose 호스트명은 호스트 별칭으로 풀린다. 배포 전 환경변수 검증이 확실히 실패할 설정을 `422 VARIABLES_INVALID` 로 막는다. DB·별칭·참조는 `PROJECT_NETWORKING_ENABLED`(chart 0.8.0) 를 켠 AWS 타깃에서만 쓴다([ADR 0030](docs/adr/0030-project-stacks-databases-and-variable-references.md)).
+- 한 레포 분석에서 만든 서비스(앱 + 개발용 관리형 DB)는 스택으로 묶여 DB → 앱 → 나머지 순서로 배포되고, push 는 바뀐 앱만 같은 순서로 다시 빌드하며 레포를 다시 분석해 구성 변경을 알린다. 앱 변수는 DB 연결 정보를 참조 변수로 받고, compose 호스트명은 호스트 별칭으로 풀린다. 배포 전 환경변수 검증이 확실히 실패할 설정을 `422 VARIABLES_INVALID` 로 막는다. DB·별칭·참조는 `PROJECT_NETWORKING_ENABLED`(chart 0.9.0) 를 켠 AWS 타깃에서만 쓴다([ADR 0031](docs/adr/0031-project-stacks-databases-and-variable-references.md)).
+- 사용자는 설치 명령 한 줄로 자기 Ubuntu 서버를 배포 타깃으로 붙인다(`/onprem-servers`, 사용자당 5대). 서버마다 전용 타깃 `onprem-{serverKey}` 가 생기고, `CONNECTED` 일 때만 배포한다. Deploy Worker 가 서버 접속 정보를 봉인해 GitOps 에 커밋하고 probe Application 으로 연결을 확인한다([ADR 0029](docs/adr/0029-user-registered-onprem-servers.md), [계약](docs/onprem-server-registration-contract.md)).
 - 사용자 환경변수는 Deploy Worker 에 `SEALED_SECRETS_CERT` 가 있어야 SealedSecret 으로 앱 컨테이너에 전달된다([ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md)).
 - 원클릭 수정은 코드만 고친다. 환경변수 문제는 개발자가 직접 값을 넣고 재배포해야 한다.
 - 서비스 이름·도메인 변경은 MVP 범위가 아니다([ADR 0014](docs/adr/0014-service-domain-lookup.md)).
 
 ## 문서
 
-- [설정](docs/configuration.md) · [API](docs/api.md) · [운영](docs/operations.md) · [배포 상세 API](docs/deployment-details-api.md) · [관측 API](docs/observability-api.md) · [스케일링 API](docs/service-scaling-api.md) · [업로드 API](docs/upload-api.md)
+- [설정](docs/configuration.md) · [API](docs/api.md) · [온프레미스 서버 등록 계약](docs/onprem-server-registration-contract.md) · [운영](docs/operations.md) · [배포 상세 API](docs/deployment-details-api.md) · [관측 API](docs/observability-api.md) · [스케일링 API](docs/service-scaling-api.md) · [업로드 API](docs/upload-api.md)
 - [ADR 목록](docs/adr/README.md) · [Deploy Worker 로컬 테스트](docs/deploy-worker-test-guide.md) · [로깅·응답 구조](docs/api-response-logging-template.md)
 - 내부 설계 메모: [.claude/docs/control-plane-build-deploy-flow.md](.claude/docs/control-plane-build-deploy-flow.md)

@@ -222,3 +222,23 @@ class StackDeploymentStepStatus(StrEnum):
     WAITING = "WAITING"
     STARTED = "STARTED"
     HELD = "HELD"
+
+
+class OnpremServerStatus(StrEnum):
+    """사용자가 등록한 온프레미스 서버의 연결 상태."""
+
+    # 등록만 했다. 서버에서 설치 명령을 아직 실행하지 않았다.
+    PENDING = "PENDING"
+    # 서버가 connect 를 보냈다. Deploy Worker 가 GitOps 반영·연결 확인 중이다.
+    REGISTERING = "REGISTERING"
+    # probe Application 이 Synced+Healthy 다. 배포할 수 있다.
+    CONNECTED = "CONNECTED"
+    # 기한 안에 연결되지 않았거나 GitOps 반영에 실패했다. 토큰을 다시 받아 명령을 다시 실행한다.
+    FAILED = "FAILED"
+
+
+class OnpremServerFailureCode(StrEnum):
+    # probe Application 이 기한 안에 Synced+Healthy 가 되지 않았다.
+    CONNECT_TIMED_OUT = "CONNECT_TIMED_OUT"
+    # 서버 values 를 GitOps 저장소에 커밋하지 못하고 재시도를 소진했다.
+    GITOPS_COMMIT_FAILED = "GITOPS_COMMIT_FAILED"

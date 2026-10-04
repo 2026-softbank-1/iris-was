@@ -12,6 +12,7 @@ from app.enums import (
     DeploymentStrategy,
     DeploymentTrigger,
     FailureCode,
+    OnpremServerStatus,
     ReferenceProperty,
     ServiceKind,
 )
@@ -351,13 +352,31 @@ class TargetResponse(ApiModel):
     kind: str
     region: str | None = None
     domain_suffix: str | None = None
+    onprem_server_id: int | None = Field(
+        default=None, description="내가 등록한 온프레미스 서버의 타깃이면 그 서버 id", examples=[3]
+    )
+    onprem_server_name: str | None = Field(
+        default=None, description="내가 등록한 온프레미스 서버의 이름", examples=["home-lab"]
+    )
+    connection_status: OnpremServerStatus | None = Field(
+        default=None,
+        description=(
+            "서버 타깃의 연결 상태. CONNECTED 일 때만 배포할 수 있다. "
+            "공용 타깃은 없다(항상 배포 가능)"
+        ),
+    )
 
     @classmethod
     def from_model(cls, target: Target) -> "TargetResponse":
+        """`target.onprem_server` 를 함께 읽은 타깃이어야 한다."""
+        server = target.onprem_server
         return cls(
             id=target.id,
             name=target.name,
             kind=target.kind.value,
             region=target.region,
             domain_suffix=target.domain_suffix,
+            onprem_server_id=server.id if server is not None else None,
+            onprem_server_name=server.name if server is not None else None,
+            connection_status=server.status if server is not None else None,
         )

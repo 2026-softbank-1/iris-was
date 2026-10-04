@@ -1,7 +1,7 @@
 """프로젝트 안 서비스끼리 부르는 주소 규칙. API 응답·변수 검증·Deploy Worker 가 같은 규칙을 쓴다.
 
 서비스마다 namespace `svc-{id}` 에 ClusterIP Service `app` 이 있다. 앱은 port 80(→ containerPort),
-chart 0.8.0 의 `service.exposeContainerPort` 를 켜면 containerPort 로도 열린다. DB 는 엔진 포트다.
+chart 0.9.0 의 `service.exposeContainerPort` 를 켜면 containerPort 로도 열린다. DB 는 엔진 포트다.
 호스트 별칭은 서비스 namespace 의 ExternalName Service 라 별칭 이름만으로(`api:3000`) 풀린다.
 """
 
@@ -20,7 +20,8 @@ _RESERVED_ALIAS_NAMES = frozenset({"app"})
 _ALIAS_NAME = re.compile(r"^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$")
 MAX_HOST_ALIASES = 20
 APP_PROPERTIES = (ReferenceProperty.URL, ReferenceProperty.HOST, ReferenceProperty.PORT)
-# 관리형 DB·별칭·프로젝트 통신(chart 0.8.0)을 쓸 수 있는 타깃. on-prem 은 이전 chart 에 남는다.
+# 관리형 DB·별칭·프로젝트 통신(chart 0.9.0)을 쓸 수 있는 타깃. on-prem(공용·사용자 등록 서버)은 쓰지
+# 않는다.
 NETWORKING_TARGET_KINDS = frozenset({TargetKind.AWS})
 
 

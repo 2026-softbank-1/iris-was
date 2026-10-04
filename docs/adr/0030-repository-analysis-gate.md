@@ -1,4 +1,4 @@
-# 0029. 서비스 생성 전 레포 구성 분석(Analysis Gate)은 Build Worker 가 실행하고, 단순 레포는 분석을 생략한다
+# 0030. 서비스 생성 전 레포 구성 분석(Analysis Gate)은 Build Worker 가 실행하고, 단순 레포는 분석을 생략한다
 
 - 상태: 제안됨 (iris-analyzer wheel 고정·iris-web 연동 대기)
 - 날짜: 2026-10-04

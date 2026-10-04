@@ -49,7 +49,7 @@ class DatabasePlan:
 
 
 def check_networking(is_enabled: bool, target_kind: TargetKind, field: str) -> None:
-    """관리형 DB·별칭·참조 변수는 chart 0.8.0 이 배포된 AWS 타깃에서만 쓴다."""
+    """관리형 DB·별칭·참조 변수는 chart 0.9.0 이 배포된 AWS 타깃에서만 쓴다."""
     if not is_networking_available(is_enabled, target_kind):
         raise InvalidInputError(
             "project databases and host aliases are not available for this target",
@@ -93,7 +93,7 @@ class DatabaseService:
         """DB 서비스를 만들고 첫 배포를 접수한다(201). 같은 이름이 있으면 409."""
         project = await self._service_registry_service.get_project(owner_id, project_id)
         resolved_target_ids, target_kind = await self._service_registry_service.resolve_targets(
-            target_ids
+            owner_id, target_ids
         )
         check_networking(self._is_networking_enabled, target_kind, "engine")
         service = await self.add_database(

@@ -8,7 +8,6 @@ import contextlib
 import json
 import logging
 import re
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -27,7 +26,6 @@ from app.core.exceptions import (
     ConflictError,
     DatabaseInitScriptsInvalidError,
     ExternalError,
-    GitOpsConflictError,
     NotConfiguredError,
     NotFoundError,
     VariableReferenceBrokenError,
@@ -44,7 +42,7 @@ from app.enums import (
     ReleaseStatus,
 )
 from app.models import Job, Release
-from app.models.target import AWS_TARGET_NAME
+from app.models.target import AWS_TARGET_NAME, Target
 from app.repositories.build_repository import BuildRepository
 from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -58,7 +56,8 @@ from app.services.database_init_scripts import render_init_scripts
 from app.services.deployment_request_service import SNAPSHOT_REFERENCE_KEY
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.deployment_strategy import PROGRESSIVE_TARGET_KINDS, strategy_extra_wait
-from app.services.domain_service import service_host_label
+from app.services.domain_service import service_host_label, target_server_key
+from app.services.gitops_writer import GitOpsWriter
 from app.services.scaling_config import ScalingConfig
 from app.services.service_networking import (
     container_port,
@@ -70,7 +69,6 @@ from app.services.variable_references import ReferenceResolver, VariableReferenc
 logger = logging.getLogger(__name__)
 
 JOB_KINDS = frozenset({JobKind.DEPLOY, JobKind.RECONCILE, JobKind.ROLLBACK, JobKind.REMOVE})
-GITOPS_BRANCH = "main"
 GITOPS_ENVIRONMENT = "prod"
 VALUES_FILE_NAME = "values.yaml"
 RECONCILE_INTERVAL = timedelta(seconds=10)
@@ -80,13 +78,12 @@ DEADLINE_MARGIN = timedelta(minutes=10)
 # 디렉터리를 지운 뒤 ApplicationSet 폴링(약 3분)과 Application 정리를 기다리는 한도.
 REMOVE_TIMEOUT = timedelta(minutes=10)
 RETRY_BASE_DELAY = timedelta(seconds=30)
-MAX_PUSH_ATTEMPTS = 5
 _FAILED_PHASES = ("Failed", "Error")
-# 설치 토큰은 1시간 유효하다. 만료 직전 토큰을 쓰지 않게 일찍 갱신한다.
-_TOKEN_TTL_SECONDS = 50 * 60
 _MAX_ERROR_LENGTH = 1000
 # iris-service chart 의 values 스키마가 release.sourceSha 에 요구하는 형식.
 _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+# 등록한 서버의 CronJob 이 svc-{id} 에 만드는 ECR pull Secret. 서버 타깃 Pod 가 이것으로 받는다.
+ONPREM_ECR_PULL_SECRET = "iris-ecr-pull"
 
 
 class Verdict(StrEnum):
@@ -139,6 +136,7 @@ def render_service_values(
     scaling: ScalingConfig | None = None,
     deployment_strategy: DeploymentStrategy | None = None,
     networking: "NetworkingValues | None" = None,
+    image_pull_secrets: list[str] | None = None,
 ) -> str:
     """services/{service_id}/{타깃 디렉터리}/values.yaml 내용. iris-service chart 의 values 다.
 
@@ -149,7 +147,8 @@ def render_service_values(
     평문은 받지 않는다)는 chart 0.6.0 부터 받는다. 없으면 쓰지 않아 이전 chart 도 렌더링된다.
     `deployment_strategy` 는 chart 0.7.0 부터 받는다. 없으면 chart 가 ROLLING 으로 렌더링한다.
     `networking`(projectId·service.exposeContainerPort·hostAliases, 스택 앱의 containerPort)은 chart
-    0.8.0 부터 받는다. 없으면 쓰지 않아 이전 values 와 바이트까지 같다.
+    0.9.0 부터 받는다. 없으면 쓰지 않아 이전 values 와 바이트까지 같다.
+    `image_pull_secrets` 는 chart 0.8.0 부터 받는다. 사용자가 등록한 서버 타깃에만 쓴다.
     """
     health: dict[str, Any] = {"timeoutSeconds": deploy.healthcheck_timeout}
     if deploy.healthcheck_path:
@@ -182,6 +181,8 @@ def render_service_values(
         values["service"] = {"exposeContainerPort": True}
         if networking.host_aliases:
             values["hostAliases"] = list(networking.host_aliases)
+    if image_pull_secrets:
+        values["imagePullSecrets"] = [{"name": name} for name in image_pull_secrets]
     # Railpack 은 빌드 때 start command 를 이미지에 넣는다. Dockerfile 은 ENTRYPOINT·CMD 를
     # exec form 으로 덮어쓴다(셸을 거치지 않아 $VAR 가 풀리지 않는다. 필요하면 sh -c 로 감싼다).
     if builder == Builder.DOCKERFILE and deploy.start_command_args:
@@ -191,7 +192,7 @@ def render_service_values(
 
 @dataclass(frozen=True)
 class NetworkingValues:
-    """chart 0.8.0 의 프로젝트 내부 통신 값. projectId 는 라벨이라 문자열로 쓴다."""
+    """chart 0.9.0 의 프로젝트 내부 통신 값. projectId 는 라벨이라 문자열로 쓴다."""
 
     project_id: str
     container_port: int = APP_PORT
@@ -212,7 +213,7 @@ def render_database_values(
     replicas: int = 1,
     init_scripts: list[dict[str, str]] | None = None,
 ) -> str:
-    """관리형 DB 의 values.yaml(chart 0.8.0 `workload.kind: database`). 빌드 이미지·command 는 없다.
+    """관리형 DB 의 values.yaml(chart 0.9.0 `workload.kind: database`). 빌드 이미지·command 는 없다.
 
     자격 증명은 봉인한 variables 로만 들어간다. storageClassName·resources 는 chart·타깃 기본값이다.
     replicas 는 0(정지) 또는 1 이다. init_scripts(`[{name, content|binaryContent}]`)는 chart 가
@@ -268,9 +269,20 @@ class DeployService:
         self._settings = settings
         self._worker_id = worker_id
         # 사용자 변수를 봉인할 때만 쓴다. 변수가 없는 배포는 둘 다 없어도 동작한다.
+        # 사용자가 등록한 서버로 가는 변수는 sealer 대신 그 서버의 인증서로 봉인한다.
         self._cipher = cipher
         self._sealer = sealer
-        self._token: tuple[str, float] | None = None
+        self._gitops_writer: GitOpsWriter | None = None
+
+    @property
+    def _gitops(self) -> GitOpsWriter:
+        if self._gitops_writer is None:
+            self._gitops_writer = GitOpsWriter(
+                self._github,
+                self._settings.gitops_installation_id,
+                self._settings.gitops_repository,
+            )
+        return self._gitops_writer
 
     async def claim_next_job(self) -> Job | None:
         async with self._session_factory.begin() as session:
@@ -445,7 +457,7 @@ class DeployService:
         target = release.target
         assert target.domain_suffix is not None
         return render_service_values(
-            host_label=service_host_label(service.name, service.id),
+            host_label=service_host_label(service.name, service.id, target_server_key(target)),
             release_id=release.id,
             image_repository=build.image_repository,
             image_digest=release.image_digest,
@@ -458,6 +470,10 @@ class DeployService:
             scaling=scaling,
             deployment_strategy=self._deployment_strategy(release),
             networking=await self._networking_values(release) if is_networking else None,
+            # default SA 패치는 그 뒤의 Pod 에만 먹고 첫 Pod 가 먼저 뜰 수 있어 Pod spec 에 둔다.
+            image_pull_secrets=(
+                [ONPREM_ECR_PULL_SECRET] if target.onprem_server is not None else None
+            ),
         )
 
     async def _init_scripts(self, scripts: object) -> list[dict[str, str]] | None:
@@ -471,8 +487,8 @@ class DeployService:
         return render_init_scripts(scripts, {row.sha256: row.content for row in rows})
 
     def _is_networking(self, release: Release) -> bool:
-        """chart 0.8.0 키를 쓸지. 기능을 켠 Worker 가 AWS 타깃 release 에만 쓴다(on-prem 은 이전
-        chart)."""
+        """chart 0.9.0 키를 쓸지. 기능을 켠 Worker 가 AWS 타깃 release 에만 쓴다. on-prem 타깃
+        (공용 `onprem`·사용자가 등록한 서버)은 0.9.0 키를 받지 않는다."""
         return is_networking_available(
             self._settings.project_networking_enabled, release.target.kind
         )
@@ -535,12 +551,15 @@ class DeployService:
     async def _seal_variables(self, release: Release) -> dict[str, Any] | None:
         """요청 스냅샷의 변수를 풀어 이 release 전용으로 다시 봉인한다. 변수가 없으면 None.
 
-        봉인할 수 없으면 변수를 뺀 채 배포하지 않고 예외로 멈춘다. 앱이 변수 없이 뜨는 것을 막는다.
+        타깃 클러스터의 controller 만 풀 수 있게 봉인한다. 사용자가 등록한 서버면 그 서버가 보낸
+        인증서, 그 밖의 타깃이면 `SEALED_SECRETS_CERT` 다. 봉인할 수 없으면 변수를 뺀 채 배포하지
+        않고 예외로 멈춘다. 앱이 변수 없이 뜨는 것을 막는다.
         """
         snapshot = release.deployment_request.variables_snapshot
         if not snapshot:
             return None
-        if self._cipher is None or self._sealer is None:
+        sealer = self._target_sealer(release.target)
+        if self._cipher is None or sealer is None:
             raise NotConfiguredError(
                 "variables cannot be sealed",
                 setting="VARIABLES_ENCRYPTION_KEY, SEALED_SECRETS_CERT",
@@ -549,7 +568,7 @@ class DeployService:
         # release 마다 새 이름이라 새 Secret 이 먼저 생기고, 롤백은 이전 이름이 돌아온다.
         name = f"vars-r{release.id}"
         plaintexts = await self._resolve_snapshot(release, snapshot)
-        encrypted = await self._sealer.seal(service_namespace(release.service_id), name, plaintexts)
+        encrypted = await sealer.seal(service_namespace(release.service_id), name, plaintexts)
         return {"name": name, "encryptedData": encrypted}
 
     async def _resolve_snapshot(
@@ -578,6 +597,16 @@ class DeployService:
                     plaintexts[key] = resolved.value
         # 빈 값은 chart schema(minLength 1)가 받지 않아 Secret 에 넣지 않는다.
         return {key: value for key, value in plaintexts.items() if value != ""}
+
+    def _target_sealer(self, target: Target) -> SecretSealer | None:
+        server = target.onprem_server
+        if server is None:
+            return self._sealer
+        if server.sealed_secrets_cert is None:
+            return None
+        return SecretSealer(
+            server.sealed_secrets_cert, setting="onprem_servers.sealed_secrets_cert"
+        )
 
     # --- RECONCILE
 
@@ -924,27 +953,7 @@ class DeployService:
         create: Callable[[str], Awaitable[str]],
         record: Callable[[str], Awaitable[None]],
     ) -> None:
-        """커밋을 main 에 fast-forward 한다. 기록된 커밋이 이미 main 에 있으면 그대로 끝낸다.
-
-        브랜치가 그새 움직였으면 새 HEAD 위에 커밋을 다시 만든다.
-        """
-        commit_sha = recorded_sha
-        if commit_sha is not None:
-            head_sha = await self._github.get_branch_sha(token, self._repository, GITOPS_BRANCH)
-            if await self._github.contains(token, self._repository, commit_sha, head_sha):
-                return
-        for _ in range(MAX_PUSH_ATTEMPTS):
-            if commit_sha is None:
-                head_sha = await self._github.get_branch_sha(token, self._repository, GITOPS_BRANCH)
-                commit_sha = await create(head_sha)
-                await record(commit_sha)
-            try:
-                await self._github.update_branch(token, self._repository, GITOPS_BRANCH, commit_sha)
-                return
-            except GitOpsConflictError:
-                logger.info("gitops branch moved, recommitting", extra={"action": "push"})
-                commit_sha = None
-        raise ExternalError("gitops branch kept moving", attempts=MAX_PUSH_ATTEMPTS)
+        await self._gitops.push(token, recorded_sha, create, record)
 
     async def _record_commit(
         self, job: Job, release_id: int, commit_sha: str, *, is_revert: bool
@@ -1014,12 +1023,7 @@ class DeployService:
             await JobRepository(session).release(job.id, delay)
 
     async def _gitops_token(self) -> str:
-        if self._token is None or time.monotonic() >= self._token[1]:
-            token = await self._github.create_installation_token(
-                self._settings.gitops_installation_id, None, contents="write"
-            )
-            self._token = (token, time.monotonic() + _TOKEN_TTL_SECONDS)
-        return self._token[0]
+        return await self._gitops.token()
 
     @property
     def _repository(self) -> str:

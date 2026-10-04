@@ -16,6 +16,7 @@ from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
+from app.models.onprem_server import OnpremServer
 from app.models.release import Release
 from app.models.service import Service
 from app.repositories.service_repository import DeploymentSettings
@@ -24,6 +25,11 @@ from app.repositories.service_repository import DeploymentSettings
 class FakeWebhookServiceRepository:
     def __init__(self, services: list[Service]) -> None:
         self.services = services
+        # 서비스 id → 그 서비스의 배포 타깃인 등록 서버.
+        self.servers: dict[int, OnpremServer] = {}
+
+    async def find_deploy_target_server(self, service_id: int) -> OnpremServer | None:
+        return self.servers.get(service_id)
 
     async def get_deployment_settings_for_update(self, service_id: int) -> DeploymentSettings:
         service = next(service for service in self.services if service.id == service_id)

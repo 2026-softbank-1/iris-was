@@ -6,7 +6,7 @@ Worker 가 QUEUED 분석을 FOR UPDATE SKIP LOCKED 로 선점하고 lease(locked
 REPOSITORY_ANALYSIS` 를 보내 Worker 를 깨운다. autogenerate 는 트리거를 감지하지 못해 직접 작성한다.
 
 Revision ID: 061a382166d5
-Revises: f49792bf1fcc
+Revises: e98de0d34fa3
 Create Date: 2026-10-04 08:28:20.665048
 
 """
@@ -20,7 +20,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "061a382166d5"
-down_revision: str | Sequence[str] | None = "f49792bf1fcc"
+down_revision: str | Sequence[str] | None = "e98de0d34fa3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

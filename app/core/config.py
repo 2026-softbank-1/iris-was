@@ -57,14 +57,29 @@ class Settings(BaseSettings):
     # 카나리·블루그린 배포 방식. Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 두 방식을 저장할
     # 수 없고 새 배포 요청은 ROLLING 으로 적용한다. iris-service chart 0.7.0 이 배포된 뒤에 켠다.
     deployment_strategy_enabled: bool = False
-    # 관리형 DB·호스트 별칭·프로젝트 내부 통신(chart 0.8.0 의
-    # workload·database·hostAliases·projectId).
-    # Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 DB 생성·별칭 저장이 422 이고 apply 는 DB 를
-    # 만들지
-    # 않는다. AWS ApplicationSet 의 iris-service chart pin 이 0.8.0 이상이 된 뒤에 켠다.
+    # 관리형 DB·호스트 별칭·프로젝트 내부 통신(chart 0.9.0 의 workload·database·hostAliases·
+    # projectId). Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 DB 생성·별칭 저장이 422 이고
+    # apply 는 DB 를 만들지 않는다. AWS ApplicationSet 의 iris-service chart pin 이 0.9.0 이상이
+    # 된 뒤에 켠다. on-prem 타깃(공용·사용자 등록 서버)은 이 기능을 쓰지 않는다.
     project_networking_enabled: bool = False
     # 관리형 DB 의 고정 이미지(엔진 → `repo:tag@sha256:…`). 비우면 코드의 기본 digest 를 쓴다.
     database_images: dict[str, str] = Field(default_factory=dict)
+
+    # 사용자 온프레미스 서버 등록(ADR 0029).
+    # 서버가 tailnet 에 가입할 때 쓰는 Tailscale 가입 키(reusable·pre-approved·tag:iris-onprem).
+    # 없으면 bootstrap API 는 503 (NOT_CONFIGURED). 화면·CLI·로그에 내보내지 않는다.
+    onprem_tailscale_auth_key: SecretStr | None = None
+    # 서버에 ECR pull 자격증명을 줄 때 AssumeRole 하는 Role(iris-infra 의 ECR pull 전용 Role).
+    # AWS_REGION 과 둘 다 있어야 한다. 없으면 registry-credentials API 는 503 (NOT_CONFIGURED).
+    onprem_ecr_pull_role_arn: str | None = None
+    # AssumeRole 세션 길이(초). Control API 자격증명이 이미 role 세션이라 AssumeRole 이 연쇄되어
+    # AWS 가 1시간까지만 허용한다. 서버의 CronJob 이 5분마다 갱신하므로 충분하다.
+    onprem_ecr_pull_session_seconds: int = Field(default=3600, ge=900, le=3600)
+    # 설치 스크립트가 서버에 고정해 설치하는 버전. bootstrap 응답으로 내려간다. iris-infra 가
+    # 고정한 버전(Argo Rollouts `helm/versions.json`, Sealed Secrets chart 의 appVersion)과 맞춘다.
+    onprem_k3s_version: str = "v1.33.13+k3s2"
+    onprem_argo_rollouts_version: str = "v1.10.0"
+    onprem_sealed_secrets_version: str = "0.40.0"
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -152,13 +167,20 @@ class DeployWorkerSettings(BaseSettings):
     variables_encryption_key: SecretStr | None = None
     # workload 의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다). 변수를 봉인할 때 쓴다.
     sealed_secrets_cert: str | None = None
+    # management 클러스터 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다). 사용자가 등록한
+    # 서버의 Argo CD cluster 접속 정보를 봉인한다. 없으면 서버 등록을 처리하지 않아 서버가
+    # REGISTERING 에 머문다. 서비스 변수용 SEALED_SECRETS_CERT 와 다른 인증서다.
+    platform_sealed_secrets_cert: str | None = None
+    # 등록한 서버의 probe Application(Argo project `iris-onprem-probe`)을 읽는 토큰. ARGOCD_TOKEN 은
+    # 자기 project 만 보므로 따로 받는다(role `iris-deploy-reader`, applications get). 없으면 서버
+    # 연결 확인을 하지 않아 서버가 REGISTERING 에 머문다.
+    argocd_probe_token: SecretStr | None = None
     # values 에 deploymentStrategy 를 쓴다. 이 키를 모르는 이전 chart(0.7.0 미만)의 schema 가
     # 거절하므로 chart 0.7.0 이 배포된 뒤에 켠다. Control API 와 같은 값으로 둔다.
     deployment_strategy_enabled: bool = False
     # values 에 projectId·service.exposeContainerPort·hostAliases·workload·database 를 쓴다(AWS
-    # 타깃만).
-    # 이 키를 모르는 이전 chart(0.8.0 미만)의 schema 가 거절하므로 AWS chart pin 이 0.8.0 이 된 뒤에
-    # 켠다. Control API 와 같은 값으로 둔다.
+    # 타깃만). 이 키를 모르는 이전 chart(0.9.0 미만)의 schema 가 거절하므로 AWS chart pin 이
+    # 0.9.0 이 된 뒤에 켠다. Control API 와 같은 값으로 둔다.
     project_networking_enabled: bool = False
 
 

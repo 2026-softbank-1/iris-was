@@ -5,7 +5,7 @@ iris-multi-image-shop 처럼 postgres 가 compose 로 `./db/schema.sql`·`./db/s
 `/docker-entrypoint-initdb.d` 에 mount 하는 레포를 실제 분석기 subprocess 로 분석한다(GitHub 만
 가짜).
 분석(내용 재확인·저장) → apply(DB 서비스로 복사, 응답은 메타데이터만) → Deploy Worker values
-(`database.initScripts`, chart 0.8.0 schema 통과) → push 로 seed 가 바뀌면 pendingChanges ·
+(`database.initScripts`, chart 0.9.0 schema 통과) → push 로 seed 가 바뀌면 pendingChanges ·
 증분 apply 응답에 DEPENDENCY_CHANGED(init_scripts_changed), 이미 있는 DB 는 그대로.
 """
 
@@ -174,7 +174,7 @@ async def test_shop_init_scripts_flow_from_analysis_to_deploy_values(
     ]  # fmt: skip
     assert all(b"CREATE TABLE jobs" not in text.encode() for text in world.texts)
 
-    # Deploy Worker: values 에 schema·seed 내용이 이름순으로 들어가고 chart 0.8.0 schema 를
+    # Deploy Worker: values 에 schema·seed 내용이 이름순으로 들어가고 chart 0.9.0 schema 를
     # 통과한다.
     deployer = _deployer(world)
     requests = await _latest_requests(world)

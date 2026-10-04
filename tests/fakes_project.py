@@ -4,6 +4,7 @@ from itertools import count
 
 from app.enums import DeploymentStrategy, ServiceKind, TargetKind
 from app.models.base import now_utc
+from app.models.onprem_server import OnpremServer
 from app.models.project import Project
 from app.models.service import Service
 from app.models.target import Target
@@ -60,12 +61,30 @@ class FakeServiceRepository:
         self.services: dict[int, Service] = {}
         self.target_kinds: dict[int, TargetKind] = {}
         self.targets: dict[int, set[int]] = {}
+        # 서비스 id → 그 서비스의 배포 타깃인 등록 서버.
+        self.servers: dict[int, OnpremServer] = {}
         self._ids = count(1)
+
+    async def find_deploy_target_server(self, service_id: int) -> OnpremServer | None:
+        return self.servers.get(service_id)
+
+    async def search_ids_by_target_id(self, target_id: int) -> list[int]:
+        return sorted(
+            service_id
+            for service_id, target_ids in self.targets.items()
+            if target_id in target_ids and not self.services[service_id].is_deleted
+        )
+
+    async def is_target_in_use(self, target_id: int) -> bool:
+        return bool(await self.search_ids_by_target_id(target_id))
 
     async def get_deployment_settings_for_update(self, service_id: int) -> DeploymentSettings:
         service = self.services[service_id]
         # FakeTargetRepository 와 같은 id 다: 1 = aws(AWS), 2 = onprem(ONPREM).
-        kinds = {TARGET_KINDS[t] for t in self.targets.get(service_id, set())}
+        # 그 밖의 id 는 테스트가 붙인 등록 서버 타깃(ONPREM)이다.
+        kinds = {
+            TARGET_KINDS.get(t, TargetKind.ONPREM) for t in self.targets.get(service_id, set())
+        }
         return DeploymentSettings(
             service.scaling_config,
             service.deployment_strategy or DeploymentStrategy.ROLLING,
@@ -145,9 +164,9 @@ class FakeServiceRepository:
 
 class FakeTargetRepository:
     def __init__(self) -> None:
-        aws = Target(name="aws", kind=TargetKind.AWS)
+        aws = Target(name="aws", kind=TargetKind.AWS, is_deleted=False)
         aws.id = 1
-        onprem = Target(name="onprem", kind=TargetKind.ONPREM)
+        onprem = Target(name="onprem", kind=TargetKind.ONPREM, is_deleted=False)
         onprem.id = 2
         self.targets = [aws, onprem]
 
@@ -156,6 +175,18 @@ class FakeTargetRepository:
 
     async def search_by_ids(self, target_ids: list[int]) -> list[Target]:
         return [t for t in self.targets if t.id in target_ids]
+
+    async def search_visible(self, owner_id: int) -> list[Target]:
+        return [t for t in self.targets if not t.is_deleted and t.owner_id in (None, owner_id)]
+
+    async def search_visible_by_ids(self, target_ids: list[int], owner_id: int) -> list[Target]:
+        return [t for t in await self.search_visible(owner_id) if t.id in target_ids]
+
+    async def add(self, target: Target) -> Target:
+        target.id = max(t.id for t in self.targets) + 1
+        target.is_deleted = False
+        self.targets.append(target)
+        return target
 
 
 class FakeTeardownService:
