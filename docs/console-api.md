@@ -50,7 +50,7 @@
   "sessionId":"3f0c9d3a-8f1e-4d57-9c34-6a1f2b7e5d10",
   "token":"eyJhbGciOiJFZERTQSIs…",
   "expiresAt":"2026-10-04T12:00:30.123456Z",
-  "gateway":{"httpUrl":"https://api.likelion.uk/console","wsUrl":"wss://api.likelion.uk/console"}
+  "gateway":{"httpUrl":"https://api.likelion.uk","wsUrl":"wss://api.likelion.uk"}
 }}
 ```
 

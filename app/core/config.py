@@ -134,7 +134,8 @@ class ConsoleGatewaySettings(BaseSettings):
 
     # ticket 검증용 Ed25519 공개키(PEM, 비밀이 아니다). Control API 의 개인키와 한 쌍이다.
     console_ticket_public_key: str
-    # 접속할 Prod EKS. 토큰은 IRSA 자격증명으로 만든 sts:GetCallerIdentity presigned URL 이다.
+    # 접속할 Prod EKS. 토큰은 EKS Pod Identity 자격증명으로 만든 sts:GetCallerIdentity
+    # presigned URL 이다.
     console_aws_cluster_name: str
     console_aws_cluster_endpoint: HttpUrl
     # 클러스터 API 서버 인증서의 CA(PEM 을 base64 로 인코딩한 값, EKS 가 주는 형식).

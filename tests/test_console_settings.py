@@ -175,20 +175,44 @@ def test_control_settings_console_is_off_by_default() -> None:
     assert settings.console_gateway_ws_url is None
 
 
-def test_get_console_service_builds_gateway_address_without_trailing_slash() -> None:
+@pytest.mark.parametrize(
+    ("http_url", "ws_url", "expected"),
+    [
+        # 호스트만 주면 pydantic 이 끝에 `/` 를 붙인다.
+        (
+            "https://api.likelion.uk",
+            "wss://api.likelion.uk",
+            ConsoleGatewayAddress("https://api.likelion.uk", "wss://api.likelion.uk"),
+        ),
+        (
+            "https://api.likelion.uk/",
+            "wss://api.likelion.uk/",
+            ConsoleGatewayAddress("https://api.likelion.uk", "wss://api.likelion.uk"),
+        ),
+        # 경로 접두를 쓰는 배치도 그대로 받는다.
+        (
+            "https://api.likelion.uk/console/",
+            "wss://api.likelion.uk/console",
+            ConsoleGatewayAddress(
+                "https://api.likelion.uk/console", "wss://api.likelion.uk/console"
+            ),
+        ),
+    ],
+)
+def test_get_console_service_builds_gateway_address_without_trailing_slash(
+    http_url: str, ws_url: str, expected: ConsoleGatewayAddress
+) -> None:
     private_pem, _ = generate_ed25519_pem_pair()
     settings = _control_settings(
         console_ticket_private_key=private_pem,
-        console_gateway_http_url="https://api.likelion.uk/console/",
-        console_gateway_ws_url="wss://api.likelion.uk",
+        console_gateway_http_url=http_url,
+        console_gateway_ws_url=ws_url,
     )
 
     service = get_console_service(FakeSession(), settings)  # type: ignore[arg-type]
 
     # 응답에 그대로 나가는 값이라 끝의 `/` 를 뺀 base 여야 화면이 `{base}/v1/…` 로 붙일 수 있다.
-    assert service._gateway == ConsoleGatewayAddress(
-        "https://api.likelion.uk/console", "wss://api.likelion.uk"
-    )
+    assert service._gateway == expected
 
 
 def test_get_console_service_is_unconfigured_when_any_setting_is_missing() -> None:

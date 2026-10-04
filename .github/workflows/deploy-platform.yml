@@ -2,7 +2,7 @@ name: Deploy platform
 
 # 수동 배포 전용. iris/was 이미지를 빌드·push 하고, 고른 컴포넌트의 digest 만
 # iris-gitops-environments 의 이 레포 전용 파일(platform/aws-dev-management/was.yaml)에 커밋한다.
-# 키는 iris-platform chart 의 api·buildWorker·deployWorker 이고, 실행 방식은
+# 키는 iris-platform chart 의 api·buildWorker·deployWorker·consoleGateway 이고, 실행 방식은
 # iris-infra clusters/aws-dev-management/values/platform.yaml 이 정한다.
 on:
   workflow_dispatch:
@@ -17,6 +17,10 @@ on:
         default: false
       deploy_worker:
         description: Deploy Worker
+        type: boolean
+        default: false
+      console_gateway:
+        description: Console Gateway (서비스 콘솔 셸 중계, ADR 0033)
         type: boolean
         default: false
 
@@ -42,6 +46,7 @@ jobs:
           API: ${{ inputs.api }}
           BUILD_WORKER: ${{ inputs.build_worker }}
           DEPLOY_WORKER: ${{ inputs.deploy_worker }}
+          CONSOLE_GATEWAY: ${{ inputs.console_gateway }}
         run: |
           # ECR push 역할(iris-dev-github-ecr-was)은 main 만 신뢰한다.
           [[ "$GITHUB_REF" == refs/heads/main ]] || { echo '::error::main 에서만 배포한다.'; exit 1; }
@@ -49,6 +54,7 @@ jobs:
           [[ "$API" == true ]] && c+=' api'
           [[ "$BUILD_WORKER" == true ]] && c+=' buildWorker'
           [[ "$DEPLOY_WORKER" == true ]] && c+=' deployWorker'
+          [[ "$CONSOLE_GATEWAY" == true ]] && c+=' consoleGateway'
           [[ -n "$c" ]] || { echo '::error::배포할 컴포넌트를 하나 이상 고른다.'; exit 1; }
           echo "COMPONENTS=${c# }" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4

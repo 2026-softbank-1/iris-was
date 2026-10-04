@@ -35,11 +35,11 @@ class CreateConsoleSessionRequest(ApiModel):
 class ConsoleGatewayResponse(ApiModel):
     http_url: str = Field(
         description="Console Gateway REST base. `{httpUrl}/v1/pods` 로 Pod 목록을 읽는다",
-        examples=["https://api.likelion.uk/console"],
+        examples=["https://api.likelion.uk"],
     )
     ws_url: str = Field(
         description="Console Gateway WebSocket base. `{wsUrl}/v1/exec?pod={name}` 로 연결한다",
-        examples=["wss://api.likelion.uk/console"],
+        examples=["wss://api.likelion.uk"],
     )
 
 

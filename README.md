@@ -136,7 +136,7 @@ uv run pytest                                  # DB 없이 도는 테스트
 
 ## 배포
 
-GitHub Actions **Deploy platform**(`workflow_dispatch`, main 전용)으로만 배포한다. 이미지를 ECR `iris/was` 에 push 하고, 고른 컴포넌트(api·build_worker·deploy_worker)의 digest 를 `iris-gitops-environments` 의 `platform/aws-dev-management/was.yaml` 에 커밋하면 management EKS 의 Argo CD 가 반영한다. DB 마이그레이션은 api 배포에 포함된다. 상세는 [docs/operations.md](docs/operations.md).
+GitHub Actions **Deploy platform**(`workflow_dispatch`, main 전용)으로만 배포한다. 이미지를 ECR `iris/was` 에 push 하고, 고른 컴포넌트(api·build_worker·deploy_worker·console_gateway)의 digest 를 `iris-gitops-environments` 의 `platform/aws-dev-management/was.yaml` 에 커밋하면 management EKS 의 Argo CD 가 반영한다. DB 마이그레이션은 api 배포에 포함된다. 상세는 [docs/operations.md](docs/operations.md).
 
 ## 현재 상태 / 한계
 

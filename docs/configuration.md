@@ -74,14 +74,14 @@ LOG_LEVEL=INFO
 | `CONSOLE_AWS_CLUSTER_NAME` | 접속할 Prod EKS 클러스터 이름. 토큰 서명(`x-k8s-aws-id`)에 쓴다 |
 | `CONSOLE_AWS_CLUSTER_ENDPOINT` | 그 클러스터의 API 서버 주소(`https://…`, https 만 받는다) |
 | `CONSOLE_AWS_CLUSTER_CA` | API 서버 인증서의 CA(PEM 을 base64 로 인코딩한 값, EKS `certificateAuthority.data` 형식) |
-| `AWS_REGION` | EKS·STS 리전. 자격증명은 IRSA(기본 자격증명 체인)에서 받는다 |
+| `AWS_REGION` | EKS·STS 리전. 자격증명은 EKS Pod Identity(boto3 기본 자격증명 체인)에서 받는다 |
 | `CONSOLE_ALLOWED_ORIGINS` | CORS·WebSocket 에 허용할 Origin(쉼표 구분, 예: `https://app.likelion.uk`). 목록에 없는 Origin(없는 경우 포함)의 WebSocket 은 `403` 으로 거절한다 |
 | `CONSOLE_IDLE_TIMEOUT_SECONDS` | 입력 없이 이 시간이 지나면 끊는다. 기본 900 |
 | `CONSOLE_MAX_SESSION_SECONDS` | 연결한 뒤 이 시간이 지나면 끊는다. 기본 3600 |
 | `CONSOLE_MAX_SESSIONS_PER_USER` | 한 사용자의 동시 연결 한도(replica 안에서만 센다). 기본 3 |
 | `LOG_LEVEL` | 기본 `INFO` |
 
-Gateway 의 클러스터 권한은 Prod EKS access entry(Kubernetes group `iris-console`)가 주는 ClusterRole `iris-console-exec` 뿐이다(`pods` get·list, `pods/exec` create). Secret·Deployment 등은 읽지 못한다.
+Gateway 의 클러스터 권한은 Prod EKS access entry(Kubernetes group `iris-console`)가 주는 ClusterRole `iris-console-exec` 뿐이다(`pods` get·list, `pods/exec` create + get — WebSocket 업그레이드 인가용, 배포 후 검증에서 get 이 불필요하면 뺀다). Secret·Deployment 등은 읽지 못한다.
 
 ## Build Worker
 

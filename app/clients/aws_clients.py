@@ -510,7 +510,7 @@ class EksTokenProvider:
 
     `awscli eks get-token` 과 같은 방식이다. `x-k8s-aws-id: <클러스터 이름>` 헤더를 서명한
     `sts:GetCallerIdentity` presigned URL 을 `k8s-aws-v1.` + base64url 로 감싼 것이 토큰이다.
-    자격증명은 IRSA·Pod Identity 의 기본 자격증명 체인에서 받는다.
+    자격증명은 EKS Pod Identity(컨테이너 자격증명)·IRSA 를 포함한 boto3 기본 체인에서 받는다.
     """
 
     def __init__(

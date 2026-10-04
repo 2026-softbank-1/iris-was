@@ -25,7 +25,7 @@ OWNER_ID = 7
 SERVICE_ID = 42
 AWS_TARGET_ID = 1
 ONPREM_TARGET_ID = 2
-GATEWAY = ConsoleGatewayAddress("https://api.likelion.uk/console", "wss://api.likelion.uk/console")
+GATEWAY = ConsoleGatewayAddress("https://api.likelion.uk", "wss://api.likelion.uk")
 
 
 class Setup:

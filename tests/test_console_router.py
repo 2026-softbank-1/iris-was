@@ -20,7 +20,7 @@ from tests.fakes_console import (
 
 OWNER_ID = 7
 SERVICE_ID = 42
-GATEWAY = ConsoleGatewayAddress("https://api.likelion.uk/console", "wss://api.likelion.uk/console")
+GATEWAY = ConsoleGatewayAddress("https://api.likelion.uk", "wss://api.likelion.uk")
 
 
 class Harness:
@@ -134,8 +134,8 @@ async def test_create_console_session_returns_201_with_ticket(
     data = response.json()["data"]
     assert set(data) == {"sessionId", "token", "expiresAt", "gateway"}
     assert data["gateway"] == {
-        "httpUrl": "https://api.likelion.uk/console",
-        "wsUrl": "wss://api.likelion.uk/console",
+        "httpUrl": "https://api.likelion.uk",
+        "wsUrl": "wss://api.likelion.uk",
     }
     assert data["expiresAt"].endswith("Z") or "+00:00" in data["expiresAt"]
     claims = ConsoleTicketVerifier(harness.public_pem).verify(data["token"])
