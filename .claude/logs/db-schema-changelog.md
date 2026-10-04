@@ -6,6 +6,7 @@
 
 <!-- 아래에 hook이 한 줄씩 prepend 한다 (이 마커 라인은 삭제하지 않는다) -->
 <!-- CHANGELOG-ENTRIES -->
+- 2026-10-04T02:00Z · app/models/console_session.py (Write) · 신규/동일
 - 2026-10-03T15:32Z · app/models/onprem_server.py (Write) · 신규/동일
 - 2026-10-03T14:34Z · app/models/deployment_request.py (Edit) · requested_deployment_strategy, deployment_strategy 컬럼 추가
 - 2026-10-03T14:34Z · app/models/service.py (Edit) · deployment_strategy 컬럼 추가
