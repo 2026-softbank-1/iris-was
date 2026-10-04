@@ -143,7 +143,15 @@ class GithubSourceRepositoryClient:
     async def find_repository(self, installation_id: int, full_name: str) -> RepositoryInfo | None:
         token = (await self.create_installation_token(installation_id)).token
         body = await self._request("GET", f"/repos/{full_name}", token=token, allow_not_found=True)
-        return None if body is None else self._to_repository_info(body)
+        if body is None:
+            return None
+        # 설치 토큰은 설치에 고르지 않은 공개 저장소도 읽을 수 있어, 공개 저장소는 설치 목록에
+        # 있는지 따로 확인한다. 없으면 push 웹훅이 오지 않으므로 접근 권한이 없는 것으로 본다.
+        if not body.get("private", False) and not await self._is_installation_repository(
+            token, int(body["id"])
+        ):
+            return None
+        return self._to_repository_info(body)
 
     async def fetch_branches(self, installation_id: int, full_name: str) -> list[BranchInfo]:
         token = (await self.create_installation_token(installation_id)).token
@@ -177,6 +185,23 @@ class GithubSourceRepositoryClient:
             return None
         commit = body["commit"]
         return CommitInfo(sha=str(commit["sha"]), message=str(commit["commit"]["message"]))
+
+    async def _is_installation_repository(self, token: str, repository_id: int) -> bool:
+        for page in range(1, self._MAX_PAGES + 1):
+            body = await self._request(
+                "GET",
+                "/installation/repositories",
+                token=token,
+                params={"per_page": self._PAGE_SIZE, "page": page},
+            )
+            if body.get("repository_selection") == "all":
+                return True
+            items = body.get("repositories", [])
+            if any(item.get("id") == repository_id for item in items):
+                return True
+            if len(items) < self._PAGE_SIZE:
+                return False
+        return False
 
     def _create_app_jwt(self) -> str:
         now = int(time.time())

@@ -108,6 +108,66 @@ async def test_find_repository_returns_repository_info() -> None:
     assert (repository.full_name, repository.default_branch) == ("o/web", "main")
 
 
+def _public_repo(name: str, repository_id: int) -> dict[str, object]:
+    return {**_repo(name), "id": repository_id, "private": False}
+
+
+async def test_find_repository_returns_none_for_public_repository_not_selected() -> None:
+    client = _client(
+        _github(
+            {
+                ("GET", "/repos/o/oss"): httpx.Response(200, json=_public_repo("o/oss", 7)),
+                ("GET", "/installation/repositories"): httpx.Response(
+                    200,
+                    json={
+                        "repository_selection": "selected",
+                        "repositories": [_public_repo("o/web", 1)],
+                    },
+                ),
+            }
+        )
+    )
+
+    assert await client.find_repository(9, "o/oss") is None
+
+
+async def test_find_repository_returns_public_repository_selected_in_installation() -> None:
+    client = _client(
+        _github(
+            {
+                ("GET", "/repos/o/oss"): httpx.Response(200, json=_public_repo("o/oss", 7)),
+                ("GET", "/installation/repositories"): httpx.Response(
+                    200,
+                    json={
+                        "repository_selection": "selected",
+                        "repositories": [_public_repo("o/web", 1), _public_repo("o/oss", 7)],
+                    },
+                ),
+            }
+        )
+    )
+
+    repository = await client.find_repository(9, "o/oss")
+
+    assert repository is not None
+    assert repository.is_private is False
+
+
+async def test_find_repository_returns_public_repository_when_all_repositories_granted() -> None:
+    client = _client(
+        _github(
+            {
+                ("GET", "/repos/o/oss"): httpx.Response(200, json=_public_repo("o/oss", 7)),
+                ("GET", "/installation/repositories"): httpx.Response(
+                    200, json={"repository_selection": "all", "repositories": []}
+                ),
+            }
+        )
+    )
+
+    assert await client.find_repository(9, "o/oss") is not None
+
+
 async def test_fetch_branches_marks_default_branch() -> None:
     client = _client(
         _github(
