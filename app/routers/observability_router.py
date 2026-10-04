@@ -79,7 +79,10 @@ async def search_logs(
     response_model=ApiResponse[list[MetricSeriesResponse]],
     response_model_exclude_none=True,
     summary="서비스 CPU·메모리·네트워크 시계열 조회",
-    description="on-prem 타깃은 메트릭을 수집하지 않아 503 NOT_CONFIGURED 다.",
+    description=(
+        "사용자가 등록한 온프레미스 서버 타깃은 서버가 1분마다 보낸 CPU·메모리 표본(7일)에서 같은 "
+        "모양으로 읽는다(네트워크는 비어 있다). 공용 on-prem 타깃은 503 NOT_CONFIGURED 다."
+    ),
     responses=error_responses(401, 404, 422, 502, 503),
 )
 async def search_metrics(

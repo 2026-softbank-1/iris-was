@@ -11,6 +11,7 @@ from app.schemas.onprem_server import (
     BootstrapOnpremServerRequest,
     ConnectOnpremServerRequest,
     CreateOnpremServerRequest,
+    IngestOnpremMetricsRequest,
     OnpremBootstrapResponse,
     OnpremConnectResponse,
     OnpremServerRegistrationResponse,
@@ -117,6 +118,27 @@ async def issue_onprem_registry_credentials(
     """
     credentials = await service.issue_registry_credentials(server_secret)
     return ApiResponse(data=RegistryCredentialsResponse.from_credentials(credentials))
+
+
+@router.post(
+    "/metrics",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="서버 Pod CPU·메모리 표본 보내기",
+    responses=error_responses(401, 422, 503),
+)
+async def ingest_onprem_metrics(
+    body: IngestOnpremMetricsRequest,
+    server_secret: OnpremServerSecretDep,
+    service: OnpremServerServiceDep,
+) -> Response:
+    """서버의 CronJob 이 `Authorization: Bearer <serverSecret>` 로 1분마다 보낸다(최대 500 Pod).
+    하트비트로도 센다. 이 서버 타깃에 붙은 서비스의 `svc-{id}` namespace 만 남기고 나머지는
+    조용히 버린다. 남긴 값은 `/services/{id}/metrics` 가 7일 동안 보여 준다.
+    """
+    await service.ingest_metrics(
+        server_secret, body.collected_at, [pod.to_metric() for pod in body.pods]
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --- 사용자 API

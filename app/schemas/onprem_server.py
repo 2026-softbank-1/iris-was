@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import Field, StringConstraints
+from pydantic import AwareDatetime, Field, StringConstraints
 
 from app.enums import (
     OnpremServerConnectionStatus,
@@ -15,6 +15,7 @@ from app.services.onprem_server_service import (
     OnpremBootstrap,
     OnpremConnection,
     OnpremServerRegistration,
+    PodMetric,
     RegistryCredentials,
 )
 
@@ -200,3 +201,28 @@ class RegistryCredentialsResponse(ApiModel):
             expires_at=credentials.expires_at,
             service_ids=credentials.service_ids,
         )
+
+
+MAX_METRIC_PODS = 500
+
+
+class OnpremPodMetricRequest(ApiModel):
+    namespace: Annotated[str, StringConstraints(min_length=1, max_length=63)] = Field(
+        description="Pod 의 namespace. 이 서버 타깃에 붙은 서비스의 `svc-{id}` 만 남는다",
+        examples=["svc-12"],
+    )
+    pod: Annotated[str, StringConstraints(min_length=1, max_length=253)] = Field(
+        examples=["app-5d9c7b8f6d-x2k4q"]
+    )
+    cpu_millicores: float = Field(
+        ge=0, allow_inf_nan=False, description="컨테이너 합계 CPU(millicores)", examples=[12.5]
+    )
+    memory_bytes: int = Field(ge=0, description="컨테이너 합계 메모리(bytes)", examples=[123456])
+
+    def to_metric(self) -> PodMetric:
+        return PodMetric(self.namespace, self.pod, self.cpu_millicores, self.memory_bytes)
+
+
+class IngestOnpremMetricsRequest(ApiModel):
+    collected_at: AwareDatetime = Field(description="서버가 값을 읽은 시각(시간대 포함)")
+    pods: list[OnpremPodMetricRequest] = Field(max_length=MAX_METRIC_PODS)

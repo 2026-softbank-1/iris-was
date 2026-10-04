@@ -31,6 +31,7 @@ from app.enums import (
 )
 from app.models import (
     DeploymentRequest,
+    OnpremMetricSample,
     OnpremServer,
     Project,
     Service,
@@ -38,6 +39,7 @@ from app.models import (
     Target,
     User,
 )
+from app.repositories.onprem_metric_sample_repository import OnpremMetricSampleRepository
 from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
@@ -921,3 +923,32 @@ async def test_touch_last_seen_skips_recent_heartbeat(session_factory: Any) -> N
             server_id, first + timedelta(seconds=31), interval
         )
     assert (await w.load(server_id)).last_seen_at == first + timedelta(seconds=31)
+
+
+async def test_metric_samples_are_stored_searched_and_pruned(session_factory: Any) -> None:
+    async with session_factory.begin() as session:
+        service = await seed_service(session)
+    start = datetime.now(UTC) - timedelta(days=8)
+    recent = datetime.now(UTC) - timedelta(minutes=1)
+    async with session_factory.begin() as session:
+        await OnpremMetricSampleRepository(session).add_all(
+            [
+                OnpremMetricSample(
+                    service_id=service.id,
+                    pod="app-a",
+                    collected_at=at,
+                    cpu_millicores=12.5,
+                    memory_bytes=1024,
+                )
+                for at in (start, recent)
+            ]
+        )
+    async with session_factory.begin() as session:
+        repository = OnpremMetricSampleRepository(session)
+        assert len(await repository.search_by_service_id(service.id, start, recent)) == 2
+        await repository.delete_collected_before(datetime.now(UTC) - timedelta(days=7))
+    async with session_factory() as session:
+        found = await OnpremMetricSampleRepository(session).search_by_service_id(
+            service.id, start, recent
+        )
+    assert [(s.pod, s.cpu_millicores, s.memory_bytes) for s in found] == [("app-a", 12.5, 1024)]

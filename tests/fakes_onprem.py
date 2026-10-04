@@ -9,6 +9,7 @@ from cryptography.fernet import Fernet
 from app.clients.aws_clients import EcrPullCredential
 from app.core.crypto import VariableCipher
 from app.models.base import now_utc
+from app.models.onprem_metric_sample import OnpremMetricSample
 from app.models.onprem_server import OnpremServer
 from app.services.onprem_server_service import OnpremBootstrapSettings, OnpremServerService
 from tests.fakes import FakeSession
@@ -183,6 +184,31 @@ class FakeEcrPullClient:
         )
 
 
+class FakeOnpremMetricSampleRepository:
+    def __init__(self) -> None:
+        self.samples: list[OnpremMetricSample] = []
+        self.deleted_before: list[datetime] = []
+
+    async def add_all(self, samples: list[OnpremMetricSample]) -> None:
+        self.samples.extend(samples)
+
+    async def search_by_service_id(
+        self, service_id: int, start: datetime, end: datetime
+    ) -> list[OnpremMetricSample]:
+        return sorted(
+            (
+                s
+                for s in self.samples
+                if s.service_id == service_id and start <= s.collected_at <= end
+            ),
+            key=lambda s: s.collected_at,
+        )
+
+    async def delete_collected_before(self, cutoff: datetime) -> None:
+        self.deleted_before.append(cutoff)
+        self.samples = [s for s in self.samples if s.collected_at >= cutoff]
+
+
 class OnpremSetup:
     """사용자 1(OWNER)과 서버 등록에 필요한 가짜들을 묶는다."""
 
@@ -200,6 +226,7 @@ class OnpremSetup:
         self.services = FakeServiceRepository(self.projects)
         self.cipher = VariableCipher(Fernet.generate_key().decode())
         self.ecr = FakeEcrPullClient()
+        self.metrics = FakeOnpremMetricSampleRepository()
         self.service = OnpremServerService(
             self.session,  # type: ignore[arg-type]
             self.servers,  # type: ignore[arg-type]
@@ -213,6 +240,7 @@ class OnpremSetup:
             ),
             cipher=self.cipher if has_cipher else None,
             ecr_pull_client=self.ecr if has_ecr else None,  # type: ignore[arg-type]
+            metric_sample_repository=self.metrics,  # type: ignore[arg-type]
         )
 
     async def connect(self, token: str, server: OnpremServer) -> str:
