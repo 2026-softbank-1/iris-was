@@ -196,6 +196,26 @@ def generate_credentials(
     return values
 
 
+def split_url_suffix(suffix: str | None) -> tuple[str, str]:
+    """URL suffix(경로+쿼리+프래그먼트)를 (경로, 쿼리+프래그먼트)로 나눈다."""
+    if not suffix:
+        return "", ""
+    cut = min((i for i in (suffix.find("?"), suffix.find("#")) if i >= 0), default=len(suffix))
+    return suffix[:cut], suffix[cut:]
+
+
+def _with_auth_source(rest: str) -> str:
+    """mongodb 는 루트 사용자가 admin DB 에 있어 쿼리에 authSource 가 필요하다(없을 때만 더한다)."""
+    query, hash_mark, fragment = rest.partition("#")
+    if query.startswith("?"):
+        keys = {pair.split("=", 1)[0] for pair in query[1:].split("&")}
+        if "authSource" not in keys:
+            query = f"{query}&authSource=admin" if query != "?" else "?authSource=admin"
+    else:
+        query = "?authSource=admin"
+    return f"{query}{hash_mark}{fragment}"
+
+
 @dataclass(frozen=True)
 class DatabaseConnection:
     engine: DatabaseEngine
@@ -205,23 +225,41 @@ class DatabaseConnection:
     password: str
     database: str | None
 
-    def url(self, *, masked: bool = False) -> str:
+    def url(
+        self, *, masked: bool = False, scheme: str | None = None, suffix: str | None = None
+    ) -> str:
+        """연결 URL. 자격 증명은 항상 플랫폼이 만든 값이다.
+
+        `scheme`·`suffix` 는 코드가 쓴 URL 에서 읽은 값이다(`postgres+asyncpg`,
+        `/db?sslmode=disable`).
+        suffix 에 경로(`/` 이상)가 있으면 기본 데이터베이스 경로 대신 쓰고, 쿼리·프래그먼트는 그대로
+        붙인다.
+        """
         spec = get_engine_spec(self.engine)
         password = MASK if masked else self.password
-        if self.engine == DatabaseEngine.REDIS:
-            return f"{spec.url_scheme}://{self.user}:{password}@{self.host}:{self.port}"
-        base = f"{spec.url_scheme}://{self.user}:{password}@{self.host}:{self.port}"
-        path = f"/{self.database}" if self.database else ""
+        base = f"{scheme or spec.url_scheme}://{self.user}:{password}@{self.host}:{self.port}"
+        path, rest = split_url_suffix(suffix)
+        if path in ("", "/"):
+            path = (
+                f"/{self.database}" if self.database and self.engine != DatabaseEngine.REDIS else ""
+            )
         if self.engine == DatabaseEngine.MONGODB:
             # 루트 사용자는 admin DB 에 만들어진다.
-            return f"{base}{path}?authSource=admin"
-        return f"{base}{path}"
+            rest = _with_auth_source(rest)
+        return f"{base}{path}{rest}"
 
-    def property(self, name: ReferenceProperty, *, masked: bool = False) -> str | None:
+    def property(
+        self,
+        name: ReferenceProperty,
+        *,
+        masked: bool = False,
+        scheme: str | None = None,
+        suffix: str | None = None,
+    ) -> str | None:
         """None 이면 이 엔진에 없는 속성이다."""
         match name:
             case ReferenceProperty.URL:
-                return self.url(masked=masked)
+                return self.url(masked=masked, scheme=scheme, suffix=suffix)
             case ReferenceProperty.HOST:
                 return self.host
             case ReferenceProperty.PORT:
@@ -251,9 +289,19 @@ def build_connection(
     )
 
 
-def url_template(engine: DatabaseEngine, host: str, port: int, config: Mapping[str, object]) -> str:
+def url_template(
+    engine: DatabaseEngine,
+    host: str,
+    port: int,
+    config: Mapping[str, object],
+    *,
+    scheme: str | None = None,
+    suffix: str | None = None,
+) -> str:
     """비밀번호를 가린 연결 문자열. 서비스 응답의 connection.urlTemplate 이다."""
     spec = get_engine_spec(engine)
     user = str(config.get("user") or "") if spec.has_user and spec.user_key else _REDIS_USER
     database = str(config.get("database") or "") if spec.has_database else None
-    return DatabaseConnection(engine, host, port, user, "", database).url(masked=True)
+    return DatabaseConnection(engine, host, port, user, "", database).url(
+        masked=True, scheme=scheme, suffix=suffix
+    )

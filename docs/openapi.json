@@ -2808,6 +2808,19 @@
               }
             ]
           },
+          "dockerTarget": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dockerfile `--target` 스테이지. 생략하면 분석의 `buildTarget` 을 쓴다.",
+            "title": "Dockertarget"
+          },
           "dockerfilePath": {
             "anyOf": [
               {
@@ -6683,6 +6696,18 @@
               "ROLLING"
             ]
           },
+          "dockerTarget": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dockerfile `--target` 스테이지. 없으면 마지막 스테이지다.",
+            "title": "Dockertarget"
+          },
           "dockerfilePath": {
             "anyOf": [
               {
@@ -6949,6 +6974,22 @@
             "examples": [
               "CANARY"
             ]
+          },
+          "dockerTarget": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dockerfile 멀티 스테이지 빌드의 `--target` 스테이지 이름 (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`). dockerfile 빌더에서만 쓰고 railpack 은 무시한다. null 이면 마지막 스테이지다. 레포의 iris.json `build.dockerTarget` 이 있으면 그 값이 우선한다.",
+            "examples": [
+              "api"
+            ],
+            "title": "Dockertarget"
           },
           "dockerfilePath": {
             "anyOf": [
@@ -7927,6 +7968,21 @@
               "url"
             ]
           },
+          "scheme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "property=url 일 때 URL 스킴(`^[a-z][a-z0-9+.-]*$`, 예: `postgres+asyncpg`). 생략하면 앱은 `http`, DB 는 엔진 기본 스킴이다.",
+            "examples": [
+              "http"
+            ],
+            "title": "Scheme"
+          },
           "serviceId": {
             "examples": [
               12
@@ -7934,6 +7990,21 @@
             "exclusiveMinimum": 0.0,
             "title": "Serviceid",
             "type": "integer"
+          },
+          "suffix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "property=url 일 때 호스트·포트 뒤에 그대로 붙는 경로+쿼리+프래그먼트. `/`·`?`·`#` 로 시작하고 공백·제어 문자 없이 2048자 이하다. DB 는 자격 증명을 플랫폼 값으로 두고, suffix 에 경로가 있으면 기본 데이터베이스 경로 대신 쓴다.",
+            "examples": [
+              "/api/v1?tenant=demo"
+            ],
+            "title": "Suffix"
           }
         },
         "required": [

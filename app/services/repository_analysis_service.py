@@ -32,6 +32,7 @@ from app.repositories.github_installation_repository import GithubInstallationRe
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
 from app.schemas.analysis_gate import AnalysisGateResult, AnalysisGateUnit
+from app.services.builder_detection import is_valid_docker_target
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.service_registry_service import (
     AnalyzedServicePlan,
@@ -57,6 +58,7 @@ class UnitSelection:
     root_directory: str | None = None
     builder: Builder | None = None
     dockerfile_path: str | None = None
+    docker_target: str | None = None
     port: int | None = None
     start_command: str | None = None
     build_command: str | None = None
@@ -411,8 +413,12 @@ def _to_plan(
     dockerfile_path = _normalize_relative_path(
         selection.dockerfile_path if selection.dockerfile_path is not None else unit.dockerfile_path
     )
+    docker_target = _normalize_docker_target(
+        selection.docker_target if selection.docker_target is not None else unit.build_target
+    )
     if builder == Builder.RAILPACK:
         dockerfile_path = None
+        docker_target = None
     port = selection.port if selection.port is not None else unit.port
     start_command = selection.start_command or unit.start_command
     build_command = selection.build_command or unit.build_command
@@ -421,6 +427,7 @@ def _to_plan(
         "rootDirectory": root_directory,
         "builder": builder.value if builder is not None else None,
         "dockerfilePath": dockerfile_path,
+        "buildTarget": docker_target,
         "port": port,
         "startCommand": start_command,
         "buildCommand": build_command,
@@ -430,6 +437,7 @@ def _to_plan(
         root_directory=root_directory,
         builder=builder,
         dockerfile_path=dockerfile_path,
+        docker_target=docker_target,
         port=port,
         start_command=start_command,
         build_command=build_command,
@@ -457,3 +465,12 @@ def _normalize_relative_path(value: str | None) -> str | None:
     if path.startswith("/") or path == ".." or path.startswith("../"):
         raise InvalidInputError("dockerfile path must stay inside the unit", field="dockerfilePath")
     return path
+
+
+def _normalize_docker_target(value: str | None) -> str | None:
+    """분석기 buildTarget·사용자 값. 빈 값이나 받을 수 없는 형식(요청 값은 스키마가 먼저 거른다)이면
+    쓰지 않는다(마지막 스테이지로 빌드)."""
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    return value if is_valid_docker_target(value) else None

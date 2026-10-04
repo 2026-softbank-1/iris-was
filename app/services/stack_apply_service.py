@@ -26,7 +26,12 @@ from app.repositories.database_init_script_repository import DatabaseInitScriptR
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_stack_repository import ServiceStackRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
-from app.schemas.analysis_gate import AnalysisGateDependency, AnalysisGateResult, AnalysisGateUnit
+from app.schemas.analysis_gate import (
+    AnalysisGateBinding,
+    AnalysisGateDependency,
+    AnalysisGateResult,
+    AnalysisGateUnit,
+)
 from app.services.database_init_scripts import (
     init_scripts_change,
     init_scripts_fingerprint,
@@ -39,6 +44,7 @@ from app.services.service_registry_service import (
     ServiceRegistryService,
     slugify_service_name,
 )
+from app.services.variable_references import reference_from_parts
 from app.services.variable_service import check_variable
 
 logger = logging.getLogger(__name__)
@@ -276,7 +282,7 @@ class StackApplyService:
                 continue
             if target.kind == ServiceKind.APP and prop not in _APP_PROPERTIES:
                 continue
-            reference = {"serviceId": target.id, "property": prop.value}
+            reference = _binding_reference(target.id, prop, binding)
             variable = await self._service_variable_repository.find_by_service_id_and_key(
                 service.id, env.key
             )
@@ -288,11 +294,22 @@ class StackApplyService:
                 variable.reference = reference
 
 
+def _binding_reference(
+    target_id: int, prop: ReferenceProperty, binding: AnalysisGateBinding
+) -> dict[str, Any]:
+    """분석기 binding 을 참조로. url 이면 코드가 쓴 스킴·경로·쿼리를 함께 옮긴다. 받을 수 없는 값은
+    버린다(기본 스킴·접미사 없음)."""
+    if prop != ReferenceProperty.URL:
+        return {"serviceId": target_id, "property": prop.value}
+    return reference_from_parts(target_id, prop, binding.scheme, binding.url_suffix).to_json()
+
+
 def _update_from_plan(service: Service, plan: AnalyzedServicePlan) -> None:
     """증분 apply: 이미 있는 unit 의 서비스 설정을 새 분석 값으로 맞춘다(이름은 그대로)."""
     service.root_directory = plan.root_directory
     service.builder = plan.builder
     service.dockerfile_path = plan.dockerfile_path
+    service.docker_target = plan.docker_target
     service.port = plan.port
     service.start_command = plan.start_command
     service.build_command = plan.build_command

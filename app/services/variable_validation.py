@@ -40,7 +40,11 @@ from app.models.service_variable import ServiceVariable
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.database_engines import ENGINE_SPECS, get_engine_spec
-from app.services.variable_references import ReferenceResolver, VariableReference
+from app.services.variable_references import (
+    ReferenceResolver,
+    VariableReference,
+    reference_from_parts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -239,9 +243,8 @@ class VariableValidationService:
     ) -> list[VariableIssue]:
         assert variable.reference is not None
         try:
-            await self._resolver.get_target(
-                service, VariableReference.from_json(variable.reference)
-            )
+            reference = VariableReference.from_json(variable.reference)
+            target = await self._resolver.get_target(service, reference)
         except (VariableReferenceBrokenError, ValueError):
             return [
                 VariableIssue(
@@ -251,6 +254,19 @@ class VariableValidationService:
                     "referenced service no longer exists in this project",
                 )
             ]
+        # 저장한 스킴(코드가 쓴 값)이 가리키는 DB 엔진과 다르면 연결이 안 된다.
+        if reference.scheme and target.database_engine is not None:
+            base = reference.scheme.split("+", 1)[0]
+            accepted = get_engine_spec(target.database_engine).accepted_schemes
+            if base in _ALL_DATABASE_SCHEMES and base not in accepted:
+                return [
+                    VariableIssue(
+                        variable.key,
+                        VariableIssueSeverity.WARNING,
+                        VariableIssueCode.SCHEME_MISMATCH,
+                        f"url scheme does not match {target.database_engine.value}",
+                    )
+                ]
         return []
 
     def _check_value(self, variable: ServiceVariable, context: "_Context") -> list[VariableIssue]:
@@ -359,7 +375,9 @@ class _Context:
             return None
         if target is None:
             return None
-        return VariableReference(service_id=target.id, property=prop)
+        return reference_from_parts(
+            target.id, prop, binding.get("scheme"), binding.get("urlSuffix")
+        )
 
     def suggest(
         self,

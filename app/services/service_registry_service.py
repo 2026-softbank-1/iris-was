@@ -56,7 +56,15 @@ logger = logging.getLogger(__name__)
 SERVICE_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 _NULLABLE_FIELDS = frozenset(
-    {"root_directory", "dockerfile_path", "port", "build_command", "start_command", "builder"}
+    {
+        "root_directory",
+        "dockerfile_path",
+        "docker_target",
+        "port",
+        "build_command",
+        "start_command",
+        "builder",
+    }
 )
 _NON_NULL_FIELDS = frozenset(
     {"name", "source_branch", "is_auto_deploy", "target_ids", "deployment_strategy"}
@@ -71,6 +79,7 @@ _SOURCE_FIELDS = frozenset(
         "is_auto_deploy",
         "builder",
         "dockerfile_path",
+        "docker_target",
         "port",
         "build_command",
         "start_command",
@@ -103,6 +112,7 @@ class AnalyzedServicePlan:
     analysis_plan: dict[str, Any]
     # 스택에 넣을 때의 분석기 unit id.
     stack_unit_id: str | None = None
+    docker_target: str | None = None
 
 
 def slugify_service_name(value: str, max_length: int = 63) -> str:
@@ -258,6 +268,7 @@ class ServiceRegistryService:
                     is_auto_deploy=is_auto_deploy,
                     builder=plan.builder,
                     dockerfile_path=plan.dockerfile_path,
+                    docker_target=plan.docker_target,
                     port=plan.port,
                     start_command=plan.start_command,
                     build_command=plan.build_command,

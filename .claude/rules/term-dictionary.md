@@ -94,6 +94,7 @@ erDiagram
 | `port`\*, `build_command`\*, `start_command`\* | 서비스 실행 설정 |
 | `builder` | `builder` Enum (§5). 코드 분석으로 확정하기 전까지 비어 있고, 비어 있으면 배포하지 않는다 |
 | `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
+| `docker_target` | `builder=dockerfile` 일 때 멀티 스테이지 빌드의 `--target` 스테이지 이름. 비면 마지막 스테이지 |
 | `platform` | 빌드 플랫폼 (`linux/amd64`) |
 | `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
 | `scaling_config`\* | 원하는 Pod 수(replicas 0~10)와 Pod 당 리소스(jsonb). 비어 있으면 replicas 1 이다 |
