@@ -259,3 +259,13 @@ def test_app_user_url_skips_admin_auth_source_and_encodes_password() -> None:
     assert url_template(
         DatabaseEngine.MONGODB, "h", 27017, {"user": "root"}, suffix="/archlog", user="archlog"
     ) == ("mongodb://archlog:****@h:27017/archlog")
+
+
+def test_generated_secret_is_long_enough_for_common_minimums() -> None:
+    # 앱이 SESSION_SECRET 등에 48자 이상을 요구한 운영 사례(Temp_log zod 검사) 회귀 방지.
+    import secrets
+
+    from app.services import stack_apply_service
+
+    value = secrets.token_urlsafe(stack_apply_service._SECRET_BYTES)
+    assert len(value) >= 64
