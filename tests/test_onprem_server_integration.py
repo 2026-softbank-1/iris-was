@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.clients.argocd_client import ArgoAppStatus
 from app.clients.secret_sealer import SecretSealer
 from app.core.crypto import VariableCipher
-from app.core.exceptions import OnpremServerNameConflictError
+from app.core.exceptions import InvalidInputError, OnpremServerNameConflictError
 from app.enums import (
     DeploymentStatus,
     DeploymentTrigger,
@@ -670,3 +670,99 @@ async def test_save_duplicate_server_key_is_not_a_name_conflict(session_factory:
 
     assert "uq_onprem_servers_server_key" in str(raised.value)
     assert await _count(session_factory, OnpremServer, owner_id) == 1
+
+
+async def _names(session_factory: Any, owner_id: int) -> list[str]:
+    async with session_factory() as session:
+        rows = await session.scalars(
+            select(OnpremServer.name)
+            .where(OnpremServer.owner_id == owner_id)
+            .order_by(OnpremServer.id)
+        )
+        return list(rows)
+
+
+async def test_create_server_stores_trimmed_name_and_conflicts_on_the_trimmed_value(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+
+    first: OnpremServerRegistration = await w.call(
+        lambda s: s.create_server(owner_id, " home-lab ")
+    )
+
+    assert first.server.name == "home-lab"
+    assert await _names(session_factory, owner_id) == ["home-lab"]
+    for duplicate in ("home-lab", "  home-lab", "home-lab\n"):
+        with pytest.raises(OnpremServerNameConflictError):
+            await w.call(lambda s, name=duplicate: s.create_server(owner_id, name))
+    assert await _names(session_factory, owner_id) == ["home-lab"]
+
+
+@pytest.mark.parametrize(
+    "name", ["home lab", " home lab ", "E2E Dup 2!", "-abc", "ㄱabc", "서버🙂", "a" * 64, "   ", ""]
+)
+async def test_create_server_rejects_invalid_name_and_leaves_no_rows(
+    session_factory: Any, name: str
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+
+    with pytest.raises(InvalidInputError):
+        await w.call(lambda s: s.create_server(owner_id, name))
+
+    assert await _count(session_factory, OnpremServer, owner_id) == 0
+    assert await _count(session_factory, Target, owner_id) == 0
+
+
+async def test_create_server_accepts_63_hangul_name_that_fits_the_column(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    name = "서" * 63
+
+    registration: OnpremServerRegistration = await w.call(lambda s: s.create_server(owner_id, name))
+
+    assert registration.server.name == name
+    assert await _names(session_factory, owner_id) == [name]
+    with pytest.raises(InvalidInputError):
+        await w.call(lambda s: s.create_server(owner_id, name + "서"))
+
+
+async def test_create_server_names_differing_only_by_case_do_not_conflict(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+
+    await w.call(lambda s: s.create_server(owner_id, "Home-Lab"))
+    await w.call(lambda s: s.create_server(owner_id, "home-lab"))
+
+    assert await _names(session_factory, owner_id) == ["Home-Lab", "home-lab"]
+    with pytest.raises(OnpremServerNameConflictError):
+        await w.call(lambda s: s.create_server(owner_id, "home-lab"))
+
+
+async def test_server_with_a_legacy_name_stays_usable_after_the_name_rule(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    # 규칙이 생기기 전에 등록돼 공백·특수문자가 든 이름. Repository 로 바로 넣는다.
+    async with session_factory.begin() as session:
+        legacy = await _add_server_row(session, owner_id, name="E2E Dup 2!", server_key="aaaaaaaa")
+
+    listed: list[OnpremServer] = await w.call(lambda s: s.search_servers(owner_id))
+    fetched: OnpremServer = await w.call(lambda s: s.get_server(owner_id, legacy.id))
+    reissued: OnpremServerRegistration = await w.call(
+        lambda s: s.reissue_registration_token(owner_id, legacy.id)
+    )
+    with pytest.raises(InvalidInputError):
+        await w.call(lambda s: s.create_server(owner_id, "E2E Dup 2!"))
+    await w.call(lambda s: s.delete_server(owner_id, legacy.id))
+
+    assert [server.name for server in listed] == ["E2E Dup 2!"]
+    assert fetched.name == reissued.server.name == "E2E Dup 2!"
+    assert await w.call(lambda s: s.search_servers(owner_id)) == []

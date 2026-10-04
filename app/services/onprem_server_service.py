@@ -69,6 +69,12 @@ _RERUNNABLE_STATUSES = (
 )
 # iris-infra chart `iris-onprem-server` 의 values schema 가 받는 tailnet FQDN 모양과 같다.
 _TAILNET_SUFFIX = re.compile(r"\.[a-z0-9-]+\.ts\.net")
+# 서버 이름(앞뒤 공백을 자른 뒤): 1~63자, 영문 대소문자·숫자·한글 완성형(가-힣)·`.`·`_`·`-` 만 쓰고
+# 첫 글자는 영문·숫자·한글이다. 이름이 CLI 인자·화면·로그에 그대로 쓰여, 공백·특수문자가 있으면
+# 따옴표가 필요하고 표시가 깨진다. 대소문자는 구분한다. 규칙은 등록할 때만 본다.
+SERVER_NAME_MAX_LENGTH = 63
+SERVER_NAME_PATTERN = re.compile(r"[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,62}")
+_SERVER_NAME_FIRST = re.compile(r"[A-Za-z0-9가-힣]")
 
 
 def generate_server_key() -> str:
@@ -166,9 +172,12 @@ class OnpremServerService:
     async def create_server(self, owner_id: int, name: str) -> OnpremServerRegistration:
         """서버와 전용 타깃을 한 트랜잭션에서 만든다. 등록 토큰은 24시간 유효하다.
 
+        이름은 앞뒤 공백을 자른 값으로 규칙을 검사하고 저장하고 중복을 비교한다(규칙을 어기면 422).
         사용자마다 MAX_SERVERS_PER_OWNER 대까지다. 같은 사용자의 등록은 사용자 행 잠금으로
         줄을 세운다.
         """
+        name = name.strip()
+        _validate_server_name(name, owner_id)
         count = await self._onprem_server_repository.count_active_by_owner_id_for_update(owner_id)
         if count >= MAX_SERVERS_PER_OWNER:
             raise OnpremServerLimitExceededError(
@@ -404,6 +413,23 @@ class OnpremServerService:
         if server is None:
             raise OnpremServerNotFoundError("onprem server not found", onprem_server_id=server_id)
         return server
+
+
+def _validate_server_name(name: str, owner_id: int) -> None:
+    """앞뒤 공백을 자른 이름이 규칙을 지키는지 본다. 사유 하나만 알리고 값은 오류에 담지 않는다."""
+    if SERVER_NAME_PATTERN.fullmatch(name):
+        return
+    if not name:
+        reason = "must not be blank"
+    elif len(name) > SERVER_NAME_MAX_LENGTH:
+        reason = f"must be at most {SERVER_NAME_MAX_LENGTH} characters"
+    elif not _SERVER_NAME_FIRST.fullmatch(name[0]):
+        reason = "must start with a letter, digit or Hangul syllable"
+    else:
+        reason = "may contain only letters, digits, Hangul syllables, '.', '_' and '-' (no spaces)"
+    raise InvalidInputError(
+        "invalid onprem server name", issues=[FieldIssue("name", reason)], owner_id=owner_id
+    )
 
 
 def _check_registration_token(

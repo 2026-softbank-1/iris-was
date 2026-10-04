@@ -138,9 +138,16 @@ async def create_onprem_server(
     base_url: OnpremInstallBaseUrlDep,
 ) -> ApiResponse[OnpremServerRegistrationResponse]:
     """서버와 전용 배포 타깃을 만든다. 응답의 `installCommand` 를 서버에서 실행하면 연결된다.
-    `registrationToken`(24시간)은 이 응답에서만 보인다. 이름은 내 서버 안에서 유일하다(삭제한 서버는
-    빼며, 겹치면 409 `ONPREM_SERVER_NAME_CONFLICT`). 사용자마다 5대까지다(넘으면 409
-    `ONPREM_SERVER_LIMIT_EXCEEDED`). `API_BASE_URL` 이 없거나 https 가 아니면 503 이다.
+    `registrationToken`(24시간)은 이 응답에서만 보인다.
+
+    이름은 앞뒤 공백을 자른 값으로 검사·저장·비교한다. 1~63자이고 영문 대소문자·숫자·한글
+    완성형(가-힣)·`.`·`_`·`-` 만 쓸 수 있다(공백 불가, 첫 글자는 영문·숫자·한글). 어기면 422
+    `INVALID_INPUT` 이고 `details` 에 `name` 과 사유가 있다. 이름은 내 서버 안에서 유일하다(대소문자
+    구분, 삭제한 서버는 빼며, 겹치면 409 `ONPREM_SERVER_NAME_CONFLICT`). 이미 등록한 서버의 이름은
+    규칙과 상관없이 그대로 쓴다.
+
+    사용자마다 5대까지다(넘으면 409 `ONPREM_SERVER_LIMIT_EXCEEDED`). `API_BASE_URL` 이 없거나
+    https 가 아니면 503 이다.
     """
     registration = await service.create_server(user.id, body.name)
     return ApiResponse(data=_registration_response(request, base_url, registration))
