@@ -22,9 +22,12 @@ _CA_KEY, CA_PEM = make_controller_key()
 SERVER_KEY, SEALED_SECRETS_CERT = make_controller_key()
 
 # 서버 이름 규칙(앞뒤 공백을 자른 뒤): 1~63자, 영문·숫자·한글 완성형·`.`·`_`·`-` 만,
-# 첫 글자는 영문·숫자·한글.
+# 첫 글자는 영문·숫자·한글, 숫자만으로는 안 된다(CLI 의 `<이름|id>` 가 숫자를 id 로 먼저 읽는다).
+# 규칙 이전에 등록한 이름이라 규칙에 어긋나지만 그대로 쓰는 이름
+LEGACY_SERVER_NAMES = ["E2E Dup 2!", "2024"]
 NAME_BLANK = "must not be blank"
 NAME_TOO_LONG = "must be at most 63 characters"
+NAME_ONLY_DIGITS = "must not be only digits"
 NAME_BAD_FIRST = "must start with a letter, digit or Hangul syllable"
 NAME_BAD_CHAR = "may contain only letters, digits, Hangul syllables, '.', '_' and '-' (no spaces)"
 
@@ -33,11 +36,20 @@ VALID_SERVER_NAMES: list[tuple[str, str]] = [
     ("home-lab", "home-lab"),
     ("Home_Lab.01", "Home_Lab.01"),
     ("a", "a"),
-    ("0", "0"),
+    ("0a", "0a"),
+    ("1a", "1a"),
+    ("a1", "a1"),
+    ("1-2", "1-2"),
+    ("1.5", "1.5"),
+    ("007a", "007a"),
+    ("1_0", "1_0"),
+    ("12가", "12가"),
+    ("0-" + "0" * 61, "0-" + "0" * 61),
+    ("1" * 62 + "a", "1" * 62 + "a"),
+    (" 1a ", "1a"),
     ("가", "가"),
     ("서버1", "서버1"),
     ("홈랩-서버_01.a", "홈랩-서버_01.a"),
-    ("1-2", "1-2"),
     ("a.b", "a.b"),
     ("a-", "a-"),
     ("a" + "-" * 62, "a" + "-" * 62),
@@ -59,6 +71,15 @@ INVALID_SERVER_NAMES: list[tuple[str, str]] = [
     ("a" * 64, NAME_TOO_LONG),
     ("서" * 64, NAME_TOO_LONG),
     (" " + "a" * 64 + " ", NAME_TOO_LONG),
+    ("1", NAME_ONLY_DIGITS),
+    ("0", NAME_ONLY_DIGITS),
+    ("007", NAME_ONLY_DIGITS),
+    ("2024", NAME_ONLY_DIGITS),
+    ("1" * 63, NAME_ONLY_DIGITS),
+    (" 12 ", NAME_ONLY_DIGITS),
+    ("\t7\n", NAME_ONLY_DIGITS),
+    ("1" * 64, NAME_TOO_LONG),
+    ("1 2", NAME_BAD_CHAR),
     ("home lab", NAME_BAD_CHAR),
     ("홈 랩", NAME_BAD_CHAR),
     ("E2E Dup 2!", NAME_BAD_CHAR),

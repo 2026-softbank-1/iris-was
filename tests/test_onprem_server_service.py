@@ -27,6 +27,7 @@ from app.models.service import Service
 from tests.fakes_onprem import (
     CA_PEM,
     INVALID_SERVER_NAMES,
+    LEGACY_SERVER_NAMES,
     OTHER_OWNER,
     OWNER,
     SEALED_SECRETS_CERT,
@@ -177,16 +178,21 @@ async def test_create_server_names_differing_only_by_case_are_distinct() -> None
     assert sorted(s.name for s in setup.servers.servers) == ["Home-Lab", "home-lab"]
 
 
-async def test_server_registered_with_a_name_the_rule_now_rejects_keeps_working() -> None:
+@pytest.mark.parametrize("legacy_name", LEGACY_SERVER_NAMES)
+async def test_server_registered_with_a_name_the_rule_now_rejects_keeps_working(
+    legacy_name: str,
+) -> None:
     setup = OnpremSetup()
     server = (await setup.service.create_server(OWNER, "legacy")).server
-    # 규칙이 생기기 전에 등록돼 공백·특수문자가 든 이름
-    server.name = "E2E Dup 2!"
+    # 규칙이 생기기 전에 등록돼 공백·특수문자가 들었거나 숫자만으로 된 이름
+    server.name = legacy_name
 
-    assert [s.name for s in await setup.service.search_servers(OWNER)] == ["E2E Dup 2!"]
-    assert (await setup.service.get_server(OWNER, server.id)).name == "E2E Dup 2!"
+    assert [s.name for s in await setup.service.search_servers(OWNER)] == [legacy_name]
+    assert (await setup.service.get_server(OWNER, server.id)).name == legacy_name
     reissued = await setup.service.reissue_registration_token(OWNER, server.id)
-    assert reissued.server.name == "E2E Dup 2!"
+    assert reissued.server.name == legacy_name
+    with pytest.raises(InvalidInputError):
+        await setup.service.create_server(OWNER, legacy_name)
     await setup.service.delete_server(OWNER, server.id)
     assert await setup.service.search_servers(OWNER) == []
 

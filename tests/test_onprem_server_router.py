@@ -16,6 +16,7 @@ from app.main import app
 from app.models.user import User
 from tests.fakes_onprem import (
     INVALID_SERVER_NAMES,
+    LEGACY_SERVER_NAMES,
     OWNER,
     VALID_SERVER_NAMES,
     OnpremSetup,
@@ -206,6 +207,27 @@ async def test_create_server_conflict_is_checked_on_the_trimmed_name_both_ways(
     assert [s.name for s in env.setup.servers.servers] == ["home-lab"]
 
 
+@pytest.mark.parametrize("name", ["1", "0", "007", "2024", "1" * 63, " 12 "])
+async def test_create_server_digits_only_name_is_422_with_one_reason(env: Env, name: str) -> None:
+    response = await env.client.post(BASE, json={"name": name})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "INVALID_INPUT"
+    assert body["details"] == [{"field": "name", "reason": "must not be only digits"}]
+    assert env.setup.servers.servers == []
+
+
+@pytest.mark.parametrize("name", ["1a", "a1", "1-2", "1.5", "007a"])
+async def test_create_server_name_with_digits_and_other_characters_is_201(
+    env: Env, name: str
+) -> None:
+    response = await env.client.post(BASE, json={"name": name})
+
+    assert response.status_code == 201
+    assert response.json()["data"]["server"]["name"] == name
+
+
 async def test_create_server_internal_space_is_422_even_when_trimmed_name_exists(
     env: Env,
 ) -> None:
@@ -236,18 +258,21 @@ async def test_create_server_same_name_after_delete_is_201_again(env: Env) -> No
     assert second.json()["data"]["server"]["id"] != first["id"]
 
 
-async def test_list_returns_server_registered_before_the_name_rule_as_is(env: Env) -> None:
+@pytest.mark.parametrize("legacy_name", LEGACY_SERVER_NAMES)
+async def test_list_returns_server_registered_before_the_name_rule_as_is(
+    env: Env, legacy_name: str
+) -> None:
     created = (await env.client.post(BASE, json={"name": "legacy"})).json()["data"]["server"]
-    env.setup.servers.servers[0].name = "E2E Dup 2!"
+    env.setup.servers.servers[0].name = legacy_name
 
     listed = await env.client.get(BASE)
     fetched = await env.client.get(f"{BASE}/{created['id']}")
     reissued = await env.client.post(f"{BASE}/{created['id']}/registration-token")
 
-    assert [s["name"] for s in listed.json()["data"]] == ["E2E Dup 2!"]
-    assert fetched.json()["data"]["name"] == "E2E Dup 2!"
+    assert [s["name"] for s in listed.json()["data"]] == [legacy_name]
+    assert fetched.json()["data"]["name"] == legacy_name
     assert reissued.status_code == 200
-    assert reissued.json()["data"]["server"]["name"] == "E2E Dup 2!"
+    assert reissued.json()["data"]["server"]["name"] == legacy_name
 
 
 async def test_bootstrap_and_connect_flow_through_api(env: Env) -> None:

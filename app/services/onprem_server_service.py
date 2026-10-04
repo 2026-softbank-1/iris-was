@@ -70,10 +70,13 @@ _RERUNNABLE_STATUSES = (
 # iris-infra chart `iris-onprem-server` 의 values schema 가 받는 tailnet FQDN 모양과 같다.
 _TAILNET_SUFFIX = re.compile(r"\.[a-z0-9-]+\.ts\.net")
 # 서버 이름(앞뒤 공백을 자른 뒤): 1~63자, 영문 대소문자·숫자·한글 완성형(가-힣)·`.`·`_`·`-` 만 쓰고
-# 첫 글자는 영문·숫자·한글이다. 이름이 CLI 인자·화면·로그에 그대로 쓰여, 공백·특수문자가 있으면
-# 따옴표가 필요하고 표시가 깨진다. 대소문자는 구분한다. 규칙은 등록할 때만 본다.
+# 첫 글자는 영문·숫자·한글이며 숫자만으로는 안 된다. 이름이 CLI 인자·화면·로그에 그대로 쓰여, 공백·
+# 특수문자가 있으면 따옴표가 필요하고 표시가 깨진다. 숫자만인 이름은 CLI `<이름|id>` 가 숫자를 id 로
+# 먼저 읽어 다른 서버를 가리킬 수 있다. 대소문자는 구분한다. 규칙은 등록할 때만 본다.
+# OpenAPI 의 JSON Schema(ECMA) 패턴으로도 쓰므로 `\Z` 대신 `$` 를 쓴다.
 SERVER_NAME_MAX_LENGTH = 63
-SERVER_NAME_PATTERN = re.compile(r"[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,62}")
+SERVER_NAME_PATTERN = re.compile(r"(?![0-9]+$)[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,62}")
+_SERVER_NAME_DIGITS_ONLY = re.compile(r"[0-9]+")
 _SERVER_NAME_FIRST = re.compile(r"[A-Za-z0-9가-힣]")
 
 
@@ -423,6 +426,8 @@ def _validate_server_name(name: str, owner_id: int) -> None:
         reason = "must not be blank"
     elif len(name) > SERVER_NAME_MAX_LENGTH:
         reason = f"must be at most {SERVER_NAME_MAX_LENGTH} characters"
+    elif _SERVER_NAME_DIGITS_ONLY.fullmatch(name):
+        reason = "must not be only digits"
     elif not _SERVER_NAME_FIRST.fullmatch(name[0]):
         reason = "must start with a letter, digit or Hangul syllable"
     else:

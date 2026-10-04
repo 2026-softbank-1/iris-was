@@ -47,7 +47,7 @@ from app.services.onprem_server_service import (
     OnpremServerService,
 )
 from app.services.onprem_server_sync_service import MAX_GITOPS_ATTEMPTS, OnpremServerSyncService
-from tests.fakes_onprem import CA_PEM, SEALED_SECRETS_CERT, SERVER_KEY
+from tests.fakes_onprem import CA_PEM, LEGACY_SERVER_NAMES, SEALED_SECRETS_CERT, SERVER_KEY
 from tests.sealed_support import make_controller_key, unseal
 from tests.test_deploy_flow import SETTINGS, FakeArgo, FakeGitOps, Harness
 from tests.worker_support import (
@@ -706,7 +706,20 @@ async def test_create_server_stores_trimmed_name_and_conflicts_on_the_trimmed_va
 
 
 @pytest.mark.parametrize(
-    "name", ["home lab", " home lab ", "E2E Dup 2!", "-abc", "ㄱabc", "서버🙂", "a" * 64, "   ", ""]
+    "name",
+    [
+        "home lab",
+        " home lab ",
+        "E2E Dup 2!",
+        "-abc",
+        "ㄱabc",
+        "서버🙂",
+        "a" * 64,
+        "   ",
+        "",
+        "1",
+        "2024",
+    ],
 )
 async def test_create_server_rejects_invalid_name_and_leaves_no_rows(
     session_factory: Any, name: str
@@ -750,14 +763,15 @@ async def test_create_server_names_differing_only_by_case_do_not_conflict(
         await w.call(lambda s: s.create_server(owner_id, "home-lab"))
 
 
+@pytest.mark.parametrize("legacy_name", LEGACY_SERVER_NAMES)
 async def test_server_with_a_legacy_name_stays_usable_after_the_name_rule(
-    session_factory: Any,
+    session_factory: Any, legacy_name: str
 ) -> None:
     w = World(session_factory)
     owner_id = await w.owner()
-    # 규칙이 생기기 전에 등록돼 공백·특수문자가 든 이름. Repository 로 바로 넣는다.
+    # 규칙이 생기기 전에 등록한 공백·특수문자·숫자만인 이름. Repository 로 바로 넣는다.
     async with session_factory.begin() as session:
-        legacy = await _add_server_row(session, owner_id, name="E2E Dup 2!", server_key="aaaaaaaa")
+        legacy = await _add_server_row(session, owner_id, name=legacy_name, server_key="aaaaaaaa")
 
     listed: list[OnpremServer] = await w.call(lambda s: s.search_servers(owner_id))
     fetched: OnpremServer = await w.call(lambda s: s.get_server(owner_id, legacy.id))
@@ -765,9 +779,9 @@ async def test_server_with_a_legacy_name_stays_usable_after_the_name_rule(
         lambda s: s.reissue_registration_token(owner_id, legacy.id)
     )
     with pytest.raises(InvalidInputError):
-        await w.call(lambda s: s.create_server(owner_id, "E2E Dup 2!"))
+        await w.call(lambda s: s.create_server(owner_id, legacy_name))
     await w.call(lambda s: s.delete_server(owner_id, legacy.id))
 
-    assert [server.name for server in listed] == ["E2E Dup 2!"]
-    assert fetched.name == reissued.server.name == "E2E Dup 2!"
+    assert [server.name for server in listed] == [legacy_name]
+    assert fetched.name == reissued.server.name == legacy_name
     assert await w.call(lambda s: s.search_servers(owner_id)) == []
