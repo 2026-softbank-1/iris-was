@@ -158,6 +158,131 @@ async def test_gateway_lifespan_fails_fast_on_non_ed25519_public_key(
             pass
 
 
+# ---- Console Gateway: 클러스터는 둘 다 선택이다(ADR 0035) ------------------------------------
+
+AWS_ENV_NAMES = (
+    "CONSOLE_AWS_CLUSTER_NAME",
+    "CONSOLE_AWS_CLUSTER_ENDPOINT",
+    "CONSOLE_AWS_CLUSTER_CA",
+    "AWS_REGION",
+)
+ARGOCD_SERVER_URL = "https://argocd-server.argocd.svc"
+ARGOCD_TOKEN = "argocd-role-token-must-not-leak"
+
+
+def _use_argocd(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CONSOLE_ARGOCD_SERVER_URL", ARGOCD_SERVER_URL)
+    monkeypatch.setenv("CONSOLE_ARGOCD_TOKEN", ARGOCD_TOKEN)
+
+
+def _drop_aws(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in AWS_ENV_NAMES:
+        monkeypatch.delenv(name)
+
+
+def test_gateway_settings_aws_only_enables_only_aws(gateway_env: dict[str, str]) -> None:
+    settings = ConsoleGatewaySettings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.is_aws_configured is True
+    assert settings.is_onprem_configured is False
+    assert settings.console_argocd_project == "iris-svc-project"
+    assert settings.console_argocd_app_namespace == "argocd"
+
+
+def test_gateway_settings_argocd_only_is_valid(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _drop_aws(monkeypatch)
+    _use_argocd(monkeypatch)
+
+    settings = ConsoleGatewaySettings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.is_aws_configured is False
+    assert settings.is_onprem_configured is True
+    assert settings.console_argocd_token is not None
+    assert settings.console_argocd_token.get_secret_value() == ARGOCD_TOKEN
+
+
+def test_gateway_settings_both_clusters_are_enabled_together(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_argocd(monkeypatch)
+
+    settings = ConsoleGatewaySettings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.is_aws_configured is True
+    assert settings.is_onprem_configured is True
+
+
+def test_gateway_settings_require_at_least_one_cluster(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _drop_aws(monkeypatch)
+
+    with pytest.raises(ValidationError, match="no console cluster is configured"):
+        ConsoleGatewaySettings(_env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("present", ["CONSOLE_ARGOCD_SERVER_URL", "CONSOLE_ARGOCD_TOKEN"])
+def test_gateway_settings_reject_partial_argocd_group(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch, present: str
+) -> None:
+    monkeypatch.setenv(
+        present, ARGOCD_SERVER_URL if present == "CONSOLE_ARGOCD_SERVER_URL" else ARGOCD_TOKEN
+    )
+
+    with pytest.raises(ValidationError, match="cluster settings are incomplete"):
+        ConsoleGatewaySettings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_gateway_settings_reject_non_https_argocd_url(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CONSOLE_ARGOCD_SERVER_URL", "http://argocd-server.argocd.svc")
+    monkeypatch.setenv("CONSOLE_ARGOCD_TOKEN", ARGOCD_TOKEN)
+
+    with pytest.raises(ValidationError):
+        ConsoleGatewaySettings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_gateway_settings_validation_error_does_not_leak_argocd_token(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CONSOLE_ARGOCD_TOKEN", ARGOCD_TOKEN)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ConsoleGatewaySettings(_env_file=None)  # type: ignore[call-arg]
+
+    assert ARGOCD_TOKEN not in str(exc_info.value)
+
+
+async def test_gateway_lifespan_builds_both_cluster_clients(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_argocd(monkeypatch)
+    get_console_gateway_settings.cache_clear()
+    app = create_app()
+
+    async with app.router.lifespan_context(app):
+        service = app.state.console_gateway_service
+        assert set(service._clusters) == {"aws", "onprem"}
+
+
+async def test_gateway_lifespan_with_argocd_only_serves_only_onprem(
+    gateway_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _drop_aws(monkeypatch)
+    _use_argocd(monkeypatch)
+    get_console_gateway_settings.cache_clear()
+    app = create_app()
+
+    async with app.router.lifespan_context(app):
+        service = app.state.console_gateway_service
+        assert set(service._clusters) == {"onprem"}
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
+            assert (await http.get("/readyz")).status_code == 204
+
+
 # ---- Control API 설정 ------------------------------------------------------------------------
 
 

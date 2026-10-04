@@ -92,3 +92,68 @@ def test_install_script_invalid_api_url_fails() -> None:
 
     assert result.returncode != 0
     assert "--api-url" in result.stderr
+
+
+def _cluster_role_rules() -> str:
+    """스크립트에 들어 있는 ClusterRole `iris-onprem-service-deployer` 의 rules 본문."""
+    script = SCRIPT_PATH.read_text()
+    match = re.search(
+        r"kind: ClusterRole\nmetadata:\n  name: iris-onprem-service-deployer\nrules:\n(.*?)\n---",
+        script,
+        re.DOTALL,
+    )
+    assert match is not None, "ClusterRole iris-onprem-service-deployer 를 찾지 못했다"
+    return match.group(1)
+
+
+def test_install_script_cluster_role_grants_pod_exec_for_argocd_terminal() -> None:
+    # Argo CD 터미널(서비스 콘솔, ADR 0035)이 서버의 Pod 에 exec 한다.
+    # WebSocket 은 get, SPDY 는 create 다.
+    rules = _cluster_role_rules()
+
+    assert re.search(
+        r'- apiGroups: \[""\]\n\s+resources: \[pods/exec\]\n\s+verbs: \[get, create\]', rules
+    )
+
+
+def test_install_script_cluster_role_keeps_existing_deploy_rules() -> None:
+    rules = _cluster_role_rules()
+
+    for expected in ("rollouts", "sealedsecrets", "networkpolicies", "deployments, replicasets"):
+        assert expected in rules
+
+
+def test_install_script_rbac_only_dry_run_needs_no_token_and_skips_install_steps() -> None:
+    result = _run_script("--rbac-only", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "--rbac-only" in result.stdout
+    assert "iris-onprem-service-deployer" in result.stdout
+    # 등록·설치 단계는 하나도 실행하지 않는다.
+    assert "[1/8]" not in result.stdout
+    assert "bootstrap" not in result.stdout
+
+
+def test_install_script_rbac_only_rejects_token_without_echoing_it() -> None:
+    result = _run_script("--rbac-only", f"--token={REGISTRATION_TOKEN}")
+
+    assert result.returncode != 0
+    assert "--token" in result.stderr
+    assert REGISTRATION_TOKEN not in result.stdout + result.stderr
+
+
+def test_install_script_without_rbac_only_still_requires_token() -> None:
+    result = _run_script("--dry-run")
+
+    assert result.returncode != 0
+    assert "--token" in result.stderr
+
+
+def test_install_script_rbac_only_applies_the_same_manifest_as_install() -> None:
+    script = SCRIPT_PATH.read_text()
+
+    # 두 경로가 같은 함수(kubectl apply)를 써야 규칙이 어긋나지 않는다.
+    for function in ("grant_deploy_access", "update_rbac"):
+        body = re.search(rf"^{function}\(\) \{{\n(.*?)^\}}", script, re.DOTALL | re.MULTILINE)
+        assert body is not None, function
+        assert "apply_deploy_access" in body.group(1), function

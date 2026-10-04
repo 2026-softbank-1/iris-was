@@ -52,7 +52,7 @@ LOG_LEVEL=INFO
 | `ONPREM_SERVER_OFFLINE_AFTER_SECONDS` | 연결된 온프레미스 서버의 하트비트(`lastSeenAt`, 서버 CronJob 이 1분마다)가 이만큼 없으면 API 가 `DISCONNECTED` 로 알리고 그 서버로의 배포를 `409 TARGET_NOT_CONNECTED` 로 막는다. 기본 180초 |
 | `UPLOAD_MAX_BYTES` | 소스 업로드의 압축한 바이트 한도. 기본 250MB(Build Worker 의 `SNAPSHOT_MAX_BYTES` 와 같게 둔다). 넘으면 본문을 읽기 전에 `413 UPLOAD_TOO_LARGE` |
 | `BUILD_LOG_GROUP` | (선택) `AWS_REGION` 과 함께 있으면 배포 상세의 빌드 로그 전체를 CloudWatch Logs 에서 읽는다(그룹 `/aws/codebuild/iris-dev-build` 의 `logs:GetLogEvents` 만 허용한 Role 필요). 없으면 Build Worker 가 남긴 실패한 빌드의 끝부분만 보여 주고, 그것도 없으면 빌드 로그 API 가 503 이다. [배포 상세 화면 API](deployment-details-api.md) |
-| `CONSOLE_TICKET_PRIVATE_KEY`, `CONSOLE_GATEWAY_HTTP_URL`, `CONSOLE_GATEWAY_WS_URL` | (선택) 서비스 콘솔(Pod 셸). 셋 다 있어야 켜진다. 개인키는 Ed25519 PEM(줄바꿈은 `\n` 도 허용)이고 Console Gateway 의 `CONSOLE_TICKET_PUBLIC_KEY` 와 한 쌍이다. 주소는 화면이 Gateway 에 붙는 base(`https://…`·`wss://…`, 끝의 `/` 는 뺀다). 없으면 가능 여부 조회는 `available=false`(`NOT_CONFIGURED`), ticket 발급은 `503 NOT_CONFIGURED`. Control API 는 클러스터에 접근하지 않는다. [콘솔 API](console-api.md), [ADR 0033](adr/0033-service-console-via-console-gateway.md) |
+| `CONSOLE_TICKET_PRIVATE_KEY`, `CONSOLE_GATEWAY_HTTP_URL`, `CONSOLE_GATEWAY_WS_URL` | (선택) 서비스 콘솔(Pod 셸). 셋 다 있어야 켜진다. 개인키는 Ed25519 PEM(줄바꿈은 `\n` 도 허용)이고 Console Gateway 의 `CONSOLE_TICKET_PUBLIC_KEY` 와 한 쌍이다. 주소는 화면이 Gateway 에 붙는 base(`https://…`·`wss://…`, 끝의 `/` 는 뺀다). 없으면 가능 여부 조회는 `available=false`(`NOT_CONFIGURED`), ticket 발급은 `503 NOT_CONFIGURED`. Control API 는 클러스터에 접근하지 않는다. [콘솔 API](console-api.md), [ADR 0033](adr/0033-service-console-via-console-gateway.md), [ADR 0035](adr/0035-onprem-console-via-argocd-terminal.md) |
 | `LOG_LEVEL` | `DEBUG`·`INFO`·`WARNING`·`ERROR`. 기본 `INFO` |
 | `WEB_BASE_URL` | 웹 프런트 주소. 로그인 후 이 주소로 돌려보낸다. 기본 `http://localhost:3000` |
 | `API_BASE_URL` | Control API 의 공개 주소(예: `https://api.likelion.uk`). CLI 로그인의 `verificationUrl` 과 온프레미스 서버의 `installCommand` 를 만든다. CLI 로그인은 없으면 요청의 Host 로 만들지만, 온프레미스 서버 등록·토큰 재발급은 없거나 https 가 아니면(localhost·127.0.0.1 의 http 는 허용) `503 NOT_CONFIGURED` 다. TLS 를 앞단에서 끝내는 운영에서는 꼭 설정한다 |
@@ -68,22 +68,28 @@ LOG_LEVEL=INFO
 
 ## Console Gateway
 
-서비스 콘솔(Pod 셸)을 중계하는 컴포넌트다([콘솔 API](console-api.md), [ADR 0033](adr/0033-service-console-via-console-gateway.md)). Control API 와 같은 이미지에서 `uvicorn app.console_gateway.main:app --host 0.0.0.0 --port 8080` 으로 띄운다. **DB 접속 정보(`DATABASE_URL`)와 ticket 서명 개인키를 갖지 않는다.** replica 는 1 이다. 시작할 때 아래 설정을 읽고, 틀리면(CA·키 형식 등) 시작하지 못한다.
+서비스 콘솔(Pod 셸)을 중계하는 컴포넌트다([콘솔 API](console-api.md), [ADR 0033](adr/0033-service-console-via-console-gateway.md)). Control API 와 같은 이미지에서 `uvicorn app.console_gateway.main:app --host 0.0.0.0 --port 8080` 으로 띄운다. **DB 접속 정보(`DATABASE_URL`)와 ticket 서명 개인키를 갖지 않는다.** replica 는 1 이다. 시작할 때 아래 설정을 읽고, 틀리면(CA·키 형식 등) 시작하지 못한다. 클러스터는 **AWS(`CONSOLE_AWS_*`)와 온프레미스(`CONSOLE_ARGOCD_*`) 각각 선택**이다. 하나만 설정해도 뜨고, 설정하지 않은 쪽의 ticket 은 `CLUSTER_UNAVAILABLE` 이다. 한 그룹의 값이 일부만 있거나 둘 다 없으면 시작하지 않는다.
 
 | 환경변수 | 설명 |
 |---|---|
 | `CONSOLE_TICKET_PUBLIC_KEY` | ticket 검증용 Ed25519 공개키(PEM, 비밀이 아니다). Control API 의 `CONSOLE_TICKET_PRIVATE_KEY` 와 한 쌍 |
-| `CONSOLE_AWS_CLUSTER_NAME` | 접속할 Prod EKS 클러스터 이름. 토큰 서명(`x-k8s-aws-id`)에 쓴다 |
+| `CONSOLE_AWS_CLUSTER_NAME` | (AWS 그룹) 접속할 Prod EKS 클러스터 이름. 토큰 서명(`x-k8s-aws-id`)에 쓴다 |
 | `CONSOLE_AWS_CLUSTER_ENDPOINT` | 그 클러스터의 API 서버 주소(`https://…`, https 만 받는다) |
 | `CONSOLE_AWS_CLUSTER_CA` | API 서버 인증서의 CA(PEM 을 base64 로 인코딩한 값, EKS `certificateAuthority.data` 형식) |
 | `AWS_REGION` | EKS·STS 리전. 자격증명은 EKS Pod Identity(boto3 기본 자격증명 체인)에서 받는다 |
+| `CONSOLE_ARGOCD_SERVER_URL` | (온프레미스 그룹) Argo CD `argocd-server` 주소(`https://…`, https 만 받는다. 예: `https://argocd-server.argocd.svc`). 서버 인증서의 CA 번들은 `SSL_CERT_FILE` 로 받는다 |
+| `CONSOLE_ARGOCD_TOKEN` | (온프레미스 그룹) Argo CD 프로젝트 role `iris-console` 의 JWT(비밀). 정책은 `p, proj:iris-svc-project:iris-console, applications, get, iris-svc-project/*, allow` 와 `p, proj:iris-svc-project:iris-console, exec, create, iris-svc-project/*, allow`. 앞뒤 공백·개행은 뺀다. Control API 의 `ARGOCD_LOGS_TOKEN` 과 공유하지 않는다 |
+| `CONSOLE_ARGOCD_PROJECT` | 서비스 Application 이 속한 Argo CD project. 기본 `iris-svc-project` |
+| `CONSOLE_ARGOCD_APP_NAMESPACE` | Application 이 있는 namespace. 기본 `argocd` |
 | `CONSOLE_ALLOWED_ORIGINS` | CORS·WebSocket 에 허용할 Origin(쉼표 구분, 예: `https://app.likelion.uk`). 목록에 없는 Origin(없는 경우 포함)의 WebSocket 은 `403` 으로 거절한다 |
 | `CONSOLE_IDLE_TIMEOUT_SECONDS` | 입력 없이 이 시간이 지나면 끊는다. 기본 900 |
 | `CONSOLE_MAX_SESSION_SECONDS` | 연결한 뒤 이 시간이 지나면 끊는다. 기본 3600 |
 | `CONSOLE_MAX_SESSIONS_PER_USER` | 한 사용자의 동시 연결 한도(replica 안에서만 센다). 기본 3 |
 | `LOG_LEVEL` | 기본 `INFO` |
 
-Gateway 의 클러스터 권한은 Prod EKS access entry(Kubernetes group `iris-console`)가 주는 ClusterRole `iris-console-exec` 뿐이다(`pods` get·list, `pods/exec` create + get — WebSocket 업그레이드 인가용, 배포 후 검증에서 get 이 불필요하면 뺀다). Secret·Deployment 등은 읽지 못한다.
+온프레미스 타깃은 Gateway 가 Argo CD 터미널(`/terminal`, 쿠키 `argocd.token`)과 REST(`resource-tree`, Bearer)로 닿는다. Argo CD 쪽에는 `exec.enabled` 와 위 role 이, 서버 쪽에는 Argo ServiceAccount 의 `pods/exec`(get·create)가 필요하다([ADR 0035](adr/0035-onprem-console-via-argocd-terminal.md)).
+
+Gateway 의 AWS 클러스터 권한은 Prod EKS access entry(Kubernetes group `iris-console`)가 주는 ClusterRole `iris-console-exec` 뿐이다(`pods` get·list, `pods/exec` create + get — WebSocket 업그레이드 인가용, 배포 후 검증에서 get 이 불필요하면 뺀다). Secret·Deployment 등은 읽지 못한다.
 
 ## Build Worker
 

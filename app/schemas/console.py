@@ -23,7 +23,9 @@ class ConsoleAvailabilityResponse(ApiModel):
         default=None,
         description=(
             "available=false 일 때의 사유. NO_RUNNING_DEPLOYMENT(떠 있는 배포 없음) · "
-            "TARGET_NOT_SUPPORTED(온프레미스는 아직 지원하지 않음) · NOT_CONFIGURED(콘솔 설정 없음)"
+            "TARGET_NOT_CONNECTED(등록한 온프레미스 서버가 연결돼 있지 않음, 하트비트가 끊긴 "
+            "서버 포함) · TARGET_NOT_SUPPORTED(콘솔을 지원하지 않는 타깃 종류) · "
+            "NOT_CONFIGURED(콘솔 설정 없음)"
         ),
     )
 
@@ -122,7 +124,8 @@ CONSOLE_CLIENT_FRAME_ADAPTER: TypeAdapter[ConsoleClientFrame] = TypeAdapter(Cons
 class ReadyFrame(_Frame):
     type: Literal["ready"] = "ready"
     pod: str
-    shell: Literal["bash", "sh"]
+    # 셸을 Gateway 가 고른 경우(AWS)만 있다. Argo CD 가 고르는 온프레미스는 생략한다(ADR 0035).
+    shell: Literal["bash", "sh"] | None = None
 
 
 class OutputFrame(_Frame):

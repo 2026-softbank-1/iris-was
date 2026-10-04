@@ -7,12 +7,10 @@ Control API 와 같은 이미지에서 실행 명령만 다르다. DB 접속 정
 
 import logging
 from collections.abc import AsyncIterator, Iterable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
-import httpx
 from fastapi import FastAPI, Request, Response, status
 
-from app.clients.kubernetes_client import build_cluster_ssl_context
 from app.console_gateway.cors import OriginCorsMiddleware
 from app.console_gateway.dependencies import build_console_gateway_service
 from app.console_gateway.router import router
@@ -23,9 +21,6 @@ from app.core.middleware import RequestContextMiddleware
 from app.services.console_gateway_service import ConsoleGatewayService
 
 logger = logging.getLogger(__name__)
-
-# 클러스터 REST 호출 제한 시간(초). exec WebSocket 의 연결 제한은 Client 가 따로 둔다.
-CLUSTER_HTTP_TIMEOUT_SECONDS = 10.0
 
 
 def create_app(
@@ -40,17 +35,17 @@ def create_app(
             return
         settings = get_console_gateway_settings()
         configure_logging("console-gateway", settings.log_level)
-        ssl_context = build_cluster_ssl_context(settings.console_aws_cluster_ca)
-        async with httpx.AsyncClient(
-            base_url=str(settings.console_aws_cluster_endpoint),
-            verify=ssl_context,
-            timeout=CLUSTER_HTTP_TIMEOUT_SECONDS,
-        ) as http_client:
+        async with AsyncExitStack() as stack:
             app.state.console_allowed_origins = frozenset(settings.allowed_origins)
-            app.state.console_gateway_service = build_console_gateway_service(
-                settings, http_client, ssl_context
+            app.state.console_gateway_service = await build_console_gateway_service(settings, stack)
+            logger.info(
+                "console gateway started",
+                extra={
+                    "action": "start_console_gateway",
+                    "aws_enabled": settings.is_aws_configured,
+                    "onprem_enabled": settings.is_onprem_configured,
+                },
             )
-            logger.info("console gateway started", extra={"action": "start_console_gateway"})
             yield
 
     # 문서 화면·스키마는 열지 않는다. 계약은 docs/console-api.md 다.

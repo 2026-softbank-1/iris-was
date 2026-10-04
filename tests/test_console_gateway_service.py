@@ -242,6 +242,64 @@ async def test_serve_exec_unsupported_cluster_sends_cluster_unavailable() -> Non
     assert error.code == ConsoleErrorCode.CLUSTER_UNAVAILABLE
 
 
+async def test_onprem_ticket_is_served_by_the_onprem_cluster_only() -> None:
+    onprem = FakeKubernetes([make_pod("onprem-pod", release_id=None)])
+    harness = Harness(onprem_cluster=onprem)
+    transport = FakeTransport()
+
+    task = harness.start(transport, "onprem-pod")
+    transport.feed(AuthFrame(token=harness.ticket(cluster="onprem")))
+    ready = await transport.wait_for_frame("ready")
+    transport.close_from_client()
+    await finish(task)
+
+    assert isinstance(ready, ReadyFrame)
+    assert ready.pod == "onprem-pod"
+    assert [call[0] for call in onprem.calls] == ["find_pod", "detect_shell", "open_exec"]
+    assert harness.cluster.calls == []
+
+
+async def test_search_pods_for_onprem_ticket_uses_the_onprem_cluster() -> None:
+    onprem = FakeKubernetes([make_pod("onprem-pod")])
+    harness = Harness(onprem_cluster=onprem)
+
+    pods = await harness.service.search_pods(harness.ticket(cluster="onprem"))
+
+    assert [pod.name for pod in pods] == ["onprem-pod"]
+    assert onprem.calls == [("search_pods", ("svc-42", "app"))]
+    assert harness.cluster.calls == []
+
+
+async def test_onprem_ticket_without_onprem_cluster_is_cluster_unavailable() -> None:
+    harness = Harness()
+    transport = FakeTransport()
+    task = harness.start(transport)
+
+    transport.feed(AuthFrame(token=harness.ticket(cluster="onprem")))
+    error = await _first_error(transport, task)
+
+    assert error.code == ConsoleErrorCode.CLUSTER_UNAVAILABLE
+    assert harness.cluster.calls == []
+
+
+async def test_ready_frame_omits_shell_when_the_cluster_chooses_it() -> None:
+    onprem = FakeKubernetes()
+    onprem.shell = None
+    harness = Harness(onprem_cluster=onprem)
+    transport = FakeTransport()
+
+    task = harness.start(transport)
+    transport.feed(AuthFrame(token=harness.ticket(cluster="onprem")))
+    ready = await transport.wait_for_frame("ready")
+    transport.close_from_client()
+    await finish(task)
+
+    assert isinstance(ready, ReadyFrame)
+    assert ready.shell is None
+    assert json.loads(ready.model_dump_json(exclude_none=True)) == {"type": "ready", "pod": POD}
+    assert onprem.calls[-1][1][3] is None
+
+
 # ---- Pod·셸 ----------------------------------------------------------------------------------
 
 

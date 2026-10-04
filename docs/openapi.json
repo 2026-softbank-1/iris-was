@@ -3327,7 +3327,7 @@
                 "type": "null"
               }
             ],
-            "description": "available=false 일 때의 사유. NO_RUNNING_DEPLOYMENT(떠 있는 배포 없음) · TARGET_NOT_SUPPORTED(온프레미스는 아직 지원하지 않음) · NOT_CONFIGURED(콘솔 설정 없음)"
+            "description": "available=false 일 때의 사유. NO_RUNNING_DEPLOYMENT(떠 있는 배포 없음) · TARGET_NOT_CONNECTED(등록한 온프레미스 서버가 연결돼 있지 않음, 하트비트가 끊긴 서버 포함) · TARGET_NOT_SUPPORTED(콘솔을 지원하지 않는 타깃 종류) · NOT_CONFIGURED(콘솔 설정 없음)"
           }
         },
         "required": [
@@ -3394,10 +3394,11 @@
         "type": "object"
       },
       "ConsoleUnavailableReason": {
-        "description": "서비스 콘솔을 열 수 없는 사유(API 응답 값, 저장하지 않는다). 판정 순서는 선언 순서와 다르다:\n타깃 종류 → 설정 → 떠 있는 release.",
+        "description": "서비스 콘솔을 열 수 없는 사유(API 응답 값, 저장하지 않는다). 판정 순서는 선언 순서와 다르다:\n타깃 종류 → 설정 → 서버 연결 → 떠 있는 release.",
         "enum": [
           "NO_RUNNING_DEPLOYMENT",
           "TARGET_NOT_SUPPORTED",
+          "TARGET_NOT_CONNECTED",
           "NOT_CONFIGURED"
         ],
         "title": "ConsoleUnavailableReason",
@@ -11707,7 +11708,7 @@
     },
     "/api/v1/services/{service_id}/console/sessions": {
       "post": {
-        "description": "Console Gateway 에 붙는 60초짜리 ticket 을 발급한다. Pod 목록 조회용과 연결용으로 매번 새로 받는다(연결에는 한 번만 쓸 수 있다). 프로젝트 소유자만, 서비스에 연결된 타깃만 쓸 수 있다. Control API 는 클러스터에 접근하지 않는다.",
+        "description": "Console Gateway 에 붙는 60초짜리 ticket 을 발급한다. Pod 목록 조회용과 연결용으로 매번 새로 받는다(연결에는 한 번만 쓸 수 있다). 프로젝트 소유자만, 서비스에 연결된 타깃만 쓸 수 있다. 사용자가 등록한 온프레미스 서버가 연결돼 있지 않으면 409 `TARGET_NOT_CONNECTED` 다. Control API 는 클러스터에 접근하지 않는다.",
         "operationId": "create_console_session_api_v1_services__service_id__console_sessions_post",
         "parameters": [
           {

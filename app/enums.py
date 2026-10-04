@@ -260,12 +260,14 @@ class OnpremServerFailureCode(StrEnum):
 
 class ConsoleUnavailableReason(StrEnum):
     """서비스 콘솔을 열 수 없는 사유(API 응답 값, 저장하지 않는다). 판정 순서는 선언 순서와 다르다:
-    타깃 종류 → 설정 → 떠 있는 release."""
+    타깃 종류 → 설정 → 서버 연결 → 떠 있는 release."""
 
     # 그 타깃에 떠 있는(lastKnownGood) release 가 없다.
     NO_RUNNING_DEPLOYMENT = "NO_RUNNING_DEPLOYMENT"
-    # 온프레미스 타깃은 아직 지원하지 않는다(ADR 0033).
+    # AWS·ONPREM 이 아닌 타깃 종류다. 지금은 나오지 않는다.
     TARGET_NOT_SUPPORTED = "TARGET_NOT_SUPPORTED"
+    # 사용자가 등록한 서버가 CONNECTED 가 아니다(하트비트가 끊긴 DISCONNECTED 포함, ADR 0035).
+    TARGET_NOT_CONNECTED = "TARGET_NOT_CONNECTED"
     # Control API 에 콘솔 설정(ticket 서명키·Gateway 주소)이 없다.
     NOT_CONFIGURED = "NOT_CONFIGURED"
 

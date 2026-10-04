@@ -31,7 +31,7 @@ flowchart LR
 | Control API | `app/main.py` | 배포 요청 접수·상태 조회, 로그·메트릭 조회, AI 진단·수정 조정 |
 | Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다. 서비스 생성 전 레포 구성 분석(`repository_analyses`)도 선점해 분석기(vendored `iris-analyzer` wheel)를 실행한다([ADR 0030](docs/adr/0030-repository-analysis-gate.md)) |
 | Deploy Worker | `app/workers/deploy_worker.py` | `DEPLOY`·`ROLLBACK`·`RECONCILE` job 을 선점해 GitOps 저장소를 바꾸고 Argo CD 상태를 수집한다 |
-| Console Gateway | `app/console_gateway/main.py` | 서비스 콘솔(실행 중인 Pod 의 셸). Control API 가 서명한 ticket 을 검증해 Prod 클러스터의 `pods/exec` 로 중계한다. DB 접속 정보가 없고 replica 는 1 이다([ADR 0033](docs/adr/0033-service-console-via-console-gateway.md)) |
+| Console Gateway | `app/console_gateway/main.py` | 서비스 콘솔(실행 중인 Pod 의 셸). Control API 가 서명한 ticket 을 검증해 AWS 는 Prod 클러스터의 `pods/exec` 로, 온프레미스는 Argo CD 터미널로 중계한다. DB 접속 정보가 없고 replica 는 1 이다([ADR 0033](docs/adr/0033-service-console-via-console-gateway.md), [ADR 0035](docs/adr/0035-onprem-console-via-argocd-terminal.md)) |
 
 CodeBuild·GitOps·Argo CD 호출은 Worker 에서만 한다. Control API 는 GitHub 로그인·저장소 조회, 읽기 전용 Loki·Prometheus 조회, 진단·수정 에이전트 호출, 온프레미스 서버용 ECR pull 자격증명 발급(STS AssumeRole), 서비스 콘솔 ticket 서명(클러스터에는 접근하지 않는다)만 한다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md), [ADR 0033](docs/adr/0033-service-console-via-console-gateway.md)).
 

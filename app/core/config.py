@@ -2,7 +2,7 @@ import sys
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, HttpUrl, SecretStr, WebsocketUrl, field_validator
+from pydantic import Field, HttpUrl, SecretStr, WebsocketUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
@@ -141,19 +141,31 @@ class Settings(BaseSettings):
 
 
 class ConsoleGatewaySettings(BaseSettings):
-    """Console Gateway 전용. DB 접속 정보와 Control API 의 서명 개인키를 갖지 않는다(ADR 0033)."""
+    """Console Gateway 전용. DB 접속 정보와 Control API 의 서명 개인키를 갖지 않는다(ADR 0033).
+
+    클러스터는 둘이고 각각 선택이다(ADR 0035). 하나만 설정해도 Gateway 는 뜨고, 설정하지 않은
+    클러스터의 ticket 은 `CLUSTER_UNAVAILABLE` 이다. 한 그룹의 값이 일부만 있거나 둘 다 없으면
+    시작하지 않는다.
+    """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # ticket 검증용 Ed25519 공개키(PEM, 비밀이 아니다). Control API 의 개인키와 한 쌍이다.
     console_ticket_public_key: str
-    # 접속할 Prod EKS. 토큰은 EKS Pod Identity 자격증명으로 만든 sts:GetCallerIdentity
-    # presigned URL 이다.
-    console_aws_cluster_name: str
-    console_aws_cluster_endpoint: HttpUrl
+    # AWS 타깃: 접속할 Prod EKS. 토큰은 EKS Pod Identity 자격증명으로 만든
+    # sts:GetCallerIdentity presigned URL 이다. 네 값이 모두 있어야 켜진다.
+    console_aws_cluster_name: str | None = None
+    console_aws_cluster_endpoint: HttpUrl | None = None
     # 클러스터 API 서버 인증서의 CA(PEM 을 base64 로 인코딩한 값, EKS 가 주는 형식).
-    console_aws_cluster_ca: str
-    aws_region: str
+    console_aws_cluster_ca: str | None = None
+    aws_region: str | None = None
+    # ONPREM 타깃: Argo CD(`argocd-server`)의 주소와 프로젝트 role 토큰. 둘 다 있어야 켜진다.
+    # 토큰은 role `iris-console`(applications get · exec create)의 JWT 다.
+    console_argocd_server_url: HttpUrl | None = None
+    console_argocd_token: SecretStr | None = None
+    # 서비스 Application 이 속한 Argo CD project 와 Application 의 namespace.
+    console_argocd_project: str = "iris-svc-project"
+    console_argocd_app_namespace: str = "argocd"
     # CORS·WebSocket 에 허용할 Origin(쉼표로 구분). 예: https://app.likelion.uk
     console_allowed_origins: str
     # 입력 없이 이 시간이 지나면 끊는다. ping·pong 은 입력이 아니다.
@@ -164,13 +176,45 @@ class ConsoleGatewaySettings(BaseSettings):
     console_max_sessions_per_user: int = Field(default=3, ge=1)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    @field_validator("console_aws_cluster_endpoint")
+    @field_validator("console_aws_cluster_endpoint", "console_argocd_server_url")
     @classmethod
-    def _require_https_endpoint(cls, value: HttpUrl) -> HttpUrl:
-        # bearer 토큰을 평문으로 보내지 않는다.
-        if value.scheme != "https":
+    def _require_https_endpoint(cls, value: HttpUrl | None) -> HttpUrl | None:
+        # bearer 토큰·쿠키를 평문으로 보내지 않는다.
+        if value is not None and value.scheme != "https":
             raise ValueError("cluster endpoint must be https")
         return value
+
+    @model_validator(mode="after")
+    def _require_complete_cluster_groups(self) -> "ConsoleGatewaySettings":
+        # 오류 메시지에는 변수 이름만 담는다(값에 비밀이 있을 수 있다).
+        aws = {
+            "CONSOLE_AWS_CLUSTER_NAME": self.console_aws_cluster_name,
+            "CONSOLE_AWS_CLUSTER_ENDPOINT": self.console_aws_cluster_endpoint,
+            "CONSOLE_AWS_CLUSTER_CA": self.console_aws_cluster_ca,
+            "AWS_REGION": self.aws_region,
+        }
+        argocd = {
+            "CONSOLE_ARGOCD_SERVER_URL": self.console_argocd_server_url,
+            "CONSOLE_ARGOCD_TOKEN": self.console_argocd_token,
+        }
+        for group in (aws, argocd):
+            missing = [name for name, value in group.items() if value is None]
+            if missing and len(missing) < len(group):
+                raise ValueError(f"cluster settings are incomplete: missing {', '.join(missing)}")
+        if not self.is_aws_configured and not self.is_onprem_configured:
+            raise ValueError(
+                "no console cluster is configured: set the AWS cluster settings "
+                "(CONSOLE_AWS_CLUSTER_*, AWS_REGION) or the Argo CD settings (CONSOLE_ARGOCD_*)"
+            )
+        return self
+
+    @property
+    def is_aws_configured(self) -> bool:
+        return self.console_aws_cluster_endpoint is not None
+
+    @property
+    def is_onprem_configured(self) -> bool:
+        return self.console_argocd_server_url is not None
 
     @property
     def allowed_origins(self) -> list[str]:

@@ -68,6 +68,8 @@ K8s 접속 라이브러리
 - 실제 EKS·ALB 로는 검증하지 못했다. EKS bearer 토큰(`k8s-aws-v1.`)은 AWS 의 `eks get-token` 형식을 따라 만들고 서명 헤더만 단위 테스트로 확인했다. 배포 후 dev 에서 한 번 붙어 확인한다.
 
 ## 다음 단계: 온프레미스 (이번 범위 밖)
+> 이 절의 방향(exec 전용 SA)은 [ADR 0035](0035-onprem-console-via-argocd-terminal.md) 에서 Argo CD 터미널 중계로 바꿨다. 아래는 당시의 검토다.
+
 Control API 는 ONPREM 타깃에 409 `CONSOLE_TARGET_NOT_SUPPORTED` 를 돌려준다. 온프레미스 서버(사용자 K3s, Tailscale 경유)는 다음과 같이 잇는다.
 
 - 서버 설치 스크립트가 서비스 배포용 SA(`iris-argocd`)와 별도로 **exec 전용 SA**(`pods` get·list, `pods/exec` create + get)를 만들고, connect 로 그 토큰을 보낸다(등록 계약 변경). 배포용 SA 는 Secret 까지 읽는 넓은 권한이라 재사용하지 않는다.
