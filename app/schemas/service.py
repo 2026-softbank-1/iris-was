@@ -19,6 +19,7 @@ from app.enums import (
 from app.models.deployment_request import DeploymentRequest
 from app.models.target import Target
 from app.schemas.response import ApiModel
+from app.services.builder_detection import DOCKER_TARGET_PATTERN
 from app.services.database_engines import get_engine_spec, url_template
 from app.services.service_networking import internal_host, internal_port, supported_properties
 from app.services.service_registry_service import ServiceDetail
@@ -28,6 +29,7 @@ Branch = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, m
 PathText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
 Command = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 Port = Annotated[int, Field(ge=1, le=65535)]
+DockerTarget = Annotated[str, StringConstraints(pattern=DOCKER_TARGET_PATTERN)]
 
 
 class ServiceCreateRequest(ApiModel):
@@ -71,6 +73,16 @@ class ServiceUpdateRequest(ApiModel):
     is_auto_deploy: bool | None = None
     builder: Builder | None = None
     dockerfile_path: PathText | None = None
+    docker_target: DockerTarget | None = Field(
+        default=None,
+        description=(
+            "Dockerfile 멀티 스테이지 빌드의 `--target` 스테이지 이름"
+            " (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)."
+            " dockerfile 빌더에서만 쓰고 railpack 은 무시한다. null 이면 마지막 스테이지다."
+            " 레포의 iris.json `build.dockerTarget` 이 있으면 그 값이 우선한다."
+        ),
+        examples=["api"],
+    )
     port: Port | None = None
     build_command: Command | None = None
     start_command: Command | None = None
@@ -211,6 +223,9 @@ class ServiceResponse(ApiModel):
     is_auto_deploy: bool
     builder: Builder | None = None
     dockerfile_path: str | None = None
+    docker_target: str | None = Field(
+        default=None, description="Dockerfile `--target` 스테이지. 없으면 마지막 스테이지다."
+    )
     platform: str
     port: int | None = None
     build_command: str | None = None
@@ -270,6 +285,7 @@ class ServiceResponse(ApiModel):
             is_auto_deploy=service.is_auto_deploy,
             builder=service.builder,
             dockerfile_path=service.dockerfile_path,
+            docker_target=service.docker_target,
             platform=service.platform,
             port=service.port,
             build_command=service.build_command,
