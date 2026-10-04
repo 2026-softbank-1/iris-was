@@ -22,8 +22,10 @@ CONSOLE_TICKET_TTL = timedelta(seconds=60)
 MAX_TICKET_LIFETIME_SECONDS = int(CONSOLE_TICKET_TTL.total_seconds())
 # 서버 사이 시계 오차 허용(초).
 CLOCK_LEEWAY_SECONDS = 5
-# Gateway 가 접속할 수 있는 클러스터 식별자. 지금은 AWS(Prod EKS) 하나다.
+# Gateway 가 Pod 에 닿는 경로의 식별자. aws 는 Prod EKS API 로 직접, onprem 은 Argo CD 터미널로
+# 닿는다(ADR 0035). Control API 가 타깃 종류에서 정하고 요청에서 받지 않는다.
 CONSOLE_CLUSTER_AWS = "aws"
+CONSOLE_CLUSTER_ONPREM = "onprem"
 
 _ALGORITHM = "EdDSA"
 

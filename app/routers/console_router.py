@@ -49,7 +49,8 @@ async def get_console_availability(
     description=(
         "Console Gateway 에 붙는 60초짜리 ticket 을 발급한다. Pod 목록 조회용과 연결용으로 "
         "매번 새로 받는다(연결에는 한 번만 쓸 수 있다). 프로젝트 소유자만, 서비스에 연결된 "
-        "타깃만 쓸 수 있다. Control API 는 클러스터에 접근하지 않는다."
+        "타깃만 쓸 수 있다. 사용자가 등록한 온프레미스 서버가 연결돼 있지 않으면 "
+        "409 `TARGET_NOT_CONNECTED` 다. Control API 는 클러스터에 접근하지 않는다."
     ),
     responses=error_responses(401, 404, 409, 422, 503),
 )

@@ -288,7 +288,7 @@ class NoRunningDeploymentError(ConflictError):
 
 
 class ConsoleTargetNotSupportedError(ConflictError):
-    """콘솔을 지원하지 않는 타깃이다(온프레미스는 아직 지원하지 않는다, ADR 0033)."""
+    """콘솔을 지원하지 않는 타깃 종류다(AWS·ONPREM 이 아니다, ADR 0033·0035)."""
 
     code = "CONSOLE_TARGET_NOT_SUPPORTED"
 
@@ -375,7 +375,7 @@ class InvalidRegistrationTokenError(UnauthorizedError):
 
 
 class TargetNotConnectedError(ConflictError):
-    """배포 타깃이 등록한 서버인데 아직 연결되지 않았다(CONNECTED 가 아니다)."""
+    """배포·콘솔 타깃이 등록한 서버인데 연결되지 않았다(CONNECTED 가 아니다, DISCONNECTED 포함)."""
 
     code = "TARGET_NOT_CONNECTED"
 

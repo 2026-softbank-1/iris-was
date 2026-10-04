@@ -1,30 +1,37 @@
-"""서비스 콘솔(Pod 셸) — 열 수 있는지 판정하고 Console Gateway 용 ticket 을 발급한다(ADR 0033).
+"""서비스 콘솔(Pod 셸) — 열 수 있는지 판정하고 Console Gateway 용 ticket 을 발급한다(ADR 0033·0035).
 
-Control API 는 클러스터를 부르지 않는다. 사용자 인증·소유권·떠 있는 release 를 확인하고, 60초짜리
-ticket 을 서명하고, 발급 기록(`console_sessions`)을 남길 뿐이다.
+Control API 는 클러스터를 부르지 않는다. 사용자 인증·소유권·서버 연결·떠 있는 release 를 확인하고,
+60초짜리 ticket 을 서명하고, 발급 기록(`console_sessions`)을 남길 뿐이다.
 """
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.console_ticket import CONSOLE_CLUSTER_AWS, ConsoleTicketSigner
+from app.core.console_ticket import (
+    CONSOLE_CLUSTER_AWS,
+    CONSOLE_CLUSTER_ONPREM,
+    ConsoleTicketSigner,
+)
 from app.core.exceptions import (
     ConsoleTargetNotSupportedError,
     NoRunningDeploymentError,
     NotConfiguredError,
     NotFoundError,
     ServiceNotFoundError,
+    TargetNotConnectedError,
 )
-from app.enums import ConsoleUnavailableReason, TargetKind
+from app.enums import ConsoleUnavailableReason, OnpremServerConnectionStatus, TargetKind
 from app.models.console_session import ConsoleSession
+from app.models.onprem_server import OnpremServer
 from app.models.release import Release
 from app.models.service import Service
 from app.models.target import Target
 from app.repositories.console_session_repository import ConsoleSessionRepository
+from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
@@ -62,32 +69,43 @@ class ConsoleService:
         target_repository: TargetRepository,
         release_repository: ReleaseRepository,
         console_session_repository: ConsoleSessionRepository,
+        onprem_server_repository: OnpremServerRepository,
         private_key: str | None,
         gateway: ConsoleGatewayAddress | None,
+        onprem_offline_after: timedelta,
     ) -> None:
         self._session = session
         self._service_repository = service_repository
         self._target_repository = target_repository
         self._release_repository = release_repository
         self._console_session_repository = console_session_repository
+        self._onprem_server_repository = onprem_server_repository
         self._private_key = private_key
         self._gateway = gateway
+        self._onprem_offline_after = onprem_offline_after
 
     async def get_availability(
         self, owner_id: int, service_id: int, target_id: int
     ) -> ConsoleAvailability:
         service, target = await self._get_scope(owner_id, service_id, target_id)
-        reason, _ = await self._check(service, target)
+        reason, _, _ = await self._check(service, target)
         return ConsoleAvailability(is_available=reason is None, reason=reason)
 
     async def create_session(
         self, owner_id: int, service_id: int, target_id: int
     ) -> IssuedConsoleSession:
         service, target = await self._get_scope(owner_id, service_id, target_id)
-        reason, release = await self._check(service, target)
+        reason, release, server = await self._check(service, target)
         if reason == ConsoleUnavailableReason.TARGET_NOT_SUPPORTED:
             raise ConsoleTargetNotSupportedError(
                 "console is not supported for this target", target_id=target.id
+            )
+        if reason == ConsoleUnavailableReason.TARGET_NOT_CONNECTED:
+            raise TargetNotConnectedError(
+                "console target is not connected",
+                service_id=service.id,
+                onprem_server_id=server.id if server is not None else None,
+                onprem_server_status=server.status if server is not None else None,
             )
         if reason == ConsoleUnavailableReason.NOT_CONFIGURED:
             raise NotConfiguredError(
@@ -99,8 +117,11 @@ class ConsoleService:
             raise NoRunningDeploymentError("no running deployment", service_id=service.id)
 
         session_id = str(uuid4())
+        cluster = (
+            CONSOLE_CLUSTER_ONPREM if target.kind == TargetKind.ONPREM else CONSOLE_CLUSTER_AWS
+        )
         token, expires_at = ConsoleTicketSigner(self._private_key).sign(
-            session_id, owner_id, service.id, target.id, CONSOLE_CLUSTER_AWS
+            session_id, owner_id, service.id, target.id, cluster
         )
         await self._console_session_repository.add(
             ConsoleSession(
@@ -122,6 +143,7 @@ class ConsoleService:
                 "service_id": service.id,
                 "target_id": target.id,
                 "release_id": release.id,
+                "cluster": cluster,
             },
         )
         return IssuedConsoleSession(session_id, token, expires_at, self._gateway)
@@ -142,13 +164,29 @@ class ConsoleService:
 
     async def _check(
         self, service: Service, target: Target
-    ) -> tuple[ConsoleUnavailableReason | None, Release | None]:
-        """콘솔을 열 수 없는 사유와 떠 있는 release. 타깃 종류 → 설정 → release 순으로 본다."""
-        if target.kind != TargetKind.AWS:
-            return ConsoleUnavailableReason.TARGET_NOT_SUPPORTED, None
+    ) -> tuple[ConsoleUnavailableReason | None, Release | None, OnpremServer | None]:
+        """콘솔을 열 수 없는 사유, 떠 있는 release, 타깃의 서버(사용자가 등록한 서버일 때).
+
+        타깃 종류 → 설정 → 서버 연결 → release 순으로 본다.
+        """
+        if target.kind not in (TargetKind.AWS, TargetKind.ONPREM):
+            return ConsoleUnavailableReason.TARGET_NOT_SUPPORTED, None, None
         if self._private_key is None or self._gateway is None:
-            return ConsoleUnavailableReason.NOT_CONFIGURED, None
+            return ConsoleUnavailableReason.NOT_CONFIGURED, None, None
+        server = await self._find_onprem_server(target)
+        # 공용 onprem 타깃은 서버 행이 없어 release 만 본다.
+        # 하트비트가 끊긴 서버는 연결된 것이 아니다.
+        if server is not None and (
+            server.connection_status(datetime.now(UTC), self._onprem_offline_after)
+            != OnpremServerConnectionStatus.CONNECTED
+        ):
+            return ConsoleUnavailableReason.TARGET_NOT_CONNECTED, None, server
         release = await self._release_repository.find_last_known_good(service.id, target.id)
         if release is None:
-            return ConsoleUnavailableReason.NO_RUNNING_DEPLOYMENT, None
-        return None, release
+            return ConsoleUnavailableReason.NO_RUNNING_DEPLOYMENT, None, server
+        return None, release, server
+
+    async def _find_onprem_server(self, target: Target) -> OnpremServer | None:
+        if target.kind != TargetKind.ONPREM:
+            return None
+        return await self._onprem_server_repository.find_by_target_id(target.id)

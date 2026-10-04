@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -6,12 +7,13 @@ from httpx import ASGITransport, AsyncClient
 from app.core.config import Settings, get_settings
 from app.core.console_ticket import ConsoleTicketVerifier
 from app.dependencies import get_console_service, get_current_user
-from app.enums import TargetKind
+from app.enums import OnpremServerStatus, TargetKind
 from app.main import app
 from app.models.user import User
 from app.services.console_service import ConsoleGatewayAddress, ConsoleService
 from tests.fakes import FakeSession
 from tests.fakes_console import (
+    FakeConsoleOnpremServerRepository,
     FakeConsoleReleaseRepository,
     FakeConsoleServiceRepository,
     FakeConsoleSessionRepository,
@@ -32,8 +34,10 @@ class Harness:
         self.targets = FakeConsoleTargetRepository()
         self.targets.add(1, TargetKind.AWS)
         self.targets.add(2, TargetKind.ONPREM)
+        self.targets.add(3, "GCP")
         self.releases = FakeConsoleReleaseRepository()
         self.console_sessions = FakeConsoleSessionRepository()
+        self.onprem_servers = FakeConsoleOnpremServerRepository()
         self.is_configured = True
 
     def build(self) -> ConsoleService:
@@ -43,8 +47,10 @@ class Harness:
             self.targets,  # type: ignore[arg-type]
             self.releases,  # type: ignore[arg-type]
             self.console_sessions,  # type: ignore[arg-type]
+            self.onprem_servers,  # type: ignore[arg-type]
             self.private_pem if self.is_configured else None,
             GATEWAY if self.is_configured else None,
+            timedelta(seconds=180),
         )
 
 
@@ -80,7 +86,8 @@ async def test_get_console_availability_available(client: AsyncClient, harness: 
     ("target_id", "is_configured", "reason"),
     [
         (1, True, "NO_RUNNING_DEPLOYMENT"),
-        (2, True, "TARGET_NOT_SUPPORTED"),
+        (3, True, "TARGET_NOT_SUPPORTED"),
+        (2, True, "NO_RUNNING_DEPLOYMENT"),
         (1, False, "NOT_CONFIGURED"),
     ],
 )
@@ -94,6 +101,35 @@ async def test_get_console_availability_unavailable_reason(
 
     assert response.status_code == 200
     assert response.json() == {"success": True, "data": {"available": False, "reason": reason}}
+
+
+async def test_get_console_availability_onprem_target_with_release_is_available(
+    client: AsyncClient, harness: Harness
+) -> None:
+    harness.services.target_ids[SERVICE_ID] = [2]
+    harness.onprem_servers.add(2, OnpremServerStatus.CONNECTED, datetime.now(UTC))
+    harness.releases.add(SERVICE_ID, 2, 5)
+
+    response = await client.get(f"/api/v1/services/{SERVICE_ID}/console?targetId=2")
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "data": {"available": True}}
+
+
+async def test_get_console_availability_unconnected_server_reports_not_connected(
+    client: AsyncClient, harness: Harness
+) -> None:
+    harness.services.target_ids[SERVICE_ID] = [2]
+    harness.onprem_servers.add(2, OnpremServerStatus.FAILED)
+    harness.releases.add(SERVICE_ID, 2, 5)
+
+    response = await client.get(f"/api/v1/services/{SERVICE_ID}/console?targetId=2")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "data": {"available": False, "reason": "TARGET_NOT_CONNECTED"},
+    }
 
 
 async def test_get_console_availability_unknown_service_returns_404(client: AsyncClient) -> None:
@@ -149,7 +185,7 @@ async def test_create_console_session_returns_201_with_ticket(
     ("target_id", "is_configured", "status_code", "code"),
     [
         (1, True, 409, "NO_RUNNING_DEPLOYMENT"),
-        (2, True, 409, "CONSOLE_TARGET_NOT_SUPPORTED"),
+        (3, True, 409, "CONSOLE_TARGET_NOT_SUPPORTED"),
         (1, False, 503, "NOT_CONFIGURED"),
     ],
 )
@@ -208,3 +244,36 @@ async def test_console_endpoints_require_login() -> None:
 
     assert get_response.status_code == 401
     assert post_response.status_code == 401
+
+
+async def test_create_console_session_onprem_target_signs_onprem_ticket(
+    client: AsyncClient, harness: Harness
+) -> None:
+    harness.services.target_ids[SERVICE_ID] = [2]
+    harness.onprem_servers.add(2, OnpremServerStatus.CONNECTED, datetime.now(UTC))
+    harness.releases.add(SERVICE_ID, 2, 5)
+
+    response = await client.post(
+        f"/api/v1/services/{SERVICE_ID}/console/sessions", json={"targetId": 2}
+    )
+
+    assert response.status_code == 201
+    claims = ConsoleTicketVerifier(harness.public_pem).verify(response.json()["data"]["token"])
+    assert claims.cluster == "onprem"
+    assert claims.target_id == 2
+
+
+async def test_create_console_session_unconnected_server_returns_409(
+    client: AsyncClient, harness: Harness
+) -> None:
+    harness.services.target_ids[SERVICE_ID] = [2]
+    harness.onprem_servers.add(2, OnpremServerStatus.PENDING)
+    harness.releases.add(SERVICE_ID, 2, 5)
+
+    response = await client.post(
+        f"/api/v1/services/{SERVICE_ID}/console/sessions", json={"targetId": 2}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "TARGET_NOT_CONNECTED"
+    assert harness.console_sessions.added == []

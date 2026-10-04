@@ -40,6 +40,14 @@ class OnpremServerRepository:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return (await self._session.scalars(stmt)).one_or_none()
 
+    async def find_by_target_id(self, target_id: int) -> OnpremServer | None:
+        """타깃이 사용자가 등록한 서버의 전용 타깃이면 그 서버. 공용 타깃이면 None 이다."""
+        stmt = select(OnpremServer).where(
+            OnpremServer.target_id == target_id,
+            OnpremServer.is_deleted.is_(False),
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
     async def find_by_owner_id_and_name(self, owner_id: int, name: str) -> OnpremServer | None:
         stmt = select(OnpremServer).where(
             OnpremServer.owner_id == owner_id,

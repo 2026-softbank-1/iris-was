@@ -325,8 +325,10 @@ def get_console_service(session: SessionDep, settings: SettingsDep) -> ConsoleSe
         TargetRepository(session),
         ReleaseRepository(session),
         ConsoleSessionRepository(session),
+        OnpremServerRepository(session),
         private_key,
         gateway,
+        timedelta(seconds=settings.onprem_server_offline_after_seconds),
     )
 
 
