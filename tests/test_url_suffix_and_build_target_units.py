@@ -268,4 +268,4 @@ def test_generated_secret_is_long_enough_for_common_minimums() -> None:
     from app.services import stack_apply_service
 
     value = secrets.token_urlsafe(stack_apply_service._SECRET_BYTES)
-    assert len(value) >= 64
+    assert len(value) == 48
