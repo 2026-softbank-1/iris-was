@@ -14,6 +14,7 @@ from app.core.exceptions import (
     TooManyRequestsError,
     VariablesInvalidError,
 )
+from app.core.logging import build_extra
 from app.schemas.response import ApiResponse, ErrorDetail
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def error_response(
 
 
 async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
-    extra = {"action": "handle_app_error", "error_code": exc.code, **exc.fields}
+    extra = build_extra({"action": "handle_app_error", "error_code": exc.code}, exc.fields)
     if exc.status_code >= 500:
         logger.error("request failed", extra=extra, exc_info=exc)
     else:

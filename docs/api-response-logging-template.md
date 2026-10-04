@@ -12,7 +12,7 @@ FastAPI 서비스에 공통 응답 봉투, 예외 계층, 구조화 로깅을 �
 | `app/core/exceptions.py` | `AppError` 와 카테고리 예외 |
 | `app/core/exception_handlers.py` | 예외 → 공통 봉투 변환, `register_exception_handlers(app)` |
 | `app/core/middleware.py` | `RequestContextMiddleware`: request_id 생성·접근 로그·미처리 예외 |
-| `app/core/logging.py` | `configure_logging`, `JsonFormatter`, `ContextFilter`, `log_context` |
+| `app/core/logging.py` | `configure_logging`, `JsonFormatter`, `ContextFilter`, `log_context`, `build_extra` |
 | `tests/test_response.py`, `tests/test_error_handling.py`, `tests/test_logging.py` | 위 계약의 회귀 테스트 |
 
 ---
@@ -155,6 +155,7 @@ with log_context(job_id=job.id, job_kind=job.kind, deployment_request_id=job.dep
 ### 작성 규칙
 - message 에 값을 끼워 넣지 않는다(`f"build {id} started"` 금지). 값은 `extra` 로 넘긴다.
 - `extra` 키로 `LogRecord` 기본 속성(`message`, `name`, `args`, `module`, `filename`, `lineno` 등)을 쓰면 `KeyError` 가 난다.
+  예외 `fields` 처럼 바깥에서 온 키를 `extra` 에 펼칠 때는 `build_extra(고정 키, fields)` 로 감싼다. 예약 속성이나 고정 키(`action`·`error_code`)와 겹친 키는 `field_` 접두사가 붙어(`field_name`) 값이 남고, 겹치지 않는 키는 그대로 나간다.
 - 예외 로그는 경계(예외 핸들러·미들웨어·Worker job 루프)에서 한 번만 찍는다. 하위 층은 raise 만 한다.
 - 레벨 기준
   - `INFO`: 상태 전이
