@@ -58,7 +58,9 @@ logger = logging.getLogger(__name__)
 
 _ENGINES = frozenset(engine.value for engine in DatabaseEngine)
 _APP_PROPERTIES = frozenset({ReferenceProperty.URL, ReferenceProperty.HOST, ReferenceProperty.PORT})
-_SECRET_BYTES = 32
+# 생성 비밀값은 앱의 최소 길이 검사(예: SESSION_SECRET >= 48자)를 넘도록
+# 64자(48바이트 URL-safe)로 만든다.
+_SECRET_BYTES = 48
 
 
 @dataclass(frozen=True)
