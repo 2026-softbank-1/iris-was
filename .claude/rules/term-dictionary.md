@@ -331,7 +331,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 | 필드 | 설명 |
 |---|---|
-| `owner_id`\*, `name`\* | 소유자, 이름. 이름은 소유자 안에서 유일하다(삭제되지 않은 것끼리, 대소문자 구분). 등록할 때 앞뒤 공백을 자른 뒤 1~63자의 영문·숫자·한글 완성형·`.`·`_`·`-` 만 받고 첫 글자는 영문·숫자·한글이다(공백 불가, 어기면 422 `INVALID_INPUT`). 이미 등록한 이름은 규칙과 상관없이 그대로 둔다 |
+| `owner_id`\*, `name`\* | 소유자, 이름. 이름은 소유자 안에서 유일하다(삭제되지 않은 것끼리, 대소문자 구분). 등록할 때 앞뒤 공백을 자른 뒤 1~63자의 영문·숫자·한글 완성형·`.`·`_`·`-` 만 받고 첫 글자는 영문·숫자·한글이다(공백 불가, 숫자만으로는 안 된다: CLI `<이름|id>` 가 숫자를 id 로 먼저 읽는다. 어기면 422 `INVALID_INPUT`). 이미 등록한 이름은 규칙과 상관없이 그대로 둔다 |
 | `server_key`\* | `[a-z][a-z0-9]{7}` 무작위 8자. unique. 타깃 이름(`onprem-{key}`)·Tailscale hostname(`iris-{key}`)·Argo cluster(`onprem-{key}`)·host 의 기준이다. 비밀이 아니다 |
 | `target_id`\* | 이 서버 전용 타깃. unique |
 | `status`\*, `failure_code`\* | `onprem_server_status`·`onprem_server_failure_code` Enum (§5) |

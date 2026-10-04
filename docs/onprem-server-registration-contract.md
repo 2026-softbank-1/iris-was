@@ -65,10 +65,10 @@ sequenceDiagram
 **이름 규칙** (생성할 때만 검사한다. 이미 등록한 서버의 이름은 바꾸지 않고 규칙과 상관없이 그대로 쓴다):
 
 1. 앞뒤 공백(`str.strip()` 이 자르는 공백·탭·줄바꿈·전각 공백 등)을 먼저 자른다. 규칙 검사·저장·중복 비교와 응답의 `name` 이 모두 자른 값이다. `" home-lab "` 은 `home-lab` 으로 등록되고, 이미 `home-lab` 이 있으면 409 다.
-2. 자른 이름은 **1~63자**이고 **영문 대소문자·숫자·한글 완성형(`가`~`힣`)·`.`·`_`·`-`** 만 쓴다. **첫 글자는 영문·숫자·한글**이다(`-`·`.`·`_` 로 시작할 수 없다). 정규식 `^[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,62}$`. 이름 가운데 공백, `!`·`@`·`/` 같은 특수문자, 이모지, 한글 자모(`ㄱ`, 풀어 쓴 NFD 한글)와 전각 영문·다른 문자권의 숫자는 받지 않는다.
-3. 어기면(공백뿐이거나 빈 문자열 포함) 422 `INVALID_INPUT`, message `invalid onprem server name`, `details` 는 `[{ "field": "name", "reason": <사유 하나> }]` 다. 값은 담지 않는다. 사유(고정 문구): `must not be blank` · `must be at most 63 characters` · `must start with a letter, digit or Hangul syllable` · `may contain only letters, digits, Hangul syllables, '.', '_' and '-' (no spaces)`(위에서부터 먼저 걸린 것 하나). `name` 이 없거나 문자열이 아니면 지금처럼 422 `VALIDATION_ERROR` 다.
+2. 자른 이름은 **1~63자**이고 **영문 대소문자·숫자·한글 완성형(`가`~`힣`)·`.`·`_`·`-`** 만 쓴다. **첫 글자는 영문·숫자·한글**이다(`-`·`.`·`_` 로 시작할 수 없다). **숫자(`0`~`9`)만으로 된 이름은 안 된다**(`1`·`0`·`007`·63자 숫자만 거부, `1a`·`a1`·`1-2`·`1.5`·`007a` 는 허용). 정규식 `^(?![0-9]+$)[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,62}$`. 이름 가운데 공백, `!`·`@`·`/` 같은 특수문자, 이모지, 한글 자모(`ㄱ`, 풀어 쓴 NFD 한글)와 전각 영문·다른 문자권의 숫자는 받지 않는다(NFC 로 바꾸지 않는다).
+3. 어기면(공백뿐이거나 빈 문자열 포함) 422 `INVALID_INPUT`, message `invalid onprem server name`, `details` 는 `[{ "field": "name", "reason": <사유 하나> }]` 다. 값은 담지 않는다. 사유(고정 문구): `must not be blank` · `must be at most 63 characters` · `must not be only digits` · `must start with a letter, digit or Hangul syllable` · `may contain only letters, digits, Hangul syllables, '.', '_' and '-' (no spaces)`(위에서부터 먼저 걸린 것 하나). `name` 이 없거나 문자열이 아니면 지금처럼 422 `VALIDATION_ERROR` 다.
 4. 이름은 **대소문자를 구분한다**(`Home-Lab` 과 `home-lab` 은 다른 이름). 유일성은 같은 소유자의 삭제되지 않은 서버끼리 비교하며(삭제한 서버의 이름은 다시 쓸 수 있다), DB 는 그대로 `VARCHAR(63)` 과 부분 유일 인덱스다.
-5. 이름은 CLI(`likelion servers remove <이름>`)·화면·로그에 그대로 쓰이므로 따옴표 없이 인자로 줄 수 있고 표시가 깨지지 않는 문자만 받는다. 이름은 호스트명·타깃 이름·경로에 쓰이지 않는다(그 기준은 `serverKey`, §2).
+5. 이름은 CLI(`likelion servers remove <이름>`)·화면·로그에 그대로 쓰이므로 따옴표 없이 인자로 줄 수 있고 표시가 깨지지 않는 문자만 받는다. 숫자만인 이름을 막는 까닭: CLI 의 `<이름|id>` 인자는 숫자면 id 로 먼저 찾아서, 이름이 `1` 인 서버가 있어도 `servers remove 1` 이 id 1 인 다른 서버를 지울 수 있다. 이름은 호스트명·타깃 이름·경로에 쓰이지 않는다(그 기준은 `serverKey`, §2).
 
 응답 `data`:
 ```json
