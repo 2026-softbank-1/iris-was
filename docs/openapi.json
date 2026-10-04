@@ -12250,7 +12250,7 @@
     },
     "/api/v1/services/{service_id}/deployments/{deployment_id}/deploy-logs": {
       "get": {
-        "description": "서비스 앱 컨테이너 로그 중 이 배포의 release(iris_release_id)가 붙은 것만 돌려준다. release 가 없는 배포(빌드 실패 등)는 entries 가 비어 있다. stdout/stderr 구분은 수집 라벨이 없어 제공하지 않는다.",
+        "description": "서비스 앱 컨테이너 로그 중 이 배포의 release(iris_release_id)가 붙은 것만 돌려준다. release 가 없는 배포(빌드 실패 등)는 entries 가 비어 있다. stdout/stderr 구분은 수집 라벨이 없어 제공하지 않는다. on-prem 타깃은 release 구분 없이 Argo CD 로 지금 Pod 의 로그를 구간으로만 걸러 교체된 배포의 Pod 로그는 없다.",
         "operationId": "search_deploy_logs_api_v1_services__service_id__deployments__deployment_id__deploy_logs_get",
         "parameters": [
           {
@@ -12636,7 +12636,7 @@
     },
     "/api/v1/services/{service_id}/deployments/{deployment_id}/network-logs": {
       "get": {
-        "description": "ALB 접근 로그 중 이 서비스가 처리한 요청을 돌려준다. ALB 로그에는 배포 구분이 없어 이 배포가 서비스한 구간(성공한 때부터 교체될 때까지)으로 나눈다. 성공하지 못한 배포는 entries 가 비어 있다. URL·메서드·IP 는 수집하지 않아 상태 코드·바이트·응답 시간만 있다. ALB 로그 수집에 몇 분 지연이 있고 수집기가 배포되기 전에는 비어 있다.",
+        "description": "ALB 접근 로그 중 이 서비스가 처리한 요청을 돌려준다. ALB 로그에는 배포 구분이 없어 이 배포가 서비스한 구간(성공한 때부터 교체될 때까지)으로 나눈다. 성공하지 못한 배포는 entries 가 비어 있다. URL·메서드·IP 는 수집하지 않아 상태 코드·바이트·응답 시간만 있다. ALB 로그 수집에 몇 분 지연이 있고 수집기가 배포되기 전에는 비어 있다. on-prem 타깃은 ALB 를 거치지 않아 503 NOT_CONFIGURED 다.",
         "operationId": "search_network_logs_api_v1_services__service_id__deployments__deployment_id__network_logs_get",
         "parameters": [
           {
@@ -13250,6 +13250,7 @@
     },
     "/api/v1/services/{service_id}/logs": {
       "get": {
+        "description": "AWS 타깃은 Loki 에서 읽는다. on-prem 타깃은 Argo CD 로 지금 떠 있는 Pod 의 로그만 읽어 지워진 Pod 의 과거 로그는 없다(Argo CD 설정이 없으면 503 NOT_CONFIGURED).",
         "operationId": "search_logs_api_v1_services__service_id__logs_get",
         "parameters": [
           {
@@ -13393,7 +13394,7 @@
     },
     "/api/v1/services/{service_id}/logs/stream": {
       "get": {
-        "description": "logs 이벤트의 data는 로그 배열, id는 다음 조회 시작 시각(ns)이다. Last-Event-ID 또는 cursor로 재연결한다. 5분마다 재연결하여 권한을 재확인한다. overflow/error 이벤트를 받으면 연결을 닫고 과거 로그 API로 조회한다.",
+        "description": "logs 이벤트의 data는 로그 배열, id는 다음 조회 시작 시각(ns)이다. Last-Event-ID 또는 cursor로 재연결한다. 5분마다 재연결하여 권한을 재확인한다. overflow/error 이벤트를 받으면 연결을 닫고 과거 로그 API로 조회한다. on-prem 타깃은 Argo CD 로 지금 Pod 의 로그를 5초마다 다시 읽는다.",
         "operationId": "stream_logs_api_v1_services__service_id__logs_stream_get",
         "parameters": [
           {
@@ -13539,6 +13540,7 @@
     },
     "/api/v1/services/{service_id}/metrics": {
       "get": {
+        "description": "on-prem 타깃은 메트릭을 수집하지 않아 503 NOT_CONFIGURED 다.",
         "operationId": "search_metrics_api_v1_services__service_id__metrics_get",
         "parameters": [
           {
@@ -14666,7 +14668,7 @@
     },
     "/api/v1/services/{service_id}/traffic-metrics": {
       "get": {
-        "description": "ALB 접근 로그로 만든 지표다. start~end 는 이벤트 시각이고 step 초 버킷으로 돌려준다. timestamp 는 버킷이 끝나는 이벤트 시각이다. 집계에 약 15분이 걸려 availableUntil 이후는 아직 모르는 구간이다. 점이 없는 버킷은 결측이며 0 이 아니다.",
+        "description": "ALB 접근 로그로 만든 지표다. start~end 는 이벤트 시각이고 step 초 버킷으로 돌려준다. timestamp 는 버킷이 끝나는 이벤트 시각이다. 집계에 약 15분이 걸려 availableUntil 이후는 아직 모르는 구간이다. 점이 없는 버킷은 결측이며 0 이 아니다. on-prem 타깃은 수집하지 않아 503 NOT_CONFIGURED 다.",
         "operationId": "search_traffic_metrics_api_v1_services__service_id__traffic_metrics_get",
         "parameters": [
           {

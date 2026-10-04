@@ -14,6 +14,7 @@ from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients.argocd_client import ArgoCdClient
 from app.clients.aws_clients import (
     ArtifactStore,
     BuildLogReader,
@@ -684,12 +685,22 @@ OnpremServerSecretDep = Annotated[str, Depends(get_onprem_server_secret)]
 def build_observability_service(
     session: AsyncSession, settings: Settings, http_client: httpx.AsyncClient
 ) -> ObservabilityService:
+    # on-prem 런타임 로그만 Argo CD 로 읽는다(읽기 전용 토큰, ADR 0034).
+    pod_log_client = (
+        ArgoCdClient(
+            http_client, base_url=settings.argocd_server_url, token=settings.argocd_logs_token
+        )
+        if settings.argocd_server_url and settings.argocd_logs_token is not None
+        else None
+    )
     return ObservabilityService(
         ServiceRepository(session),
         LokiPrometheusObservabilityClient(http_client),
         settings.loki_url,
         settings.prometheus_url,
         settings.traffic_cluster,
+        target_repository=TargetRepository(session),
+        pod_log_client=pod_log_client,
     )
 
 

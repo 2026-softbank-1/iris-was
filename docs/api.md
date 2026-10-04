@@ -2,7 +2,7 @@
 
 README 에서 옮긴 전체 엔드포인트 목록과 규칙이다.
 
-서비스 런타임 로그 조회(`GET /services/{id}/logs`), 로그 SSE(`/services/{id}/logs/stream`), CPU·메모리·네트워크 메트릭(`/services/{id}/metrics`)는 [관측 API 문서](observability-api.md)를 따른다.
+서비스 런타임 로그 조회(`GET /services/{id}/logs`), 로그 SSE(`/services/{id}/logs/stream`), CPU·메모리·네트워크 메트릭(`/services/{id}/metrics`)는 [관측 API 문서](observability-api.md)를 따른다. on-prem 타깃의 런타임 로그(`logs`·`logs/stream`·배포의 `deploy-logs`)는 Loki 대신 Argo CD 로 지금 Pod 의 로그를 읽고(과거 이력 없음, SSE 는 5초 간격), 메트릭·트래픽 지표·네트워크 로그는 수집하지 않아 `503 NOT_CONFIGURED` 다([ADR 0034](adr/0034-onprem-runtime-logs-via-argocd.md)).
 
 서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 운영 명세는 [Swagger](https://api.likelion.uk/docs), [ReDoc](https://api.likelion.uk/redoc), [OpenAPI JSON](https://api.likelion.uk/openapi.json) 에서 확인한다. 서버 없이 보려면 저장소의 [docs/openapi.json](openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
 
