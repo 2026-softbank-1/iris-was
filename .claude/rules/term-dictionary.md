@@ -36,7 +36,7 @@
 | Master Cluster | — | Control Plane·Argo CD 가 도는 EKS |
 | Prod Cluster | — | 사용자 서비스가 도는 EKS. Argo CD 만 접근한다 |
 | GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 manifest. image digest 만 바뀐다 |
-| Console Gateway | `app/console_gateway/` | 서비스 콘솔(실행 중인 Pod 의 셸) 연결을 중계한다. Control API 가 서명한 ticket 을 검증하고 Prod 클러스터의 `pods/exec` 로 이어 준다. 같은 이미지에 실행 명령만 다르며 DB 접속 정보를 갖지 않는다 (ADR 0033) |
+| Console Gateway | `app/console_gateway/` | 서비스 콘솔(실행 중인 Pod 의 셸) 연결을 중계한다. Control API 가 서명한 ticket 을 검증하고, AWS 타깃은 Prod 클러스터의 `pods/exec` 로, ONPREM 타깃은 Argo CD 의 터미널(`/terminal`)로 이어 준다. 같은 이미지에 실행 명령만 다르며 DB 접속 정보를 갖지 않는다 (ADR 0033·0035) |
 | 에러 진단 에이전트 | `iris-error-check-agent` (별도 레포·서버) | 로그·소스를 받아 원인과 해결책을 제안한다. Control API 가 `POST /diagnose` 로 호출한다 (ADR 0020). 코드 식별자는 `diagnosis_agent` |
 | 코드 분석 에이전트 | `iris-code-analyzer-agent` (별도 레포) | 소스를 분석해 빌더·포트·실행 명령·환경변수를 제안한다. 식별자는 `analyzer_agent` |
 
@@ -561,7 +561,7 @@ API 는 저장하지 않는 `DISCONNECTED` 도 알린다(`onprem_server_connecti
 
 ### 콘솔 사용 불가 사유 (`console_unavailable_reason`)\* — API 응답 `reason`
 
-`NO_RUNNING_DEPLOYMENT`(그 타깃에 떠 있는 release 가 없다) · `TARGET_NOT_SUPPORTED`(`ONPREM` 타깃은 아직 지원하지 않는다) · `NOT_CONFIGURED`(Control API 에 콘솔 설정이 없다). 저장하지 않는 응답 값이다.
+`NO_RUNNING_DEPLOYMENT`(그 타깃에 떠 있는 release 가 없다) · `TARGET_NOT_CONNECTED`(`ONPREM` 타깃이 사용자가 등록한 서버인데 `CONNECTED` 가 아니다. 하트비트가 끊긴 `DISCONNECTED` 포함, 배포 요청의 같은 이름 오류와 같은 기준이다) · `TARGET_NOT_SUPPORTED`(`AWS`·`ONPREM` 이 아닌 타깃 종류. 지금은 나오지 않는다) · `NOT_CONFIGURED`(Control API 에 콘솔 설정이 없다). 저장하지 않는 응답 값이다. 판정 순서는 타깃 종류 → 설정 → 서버 연결 → release 다.
 
 ### 콘솔 오류 코드 (`console_error_code`)\* — Console Gateway 가 내보내는 `code`
 
@@ -573,7 +573,7 @@ REST 오류 본문의 `code` 이자 WebSocket `error` 프레임의 `code` 다. �
 | `TOKEN_EXPIRED` | ticket 이 만료됐다 |
 | `TOKEN_REUSED` | 연결에 이미 쓴 ticket 이다(WebSocket 연결은 `jti` 당 1번) |
 | `POD_NOT_FOUND` · `POD_NOT_READY` | 그 namespace 에 그 Pod 가 없다 · Pod 가 `Running` 이 아니거나 `app` 컨테이너가 준비되지 않았다 |
-| `SHELL_NOT_FOUND` | 이미지에 `/bin/sh` 가 없다(distroless 등) |
+| `SHELL_NOT_FOUND` | 이미지에 `/bin/sh` 가 없다(distroless 등). ONPREM 은 Argo CD 가 셸을 못 열고 곧바로 끊은 경우도 이 코드다(원인을 구분할 수 없다, ADR 0035) |
 | `SESSION_LIMIT_EXCEEDED` | 한 사용자의 동시 콘솔 연결 한도(기본 3)를 넘었다 |
 | `IDLE_TIMEOUT` · `MAX_DURATION_EXCEEDED` | 입력 없이 15분 · 연결 후 1시간 |
 | `CLUSTER_UNAVAILABLE` | 클러스터 API 에 닿지 못했거나 인증에 실패했다 |
@@ -632,6 +632,7 @@ REST 오류 본문의 `code` 이자 WebSocket `error` 프레임의 `code` 다. �
 | probe Application | `probe_application_name`\* | `iris-onprem-probe-{key}`. management 의 Argo CD 가 서버 클러스터에 ConfigMap 하나를 동기화해 연결을 확인한다. Synced+Healthy 면 `CONNECTED` |
 | 연결 세대 | `connect_generation`\* | 서버가 connect 를 다시 보낼 때마다 올라가는 번호. Worker 가 그 사이에 만든 결과(커밋 기록·상태)를 버리는 기준이다 |
 | 콘솔 ticket | `console_ticket`\* | Control API 가 Ed25519 개인키로 서명하는 60초짜리 JWT(`iss=iris-control-api`, `aud=iris-console-gateway`). Console Gateway 만 공개키로 검증한다. Pod 목록 조회는 만료 전까지 여러 번, WebSocket 연결은 `jti` 당 1번 쓸 수 있다. 서버 비밀·등록 토큰과 달리 서버에 해시를 두지 않는다(서명으로 검증) |
+| 콘솔 클러스터 | `cluster`\* | 콘솔 ticket 의 클레임. Gateway 가 어느 경로로 Pod 에 닿을지 고르는 식별자다: `aws`(Prod EKS API 로 직접 exec), `onprem`(Argo CD 터미널). Control API 가 타깃 종류(`target_kind`)에서 정한다. 요청에서 받지 않는다 |
 | 콘솔 연결 | `console_connection`\* | 사용자가 Console Gateway WebSocket(`/v1/exec`)으로 Pod 의 `app` 컨테이너에 연 셸 1개. 입력 없이 15분, 연결 후 1시간이 지나면 Gateway 가 끊는다 |
 
 ---
