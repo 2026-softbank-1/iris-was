@@ -48,7 +48,7 @@ Deploy Worker 의 서버 작업 방식(`jobs.deployment_request_id` 가 NOT NULL
 - 연결 확인이 비동기라 화면·CLI 는 `GET /onprem-servers/{id}` 를 폴링해야 한다. connect 직후 Worker 를 깨우는 알림은 없어서, Worker 가 쉬고 있으면 반영 시작이 최대 1분(대기 상한) 늦을 수 있다.
 - probe Application 의 소스는 GitOps 저장소가 아니라 연결 확인에 커밋 revision 을 대조하지 않는다. 재실행으로 접속 정보를 바꾼 직후에는 이전 값으로 된 Healthy 를 볼 여지가 있지만, 이전 값이 Healthy 였다면 이미 CONNECTED 였으므로 실제로는 실패 뒤 재실행에서만 생긴다.
 - 세션 정책은 압축해 2048자까지라 서버 하나에 서비스가 25개쯤을 넘으면 자격증명 발급이 502 가 된다(서버의 새 서비스 이미지를 받지 못한다). 실패하면 `onprem_server_id`·`service_count` 를 담은 구조화 오류 로그가 남아 이 한도인지 가릴 수 있다. 서버당 서비스가 그만큼 늘면 저장소 이름을 서버별 접두사로 나눠 와일드카드 ARN 하나로 바꾼다.
-- Control API 자격증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션은 1시간까지다(`ONPREM_ECR_PULL_SESSION_SECONDS` 기본 3600). ECR 토큰도 그 안에서 끝날 수 있지만 서버 CronJob 이 5분마다 갱신한다. `expiresAt` 은 ECR 토큰 만료와 임시 자격증명 만료 중 이른 쪽이다.
+- Control API 자격증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션은 1시간까지다(`ONPREM_ECR_PULL_SESSION_SECONDS` 기본 3600). ECR 토큰도 그 안에서 끝날 수 있지만 서버 CronJob 이 1분마다 갱신한다(첫 배포가 다음 회차까지 이미지를 받지 못해 주기가 곧 대기 시간이다. 대기를 없애는 kubelet credential provider 는 다음 단계). `expiresAt` 은 ECR 토큰 만료와 임시 자격증명 만료 중 이른 쪽이다.
 - 서버 디렉터리 삭제 커밋을 5번 실패하면 Worker 가 멈추고 `last_error` 를 남긴다. 운영자가 디렉터리를 지운다.
 - 토큰 재발급은 `REGISTERING` 에서도 된다. 잘못된 서버에서 실행했거나 연결이 멈췄을 때 처음부터 하도록, 세대를 올리고 lease 를 비워 Worker 가 하던 일을 버린다. 이미 main 에 올라간 이전 값은 다음 connect 의 커밋이 덮는다.
 - 운영자 Tailscale 가입 키 하나를 모든 사용자가 쓰므로, 키가 새면 누구나 `tag:iris-onprem` 으로 tailnet 에 들어올 수 있다. 태그를 목적지로만 쓰는 ACL 로 피해를 줄이고, 사용자마다 서버를 5대(`ONPREM_SERVER_LIMIT_EXCEEDED`)로 묶어 키 노출 횟수를 줄인다. 1회용 키 자동 발급(계약 §10)으로 없앤다.

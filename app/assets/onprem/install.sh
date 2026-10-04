@@ -429,7 +429,7 @@ has_validating_admission_policy() {
 
 install_ecr_refresh() {
   step 8 "이미지 pull 자격증명 갱신 작업 설치 중"
-  if is_dry; then plan "CronJob $SYSTEM_NAMESPACE/iris-ecr-refresh (5분마다) 설치 후 1회 실행"; return; fi
+  if is_dry; then plan "CronJob $SYSTEM_NAMESPACE/iris-ecr-refresh (1분마다) 설치 후 1회 실행"; return; fi
   # RBAC 는 namespace 를 패턴으로 좁히지 못한다. 쓰기 범위(svc-*, 이름·타입)는 아래 admission policy 가 막는다.
   kc apply -f - >/dev/null <<'EOF'
 apiVersion: v1
@@ -517,8 +517,9 @@ data:
       echo "$ns/iris-ecr-pull 갱신"
     done
 ---
-# 5분마다: 자격증명은 서버에 서비스가 붙고 CONNECTED 가 된 뒤에야 나오고, Argo 가 svc-* namespace 를
-# 만든 직후 첫 배포 전에 Secret 이 있어야 한다. 매번 우리 API 만 부르므로 부담이 작다(ECR 토큰은 12시간).
+# 1분마다: 자격증명은 서버에 서비스가 붙고 CONNECTED 가 된 뒤에야 나오고, Argo 가 svc-* namespace 를
+# 만든 직후 첫 배포 전에 Secret 이 있어야 한다. 새 서비스의 첫 Pod 는 다음 회차까지 이미지를 받지 못하므로
+# 주기가 곧 첫 배포 대기 시간이다(5분 주기에서 운영 E2E 첫 배포가 약 3분 기다렸다). 매번 우리 API 만 부른다.
 # 이미지: curl·jq·kubectl 이 모두 든 multi-arch(amd64·arm64) 이미지다. kubectl 은 K3s 와 같은 minor, digest 로 고정한다.
 apiVersion: batch/v1
 kind: CronJob
@@ -526,7 +527,7 @@ metadata:
   name: iris-ecr-refresh
   namespace: iris-system
 spec:
-  schedule: "*/5 * * * *"
+  schedule: "* * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
@@ -611,7 +612,7 @@ EOF
   else
     log "경고: 이 K3s 는 ValidatingAdmissionPolicy 를 지원하지 않아 갱신 작업 범위를 RBAC 로만 제한합니다"
   fi
-  # 첫 실행은 서버가 아직 CONNECTED 가 아니라 아무것도 하지 않을 수 있다. 5분마다 다시 시도한다.
+  # 첫 실행은 서버가 아직 CONNECTED 가 아니라 아무것도 하지 않을 수 있다. 1분마다 다시 시도한다.
   kc -n "$SYSTEM_NAMESPACE" create job --from=cronjob/iris-ecr-refresh "iris-ecr-refresh-install-$(date +%s)" >/dev/null
 }
 
