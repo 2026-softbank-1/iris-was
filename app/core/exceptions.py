@@ -3,7 +3,8 @@
 - code: 클라이언트가 분기하는 고정 코드(계약). 한 번 정하면 바꾸지 않는다.
 - status_code: API 가 응답할 HTTP 상태.
 - retryable: Worker 가 RETRY_WAIT(True) / FAILED(False) 를 가르는 기준.
-- fields: 로그에 남길 식별자. 메시지에 넣지 않고 여기에 담는다.
+- fields: 로그에 남길 식별자. 메시지에 넣지 않고 여기에 담는다. name·args 처럼 logging 예약 속성과
+  같은 키는 로그에 `field_` 접두사가 붙어 남으니(build_extra), 가능하면 겹치지 않는 이름을 쓴다.
 
 raise 는 Service·Repository·Client 에서 하고, HTTP 변환은 exception_handlers 한곳에서 한다.
 도메인 예외는 클라이언트 분기나 재시도 정책이 다를 때만 카테고리를 상속해 만든다.

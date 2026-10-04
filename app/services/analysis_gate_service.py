@@ -33,6 +33,7 @@ from app.core.exceptions import (
     NotFoundError,
     RepositoryAnalysisFailedError,
 )
+from app.core.logging import build_extra
 from app.enums import AnalysisErrorCode, RepositoryAnalysisStatus
 from app.models.repository_analysis import RepositoryAnalysis
 from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
@@ -107,7 +108,9 @@ class AnalysisGateService:
         except RepositoryAnalysisFailedError as exc:
             logger.info(
                 "repository analysis failed",
-                extra={"action": "run_analysis", "error_code": exc.error_code, **exc.fields},
+                extra=build_extra(
+                    {"action": "run_analysis", "error_code": exc.error_code}, exc.fields
+                ),
             )
             await self._record_failure(analysis.id, exc)
             return

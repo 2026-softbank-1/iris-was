@@ -4,7 +4,8 @@
 - 기본: timestamp·level·logger·message — 포매터가 LogRecord 에서 채운다.
 - 프로세스: component — configure_logging 인자로 고정한다.
 - 컨텍스트: log_context(...) 블록 안의 모든 로그에 붙는다 (request_id, job_id 등).
-- 이벤트: logger.info("고정 문구", extra={...}) 로 넘긴 필드.
+- 이벤트: logger.info("고정 문구", extra={...}) 로 넘긴 필드. 예외 fields 처럼 바깥에서 온 키를
+  펼칠 때는 build_extra 로 감싼다(예약 속성과 겹치면 logging 이 KeyError 를 낸다).
 - 예외: exc_info 가 있으면 exc_type·stack.
 """
 
@@ -18,12 +19,13 @@ from datetime import UTC, datetime
 from types import MappingProxyType
 
 _HANDLER_NAME = "json_stdout"
+# Logger.makeRecord 가 extra 키로 거부하는 이름이다. LogRecord 기본 속성(name·args·module·taskName
+# 등)에 포매터가 채우는 message·asctime 을 더한다. 파이썬 버전마다 달라서 레코드에서 구한다.
+_RESERVED_RECORD_ATTRS = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}
 # color_message: uvicorn 이 터미널 색상용으로 넣는 ANSI 코드 필드다.
-_STANDARD_ATTRS = frozenset(logging.makeLogRecord({}).__dict__) | {
-    "message",
-    "asctime",
-    "color_message",
-}
+_STANDARD_ATTRS = _RESERVED_RECORD_ATTRS | {"color_message"}
+# build_extra 가 겹친 키를 보존할 때 앞에 붙이는 접두사.
+_FIELD_PREFIX = "field_"
 _SENSITIVE_KEYWORDS = ("password", "secret", "token", "authorization")
 _NOISY_LOGGERS = ("httpx", "httpcore", "botocore", "sqlalchemy.engine")
 
@@ -39,6 +41,30 @@ def log_context(**fields: object) -> Iterator[None]:
         yield
     finally:
         _log_context.reset(token)
+
+
+def build_extra(fixed: Mapping[str, object], fields: Mapping[str, object]) -> dict[str, object]:
+    """logger 의 extra 를 만든다.
+
+    fixed 는 호출부가 정한 키, fields 는 예외 fields 처럼 바깥에서 온 키다. fields 의 키가 LogRecord
+    예약 속성(name·message·args 등)이나 fixed 의 키(action·error_code 등)와 겹치면 `field_` 접두사를
+    붙여 값을 보존한다. 예약 속성을 그대로 넘기면 logging 이 KeyError 를 내고, fixed 를 덮어쓰면
+    로그의 action 을 믿을 수 없다. 겹치지 않는 키는 그대로 둔다.
+    """
+    extra = dict(fixed)
+    clashing: dict[str, object] = {}
+    for key, value in fields.items():
+        if key in extra or key in _STANDARD_ATTRS:
+            clashing[key] = value
+        else:
+            extra[key] = value
+    for key, value in clashing.items():
+        renamed = _FIELD_PREFIX + key
+        # 접두사를 붙인 이름도 이미 쓰고 있으면 한 번 더 붙여 어떤 값도 버리지 않는다.
+        while renamed in extra or renamed in _STANDARD_ATTRS:
+            renamed = _FIELD_PREFIX + renamed
+        extra[renamed] = value
+    return extra
 
 
 class ContextFilter(logging.Filter):
