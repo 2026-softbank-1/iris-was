@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import Settings, get_settings
 from app.core.console_ticket import ConsoleTicketVerifier
 from app.dependencies import get_console_service, get_current_user
 from app.enums import TargetKind
@@ -189,11 +190,21 @@ async def test_create_console_session_invalid_body_returns_422(
 
 
 async def test_console_endpoints_require_login() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
-        get_response = await http.get(f"/api/v1/services/{SERVICE_ID}/console?targetId=1")
-        post_response = await http.post(
-            f"/api/v1/services/{SERVICE_ID}/console/sessions", json={"targetId": 1}
-        )
+    # 로그인 설정(SESSION_SECRET)이 있는 환경으로 고정한다. 없으면 401 이 아니라 503 이다.
+    settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        database_url="postgresql+asyncpg://u:p@127.0.0.1:1/db",
+        session_secret="x" * 32,  # type: ignore[arg-type]
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
+            get_response = await http.get(f"/api/v1/services/{SERVICE_ID}/console?targetId=1")
+            post_response = await http.post(
+                f"/api/v1/services/{SERVICE_ID}/console/sessions", json={"targetId": 1}
+            )
+    finally:
+        app.dependency_overrides.clear()
 
     assert get_response.status_code == 401
     assert post_response.status_code == 401
