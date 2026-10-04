@@ -188,6 +188,9 @@ class DeploymentLogService:
         if not release_ids:
             # release 가 없으면 로그도 없다. 조회하지 않은 구간은 알리지 않는다.
             return LogScope(namespace, None, [], None, None)
+        if target_id is not None:
+            # 로그를 어디서 읽을지(Loki·Argo CD)는 DB 세션이 열려 있을 때 정한다.
+            await self._observability_service.get_target_kind(target_id)
         return LogScope(namespace, target_id, release_ids, start, end)
 
     async def search_deploy_logs(self, scope: LogScope, limit: int, search: str) -> list[LogEntry]:
@@ -221,6 +224,8 @@ class DeploymentLogService:
         target_id = self._pick_target(detail, target_id)
         default_start = self._first_entered_at(detail, DeploymentStatus.SUCCEEDED)
         start, end = self._resolve_range(detail, default_start, start, end)
+        if target_id is not None:
+            await self._observability_service.get_target_kind(target_id)
         return LogScope(
             ObservabilityService.build_namespace(detail.service.id),
             target_id,

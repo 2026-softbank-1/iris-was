@@ -180,7 +180,9 @@ async def search_build_logs(
     description=(
         "서비스 앱 컨테이너 로그 중 이 배포의 release(iris_release_id)가 붙은 것만 돌려준다. "
         "release 가 없는 배포(빌드 실패 등)는 entries 가 비어 있다. "
-        "stdout/stderr 구분은 수집 라벨이 없어 제공하지 않는다."
+        "stdout/stderr 구분은 수집 라벨이 없어 제공하지 않는다. "
+        "on-prem 타깃은 release 구분 없이 Argo CD 로 지금 Pod 의 로그를 구간으로만 걸러 "
+        "교체된 배포의 Pod 로그는 없다."
     ),
     responses=error_responses(401, 404, 422, 502, 503),
 )
@@ -222,7 +224,8 @@ async def search_deploy_logs(
         "ALB 접근 로그 중 이 서비스가 처리한 요청을 돌려준다. ALB 로그에는 배포 구분이 없어 "
         "이 배포가 서비스한 구간(성공한 때부터 교체될 때까지)으로 나눈다. 성공하지 못한 배포는 "
         "entries 가 비어 있다. URL·메서드·IP 는 수집하지 않아 상태 코드·바이트·응답 시간만 있다. "
-        "ALB 로그 수집에 몇 분 지연이 있고 수집기가 배포되기 전에는 비어 있다."
+        "ALB 로그 수집에 몇 분 지연이 있고 수집기가 배포되기 전에는 비어 있다. "
+        "on-prem 타깃은 ALB 를 거치지 않아 503 NOT_CONFIGURED 다."
     ),
     responses=error_responses(401, 404, 422, 502, 503),
 )

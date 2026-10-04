@@ -6,7 +6,9 @@
 
 수집·저장은 iris-infra가 맡는다(`docs/runbooks/observability.md`). workload 클러스터의 OTel agent가 `svc-*` Pod 로그와 kubelet 메트릭을 management 클러스터로 보내고, Loki와 Prometheus가 **Control API와 같은 management 클러스터**에 저장한다. 클러스터 간 조회 경로는 필요 없다.
 
-Control API에 두 주소를 환경변수로 주입한다(Secret `iris-platform-was-env`). 모든 target이 같은 백엔드를 쓴다. 수집 대상이 AWS workload 클러스터 하나라서이며, `onprem` target으로 조회하면 빈 결과가 나온다. 값이 없으면 `503 NOT_CONFIGURED`다.
+Control API에 두 주소를 환경변수로 주입한다(Secret `iris-platform-was-env`). AWS target 은 모두 같은 백엔드를 쓴다(수집 대상이 AWS workload 클러스터 하나다). 값이 없으면 `503 NOT_CONFIGURED`다.
+
+**on-prem target**(공용 `onprem`·사용자 등록 서버 `onprem-{key}`)은 수집 대상이 아니다. 런타임 로그(`logs`·`logs/stream`·배포의 `deploy-logs`)만 Control API 가 Argo CD Pod 로그 API(`GET /api/v1/applications/svc-{id}/logs`, container `app`, Pod 마다 최대 5000줄)로 읽어 같은 모양으로 돌려준다. 지금 떠 있는 Pod 의 로그만 있고(과거 이력·release 구분 없음), 검색은 받은 줄 안에서 하며, SSE 는 5초마다 다시 읽는다. 메트릭·트래픽 지표·네트워크 로그는 `503 NOT_CONFIGURED` 다. 설정은 `ARGOCD_SERVER_URL`·`ARGOCD_LOGS_TOKEN`(없으면 on-prem 로그만 `503 NOT_CONFIGURED`), 설계는 [ADR 0034](adr/0034-onprem-runtime-logs-via-argocd.md).
 
 ```dotenv
 LOKI_URL=http://loki.observability:3100

@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     prometheus_url: HttpUrl | None = None
     # 요청 수·오류율·응답 시간·공용 네트워크 지표를 고르는 `cluster` 라벨 값.
     traffic_cluster: str = DEFAULT_TRAFFIC_CLUSTER
+    # on-prem 타깃(공용 `onprem`·사용자 등록 서버)의 런타임 로그는 Loki 에 없어 Argo CD 의 Pod
+    # 로그 API 로 읽는다(ADR 0034). 읽기 전용 토큰은 Argo project role `iris-log-reader`
+    # (`iris-svc-project`, applications get·logs get)다. 둘 중 하나라도 없으면 on-prem 로그는
+    # 503 (NOT_CONFIGURED). Deploy Worker 의 ARGOCD_TOKEN 과 공유하지 않는다.
+    argocd_server_url: str | None = None
+    argocd_logs_token: SecretStr | None = None
 
     # 에러 진단 에이전트 서버(iris-error-check-agent). 둘 중 하나라도 없으면 진단 API 는 503.
     diagnosis_agent_url: HttpUrl | None = None

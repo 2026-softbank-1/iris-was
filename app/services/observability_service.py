@@ -1,12 +1,15 @@
 import asyncio
 import json
+import math
 import time
 from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import HttpUrl
 
+from app.clients.argocd_client import PodLogClient
 from app.clients.observability_client import (
     LogEntry,
     MetricGrouping,
@@ -23,9 +26,15 @@ from app.core.exceptions import (
     NotConfiguredError,
     ServiceNotFoundError,
 )
+from app.enums import TargetKind
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.target_repository import TargetRepository
 
 MAX_POD_SERIES = 50
+# 앱 컨테이너 이름(iris-service chart). Loki 조회도 같은 컨테이너만 본다.
+APP_CONTAINER = "app"
+# on-prem 로그를 Argo CD 에서 읽을 때 Pod 마다 가져오는 최대 줄 수. 시각·검색은 받은 뒤 거른다.
+ONPREM_TAIL_LINES = 5000
 
 
 class ObservabilityService:
@@ -36,11 +45,18 @@ class ObservabilityService:
         loki_url: HttpUrl | None,
         prometheus_url: HttpUrl | None,
         traffic_cluster: str = DEFAULT_TRAFFIC_CLUSTER,
+        *,
+        target_repository: TargetRepository | None = None,
+        pod_log_client: PodLogClient | None = None,
     ) -> None:
         self._service_repository = service_repository
         self._client = client
         self._urls = {"loki_url": loki_url, "prometheus_url": prometheus_url}
         self._traffic_cluster = traffic_cluster
+        self._target_repository = target_repository
+        self._pod_log_client = pod_log_client
+        # DB 를 읽는 단계(get_scope·get_target_kind)에서 채운다. 외부 조회 단계는 DB 를 읽지 않는다.
+        self._target_kinds: dict[int, TargetKind] = {}
 
     async def get_scope(self, owner_id: int, service_id: int, target_id: int) -> str:
         service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)
@@ -49,7 +65,35 @@ class ObservabilityService:
         targets = await self._service_repository.search_target_ids_by_service_ids([service_id])
         if target_id not in targets[service_id]:
             raise InvalidInputError("target is not assigned to this service", target_id=target_id)
+        await self.get_target_kind(target_id)
         return self.build_namespace(service_id)
+
+    async def get_target_kind(self, target_id: int) -> TargetKind:
+        """로그·메트릭을 어디서 읽을지 정하는 타깃 종류. 조회 전에 DB 세션이 열려 있을 때 부른다.
+
+        on-prem 타깃은 Loki·Prometheus 수집 대상이 아니라 런타임 로그만 Argo CD 로 읽는다.
+        """
+        kind = self._target_kinds.get(target_id)
+        if kind is not None:
+            return kind
+        kind = TargetKind.AWS
+        if self._target_repository is not None:
+            targets = await self._target_repository.search_by_ids([target_id])
+            if targets:
+                kind = targets[0].kind
+        self._target_kinds[target_id] = kind
+        return kind
+
+    def _is_onprem(self, target_id: int) -> bool:
+        return self._target_kinds.get(target_id) == TargetKind.ONPREM
+
+    def _require_collected_target(self, target_id: int) -> None:
+        if self._is_onprem(target_id):
+            raise NotConfiguredError(
+                "metrics and network logs are not available for on-prem targets",
+                target_id=target_id,
+                target_kind=TargetKind.ONPREM.value,
+            )
 
     @staticmethod
     def build_namespace(service_id: int) -> str:
@@ -81,6 +125,11 @@ class ObservabilityService:
         search: str,
         release_ids: list[int] | None = None,
     ) -> list[LogEntry]:
+        if self._is_onprem(target_id):
+            # Pod 로그엔 release 구분이 없어 지금 Pod 들의 로그를 시각으로만 거른다.
+            return await self._search_onprem_logs(
+                target_id, namespace, start_ns, end_ns, limit, search, "backward"
+            )
         url = self._get_url(target_id, "loki_url")
         if release_ids is None:
             return await self._client.search_logs(url, namespace, start_ns, end_ns, limit, search)
@@ -97,6 +146,7 @@ class ObservabilityService:
         limit: int,
         status_class: StatusClass | None,
     ) -> list[NetworkLogEntry]:
+        self._require_collected_target(target_id)
         return await self._client.search_network_logs(
             self._get_url(target_id, "loki_url"),
             namespace,
@@ -115,6 +165,7 @@ class ObservabilityService:
         step: int,
         group_by: MetricGrouping = "total",
     ) -> list[MetricSeries]:
+        self._require_collected_target(target_id)
         if (end - start).total_seconds() / step > 1440:
             raise InvalidInputError("range and step may produce at most 1440 points per metric")
         series = await self._client.search_metrics(
@@ -138,6 +189,7 @@ class ObservabilityService:
     async def search_traffic_metrics(
         self, target_id: int, namespace: str, start: datetime, end: datetime, step: int
     ) -> TrafficMetrics:
+        self._require_collected_target(target_id)
         if (end - start).total_seconds() / step > 1440:
             raise InvalidInputError("range and step may produce at most 1440 points per metric")
         return await self._client.search_traffic_metrics(
@@ -149,9 +201,42 @@ class ObservabilityService:
             step,
         )
 
-    async def prepare_stream(
+    async def _search_onprem_logs(
+        self,
+        target_id: int,
+        namespace: str,
+        start_ns: int,
+        end_ns: int,
+        limit: int,
+        search: str,
+        direction: Literal["forward", "backward"],
+    ) -> list[LogEntry]:
+        """Argo CD 가 읽어 온 지금 Pod 들의 로그. 지워진 Pod 의 로그(과거 이력)는 없다."""
+        if self._pod_log_client is None:
+            raise NotConfiguredError(
+                "on-prem log backend is not configured",
+                target_id=target_id,
+                setting="ARGOCD_SERVER_URL, ARGOCD_LOGS_TOKEN",
+            )
+        since_seconds = math.ceil((time.time_ns() - start_ns) / 10**9) + 1
+        # Application 이름은 namespace 와 같은 svc-{id} 다.
+        entries = await self._pod_log_client.search_pod_logs(
+            namespace, namespace, APP_CONTAINER, since_seconds, ONPREM_TAIL_LINES
+        )
+        matched = [
+            entry
+            for entry in entries
+            if start_ns <= int(entry.timestamp_ns) < end_ns and search in entry.message
+        ]
+        return matched[:limit] if direction == "forward" else matched[-limit:]
+
+    async def _search_stream_logs(
         self, target_id: int, namespace: str, start_ns: int, end_ns: int, search: str
     ) -> list[LogEntry]:
+        if self._is_onprem(target_id):
+            return await self._search_onprem_logs(
+                target_id, namespace, start_ns, end_ns, 1000, search, "forward"
+            )
         return await self._client.search_logs(
             self._get_url(target_id, "loki_url"),
             namespace,
@@ -161,6 +246,11 @@ class ObservabilityService:
             search,
             "forward",
         )
+
+    async def prepare_stream(
+        self, target_id: int, namespace: str, start_ns: int, end_ns: int, search: str
+    ) -> list[LogEntry]:
+        return await self._search_stream_logs(target_id, namespace, start_ns, end_ns, search)
 
     async def stream_logs(
         self, target_id: int, namespace: str, cursor: int, search: str, initial: list[LogEntry]
@@ -193,16 +283,15 @@ class ObservabilityService:
                 yield ": heartbeat\n\n"
             if time.monotonic() >= deadline:
                 return
-            await asyncio.sleep(2)
+            # on-prem 은 매번 Argo CD 가 tailnet 너머 kubelet 을 읽으므로 덜 자주 묻는다.
+            await asyncio.sleep(5 if self._is_onprem(target_id) else 2)
             try:
-                entries = await self._client.search_logs(
-                    self._get_url(target_id, "loki_url"),
+                entries = await self._search_stream_logs(
+                    target_id,
                     namespace,
                     max(lower_bound, cursor - 10 * 10**9),
                     time.time_ns(),
-                    1000,
                     search,
-                    "forward",
                 )
             except ExternalError:
                 yield 'event: error\ndata: {"code":"EXTERNAL_ERROR"}\n\n'

@@ -38,6 +38,10 @@ GroupByQuery = Annotated[
     response_model=ApiResponse[LogsResponse],
     response_model_exclude_none=True,
     summary="서비스 런타임 로그 조회",
+    description=(
+        "AWS 타깃은 Loki 에서 읽는다. on-prem 타깃은 Argo CD 로 지금 떠 있는 Pod 의 로그만 읽어 "
+        "지워진 Pod 의 과거 로그는 없다(Argo CD 설정이 없으면 503 NOT_CONFIGURED)."
+    ),
     responses=error_responses(401, 404, 422, 502, 503),
 )
 async def search_logs(
@@ -75,6 +79,7 @@ async def search_logs(
     response_model=ApiResponse[list[MetricSeriesResponse]],
     response_model_exclude_none=True,
     summary="서비스 CPU·메모리·네트워크 시계열 조회",
+    description="on-prem 타깃은 메트릭을 수집하지 않아 503 NOT_CONFIGURED 다.",
     responses=error_responses(401, 404, 422, 502, 503),
 )
 async def search_metrics(
@@ -103,7 +108,8 @@ async def search_metrics(
     description=(
         "ALB 접근 로그로 만든 지표다. start~end 는 이벤트 시각이고 step 초 버킷으로 돌려준다. "
         "timestamp 는 버킷이 끝나는 이벤트 시각이다. 집계에 약 15분이 걸려 availableUntil 이후는 "
-        "아직 모르는 구간이다. 점이 없는 버킷은 결측이며 0 이 아니다."
+        "아직 모르는 구간이다. 점이 없는 버킷은 결측이며 0 이 아니다. "
+        "on-prem 타깃은 수집하지 않아 503 NOT_CONFIGURED 다."
     ),
     responses=error_responses(401, 404, 422, 502, 503),
 )
@@ -132,7 +138,8 @@ async def search_traffic_metrics(
     description=(
         "logs 이벤트의 data는 로그 배열, id는 다음 조회 시작 시각(ns)이다. "
         "Last-Event-ID 또는 cursor로 재연결한다. 5분마다 재연결하여 권한을 재확인한다. "
-        "overflow/error 이벤트를 받으면 연결을 닫고 과거 로그 API로 조회한다."
+        "overflow/error 이벤트를 받으면 연결을 닫고 과거 로그 API로 조회한다. "
+        "on-prem 타깃은 Argo CD 로 지금 Pod 의 로그를 5초마다 다시 읽는다."
     ),
     responses={
         **error_responses(401, 404, 422, 502, 503),
