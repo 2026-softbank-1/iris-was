@@ -7049,7 +7049,7 @@
         ]
       },
       "post": {
-        "description": "서버와 전용 배포 타깃을 만든다. 응답의 `installCommand` 를 서버에서 실행하면 연결된다.\n`registrationToken`(24시간)은 이 응답에서만 보인다. 사용자마다 5대까지다(넘으면 409\n`ONPREM_SERVER_LIMIT_EXCEEDED`). `API_BASE_URL` 이 없거나 https 가 아니면 503 이다.",
+        "description": "서버와 전용 배포 타깃을 만든다. 응답의 `installCommand` 를 서버에서 실행하면 연결된다.\n`registrationToken`(24시간)은 이 응답에서만 보인다. 이름은 내 서버 안에서 유일하다(삭제한 서버는\n빼며, 겹치면 409 `ONPREM_SERVER_NAME_CONFLICT`). 사용자마다 5대까지다(넘으면 409\n`ONPREM_SERVER_LIMIT_EXCEEDED`). `API_BASE_URL` 이 없거나 https 가 아니면 503 이다.",
         "operationId": "create_onprem_server_api_v1_onprem_servers_post",
         "requestBody": {
           "content": {
