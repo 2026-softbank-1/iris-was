@@ -527,7 +527,7 @@ dependencies = [
     { name = "tree-sitter-typescript" },
 ]
 wheels = [
-    { filename = "iris_analyzer-0.1.0-py3-none-any.whl", hash = "sha256:ed93a0a95488f31c8f526c1f2d1f1de9e08a8f7cfd5c3a707246d2c5a3abfc40" },
+    { filename = "iris_analyzer-0.1.0-py3-none-any.whl", hash = "sha256:c5b798a60a0fd90b99470e3727c66dec166aee9875ae255b1c5f70f99e1c0a6b" },
 ]
 
 [package.metadata]

@@ -561,9 +561,11 @@ def get_repository_analysis_service(
             ServiceStackRepository(session),
             DatabaseInitScriptRepository(session),
             is_networking_enabled=settings.project_networking_enabled,
+            cipher=_find_cipher(settings),
         ),
         stack_service=stack_service,
         variable_validation_service=variable_validation_service,
+        database_images=settings.database_images,
     )
 
 

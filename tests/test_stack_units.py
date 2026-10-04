@@ -101,7 +101,7 @@ def test_connection_urls_per_engine_and_masking() -> None:
         5432,
         {"POSTGRES_USER": "u", "POSTGRES_PASSWORD": "p@ss", "POSTGRES_DB": "d"},
     )
-    assert pg.url() == f"postgresql://u:p@ss@{host}:5432/d"
+    assert pg.url() == f"postgresql://u:p%40ss@{host}:5432/d"
     assert pg.url(masked=True) == f"postgresql://u:{MASK}@{host}:5432/d"
     assert pg.property(ReferenceProperty.PASSWORD, masked=True) == MASK
     mongo = build_connection(
