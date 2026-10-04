@@ -5,8 +5,22 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, OnpremServerNameConflictError
-from app.models.onprem_server import OnpremServer
+from app.models.onprem_server import ONPREM_SERVER_NAME_INDEX, OnpremServer
 from app.models.user import User
+
+
+def _find_violated_constraint_name(exc: IntegrityError) -> str | None:
+    """위반한 제약(인덱스) 이름. 드라이버 예외의 `constraint_name` 에서 읽는다.
+
+    SQLAlchemy 가 드라이버 예외를 한 겹 감싼다. 2.1 은 `.orig`, 2.0 은 `__cause__` 로 이어진다.
+    """
+    error: BaseException | None = exc.orig
+    while error is not None:
+        constraint_name = getattr(error, "constraint_name", None)
+        if constraint_name:
+            return str(constraint_name)
+        error = getattr(error, "orig", None) or error.__cause__
+    return None
 
 
 class OnpremServerRepository:
@@ -83,14 +97,17 @@ class OnpremServerRepository:
         return (await self._session.scalars(stmt)).one_or_none()
 
     async def save(self, server: OnpremServer) -> OnpremServer:
-        """이름이 동시에 겹치면 OnpremServerNameConflictError. 그 뒤 트랜잭션은 rollback 해야 한다.
-
-        server_key 도 unique 지만 26×36^7 가지 무작위 값이라 겹치는 일은 이름 충돌로 본다.
+        """같은 소유자·이름(삭제되지 않은 것)이 동시에 들어와 이름 유일 인덱스를 어기면
+        OnpremServerNameConflictError. 다른 제약(server_key·target_id 등)을 어긴 IntegrityError 는
+        이름 충돌이 아니므로 그대로 올린다. 어느 쪽이든 flush 가 실패했으니 그 뒤 트랜잭션은
+        rollback 해야 한다.
         """
         self._session.add(server)
         try:
             await self._session.flush()
         except IntegrityError as exc:
+            if _find_violated_constraint_name(exc) != ONPREM_SERVER_NAME_INDEX:
+                raise
             raise OnpremServerNameConflictError(
                 "onprem server name already exists", owner_id=server.owner_id
             ) from exc

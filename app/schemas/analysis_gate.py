@@ -39,6 +39,10 @@ class AnalysisGateBinding(_WireModel):
     kind: Literal["dependency", "unit"]
     target_id: str
     property: str
+    # property=url 이고 코드가 쓴 URL 에서 읽은 값. 자격 증명(userinfo)은 분석기가 내지 않는다.
+    scheme: str | None = None
+    url_suffix: str = ""
+    has_credentials: bool = False
 
 
 class AnalysisGateEnv(_WireModel):
@@ -91,6 +95,8 @@ class AnalysisGateUnit(_WireModel):
     root_directory: str = "."
     builder: Builder | None = None
     dockerfile_path: str | None = None
+    # compose `build.target`. 없으면 마지막 스테이지다.
+    build_target: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
     start_command: str | None = None
     build_command: str | None = None

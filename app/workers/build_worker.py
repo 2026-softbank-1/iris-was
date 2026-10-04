@@ -26,7 +26,7 @@ from app.clients.github_client import GITHUB_API_URL, GitHubClient
 from app.core.config import get_build_worker_settings, get_settings
 from app.core.database import get_session_factory
 from app.core.exceptions import BuildFailedError
-from app.core.logging import configure_logging, log_context
+from app.core.logging import build_extra, configure_logging, log_context
 from app.models import Job, RepositoryAnalysis
 from app.services.analysis_gate_service import AnalysisGateService
 from app.services.build_service import JOB_KINDS, BuildService
@@ -79,7 +79,9 @@ async def _process(service: BuildService, job: Job, stop: asyncio.Event) -> None
         except BuildFailedError as exc:
             logger.info(
                 "build failed",
-                extra={"action": "process_job", "failure_code": exc.failure_code, **exc.fields},
+                extra=build_extra(
+                    {"action": "process_job", "failure_code": exc.failure_code}, exc.fields
+                ),
             )
             await _record_failure(service.fail(job, exc))
         except Exception as exc:

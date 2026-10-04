@@ -1,10 +1,13 @@
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import (
     ExternalError,
+    FieldIssue,
     InvalidInputError,
     InvalidRegistrationTokenError,
     InvalidStatusTransitionError,
@@ -18,15 +21,20 @@ from app.core.exceptions import (
 )
 from app.core.security import hash_url_token
 from app.enums import OnpremServerFailureCode, OnpremServerStatus, TargetKind
+from app.models.onprem_server import OnpremServer
 from app.models.project import Project
 from app.models.service import Service
 from tests.fakes_onprem import (
     CA_PEM,
+    INVALID_SERVER_NAMES,
+    LEGACY_SERVER_NAMES,
     OTHER_OWNER,
     OWNER,
     SEALED_SECRETS_CERT,
     TAILSCALE_AUTH_KEY,
+    VALID_SERVER_NAMES,
     OnpremSetup,
+    name_ids,
 )
 
 SERVER_KEY_PATTERN = re.compile(r"[a-z][a-z0-9]{7}")
@@ -75,6 +83,153 @@ async def test_create_server_same_name_conflicts_but_other_owner_may_use_it() ->
     with pytest.raises(OnpremServerNameConflictError):
         await setup.service.create_server(OWNER, "home-lab")
     await setup.service.create_server(OTHER_OWNER, "home-lab")
+
+
+async def test_create_server_conflict_error_fields_do_not_shadow_log_record_attributes() -> None:
+    setup = OnpremSetup()
+    await setup.service.create_server(OWNER, "home-lab")
+
+    with pytest.raises(OnpremServerNameConflictError) as raised:
+        await setup.service.create_server(OWNER, "home-lab")
+
+    # 예외 핸들러가 fields 를 logging extra 로 넘긴다. 예약 속성과 겹치면 응답이 500 이 된다.
+    reserved = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}
+    assert not reserved & set(raised.value.fields)
+
+
+async def test_create_server_same_name_after_delete_is_allowed() -> None:
+    setup = OnpremSetup()
+    first = (await setup.service.create_server(OWNER, "home-lab")).server
+    await setup.service.delete_server(OWNER, first.id)
+
+    second = (await setup.service.create_server(OWNER, "home-lab")).server
+
+    assert second.id != first.id
+    assert second.target_id != first.target_id
+    assert [s.id for s in await setup.service.search_servers(OWNER)] == [second.id]
+    with pytest.raises(OnpremServerNameConflictError):
+        await setup.service.create_server(OWNER, "home-lab")
+
+
+@pytest.mark.parametrize(("name", "stored"), VALID_SERVER_NAMES, ids=name_ids(VALID_SERVER_NAMES))
+async def test_create_server_accepts_valid_name_and_stores_it_trimmed(
+    name: str, stored: str
+) -> None:
+    setup = OnpremSetup()
+
+    registration = await setup.service.create_server(OWNER, name)
+
+    assert registration.server.name == stored
+    assert [s.name for s in setup.servers.servers] == [stored]
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"), INVALID_SERVER_NAMES, ids=name_ids(INVALID_SERVER_NAMES)
+)
+async def test_create_server_rejects_invalid_name_and_creates_nothing(
+    name: str, reason: str
+) -> None:
+    setup = OnpremSetup()
+    targets_before = len(setup.targets.targets)
+
+    with pytest.raises(InvalidInputError) as raised:
+        await setup.service.create_server(OWNER, name)
+
+    assert raised.value.message == "invalid onprem server name"
+    assert raised.value.issues == (FieldIssue("name", reason),)
+    assert setup.servers.servers == []
+    assert len(setup.targets.targets) == targets_before
+    assert setup.session.commit_count == 0
+
+
+async def test_create_server_invalid_name_error_fields_do_not_shadow_log_record_attributes() -> (
+    None
+):
+    setup = OnpremSetup()
+
+    with pytest.raises(InvalidInputError) as raised:
+        await setup.service.create_server(OWNER, "home lab")
+
+    reserved = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}
+    assert not reserved & set(raised.value.fields)
+    # 사용자가 보낸 값은 로그 필드에 담지 않는다.
+    assert "home lab" not in repr(raised.value.fields)
+
+
+async def test_create_server_conflict_check_uses_the_trimmed_name() -> None:
+    setup = OnpremSetup()
+    await setup.service.create_server(OWNER, " home-lab ")
+
+    for duplicate in ("home-lab", "\thome-lab\n", "  home-lab"):
+        with pytest.raises(OnpremServerNameConflictError):
+            await setup.service.create_server(OWNER, duplicate)
+
+    assert [s.name for s in setup.servers.servers] == ["home-lab"]
+
+
+async def test_create_server_names_differing_only_by_case_are_distinct() -> None:
+    setup = OnpremSetup()
+    await setup.service.create_server(OWNER, "Home-Lab")
+
+    await setup.service.create_server(OWNER, "home-lab")
+
+    with pytest.raises(OnpremServerNameConflictError):
+        await setup.service.create_server(OWNER, "home-lab")
+    assert sorted(s.name for s in setup.servers.servers) == ["Home-Lab", "home-lab"]
+
+
+@pytest.mark.parametrize("legacy_name", LEGACY_SERVER_NAMES)
+async def test_server_registered_with_a_name_the_rule_now_rejects_keeps_working(
+    legacy_name: str,
+) -> None:
+    setup = OnpremSetup()
+    server = (await setup.service.create_server(OWNER, "legacy")).server
+    # 규칙이 생기기 전에 등록돼 공백·특수문자가 들었거나 숫자만으로 된 이름
+    server.name = legacy_name
+
+    assert [s.name for s in await setup.service.search_servers(OWNER)] == [legacy_name]
+    assert (await setup.service.get_server(OWNER, server.id)).name == legacy_name
+    reissued = await setup.service.reissue_registration_token(OWNER, server.id)
+    assert reissued.server.name == legacy_name
+    with pytest.raises(InvalidInputError):
+        await setup.service.create_server(OWNER, legacy_name)
+    await setup.service.delete_server(OWNER, server.id)
+    assert await setup.service.search_servers(OWNER) == []
+
+
+async def test_create_server_concurrent_name_conflict_rolls_back_and_raises_conflict() -> None:
+    setup = OnpremSetup()
+
+    async def lose_the_race(server: OnpremServer) -> OnpremServer:
+        # 사전 조회를 지난 뒤 다른 요청이 먼저 커밋해 유일 인덱스가 거절한 경우
+        raise OnpremServerNameConflictError(
+            "onprem server name already exists", owner_id=server.owner_id
+        )
+
+    setup.servers.save = lose_the_race  # type: ignore[method-assign]
+
+    with pytest.raises(OnpremServerNameConflictError):
+        await setup.service.create_server(OWNER, "home-lab")
+
+    assert setup.session.rollback_count == 1
+    assert setup.session.commit_count == 0
+
+
+async def test_create_server_other_integrity_error_propagates_after_rollback() -> None:
+    setup = OnpremSetup()
+    error = IntegrityError("INSERT INTO onprem_servers ...", {}, Exception("server_key"))
+
+    async def violate_other_constraint(server: OnpremServer) -> OnpremServer:
+        raise error
+
+    setup.servers.save = violate_other_constraint  # type: ignore[method-assign]
+
+    with pytest.raises(IntegrityError) as raised:
+        await setup.service.create_server(OWNER, "home-lab")
+
+    assert raised.value is error
+    assert setup.session.rollback_count == 1
+    assert setup.session.commit_count == 0
 
 
 async def test_get_server_of_other_owner_is_not_found() -> None:

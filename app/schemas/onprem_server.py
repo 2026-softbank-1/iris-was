@@ -7,20 +7,30 @@ from app.enums import OnpremServerFailureCode, OnpremServerStatus
 from app.models.onprem_server import OnpremServer
 from app.schemas.response import ApiModel
 from app.services.onprem_server_service import (
+    SERVER_NAME_PATTERN,
     OnpremBootstrap,
     OnpremConnection,
     OnpremServerRegistration,
     RegistryCredentials,
 )
 
-ServerName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=63)]
 SecretText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 PemText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=16384)]
 
 
 class CreateOnpremServerRequest(ApiModel):
-    name: ServerName = Field(
-        description="내 서버 안에서 유일한 이름(1~63자)", examples=["home-lab"]
+    # 앞뒤 공백을 자르고 규칙을 검사하는 일은 서비스가 한다. 어기면 스키마 검증 실패
+    # (VALIDATION_ERROR)가 아니라 도메인 규칙 위반(INVALID_INPUT)이다.
+    name: str = Field(
+        description=(
+            "서버 이름. 앞뒤 공백은 잘라서 쓴다. 1~63자이고 영문 대소문자·숫자·한글 완성형(가-힣)·"
+            "`.`·`_`·`-` 만 쓸 수 있다(공백 불가, 첫 글자는 영문·숫자·한글, 숫자만으로는 안 된다). "
+            "내 서버 안에서 유일하다(대소문자 구분, 삭제한 서버 제외). "
+            "규칙을 어기면 422 `INVALID_INPUT`(`details[].field = name`)"
+        ),
+        examples=["home-lab"],
+        # OpenAPI 문서용이다. 패턴은 앞뒤 공백을 자른 뒤의 이름에 적용된다.
+        json_schema_extra={"pattern": f"^{SERVER_NAME_PATTERN.pattern}$"},
     )
 
 

@@ -1,3 +1,4 @@
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +14,14 @@ from app.dependencies import (
 )
 from app.main import app
 from app.models.user import User
-from tests.fakes_onprem import OWNER, OnpremSetup
+from tests.fakes_onprem import (
+    INVALID_SERVER_NAMES,
+    LEGACY_SERVER_NAMES,
+    OWNER,
+    VALID_SERVER_NAMES,
+    OnpremSetup,
+    name_ids,
+)
 
 BASE = "/api/v1/onprem-servers"
 
@@ -112,10 +120,159 @@ async def test_install_command_allows_local_http_api_base_url(env: Env) -> None:
     assert response.json()["data"]["installCommand"].endswith(" --api-url http://localhost:8000")
 
 
-async def test_create_server_blank_name_is_422(env: Env) -> None:
-    response = await env.client.post(BASE, json={"name": "  "})
+async def test_create_server_same_name_is_409_name_conflict(env: Env) -> None:
+    first = await env.client.post(BASE, json={"name": "e2e-dup"})
+    second = await env.client.post(BASE, json={"name": "e2e-dup"})
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    body = second.json()
+    assert body["success"] is False
+    assert body["code"] == "ONPREM_SERVER_NAME_CONFLICT"
+    assert [s.name for s in env.setup.servers.servers] == ["e2e-dup"]
+
+
+async def test_create_server_name_differing_only_by_surrounding_spaces_conflicts(
+    env: Env,
+) -> None:
+    await env.client.post(BASE, json={"name": "home-lab"})
+
+    response = await env.client.post(BASE, json={"name": " home-lab "})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "ONPREM_SERVER_NAME_CONFLICT"
+
+
+@pytest.mark.parametrize(("name", "stored"), VALID_SERVER_NAMES, ids=name_ids(VALID_SERVER_NAMES))
+async def test_create_server_with_valid_name_is_201_and_returns_it_trimmed(
+    env: Env, name: str, stored: str
+) -> None:
+    response = await env.client.post(BASE, json={"name": name})
+
+    assert response.status_code == 201
+    assert response.json()["data"]["server"]["name"] == stored
+    assert [s.name for s in env.setup.servers.servers] == [stored]
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"), INVALID_SERVER_NAMES, ids=name_ids(INVALID_SERVER_NAMES)
+)
+async def test_create_server_with_invalid_name_is_422_invalid_input_with_details(
+    env: Env, name: str, reason: str
+) -> None:
+    response = await env.client.post(BASE, json={"name": name})
 
     assert response.status_code == 422
+    body = response.json()
+    assert body["success"] is False
+    assert body["code"] == "INVALID_INPUT"
+    assert body["message"] == "invalid onprem server name"
+    assert body["details"] == [{"field": "name", "reason": reason}]
+    assert env.setup.servers.servers == []
+    assert len(env.setup.targets.targets) == 2
+
+
+def test_openapi_name_pattern_agrees_with_what_the_server_accepts() -> None:
+    schema = app.openapi()["components"]["schemas"]["CreateOnpremServerRequest"]
+    pattern = re.compile(schema["properties"]["name"]["pattern"])
+
+    assert all(pattern.fullmatch(stored) for _, stored in VALID_SERVER_NAMES)
+    assert not any(pattern.fullmatch(name.strip()) for name, _ in INVALID_SERVER_NAMES)
+
+
+@pytest.mark.parametrize("body", [{}, {"name": None}, {"name": 123}, {"name": ["a"]}])
+async def test_create_server_with_missing_or_non_string_name_is_422_validation_error(
+    env: Env, body: dict[str, object]
+) -> None:
+    response = await env.client.post(BASE, json=body)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert response.json()["details"][0]["field"] == "name"
+    assert env.setup.servers.servers == []
+
+
+async def test_create_server_conflict_is_checked_on_the_trimmed_name_both_ways(
+    env: Env,
+) -> None:
+    first = await env.client.post(BASE, json={"name": " home-lab "})
+    second = await env.client.post(BASE, json={"name": "home-lab"})
+    third = await env.client.post(BASE, json={"name": "\thome-lab\n"})
+
+    assert first.status_code == 201
+    assert first.json()["data"]["server"]["name"] == "home-lab"
+    assert second.status_code == 409
+    assert second.json()["code"] == "ONPREM_SERVER_NAME_CONFLICT"
+    assert third.status_code == 409
+    assert [s.name for s in env.setup.servers.servers] == ["home-lab"]
+
+
+@pytest.mark.parametrize("name", ["1", "0", "007", "2024", "1" * 63, " 12 "])
+async def test_create_server_digits_only_name_is_422_with_one_reason(env: Env, name: str) -> None:
+    response = await env.client.post(BASE, json={"name": name})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "INVALID_INPUT"
+    assert body["details"] == [{"field": "name", "reason": "must not be only digits"}]
+    assert env.setup.servers.servers == []
+
+
+@pytest.mark.parametrize("name", ["1a", "a1", "1-2", "1.5", "007a"])
+async def test_create_server_name_with_digits_and_other_characters_is_201(
+    env: Env, name: str
+) -> None:
+    response = await env.client.post(BASE, json={"name": name})
+
+    assert response.status_code == 201
+    assert response.json()["data"]["server"]["name"] == name
+
+
+async def test_create_server_internal_space_is_422_even_when_trimmed_name_exists(
+    env: Env,
+) -> None:
+    await env.client.post(BASE, json={"name": "home-lab"})
+
+    response = await env.client.post(BASE, json={"name": " home lab "})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "INVALID_INPUT"
+
+
+async def test_create_server_names_differing_only_by_case_are_both_201(env: Env) -> None:
+    upper = await env.client.post(BASE, json={"name": "Home-Lab"})
+    lower = await env.client.post(BASE, json={"name": "home-lab"})
+    again = await env.client.post(BASE, json={"name": "home-lab"})
+
+    assert (upper.status_code, lower.status_code, again.status_code) == (201, 201, 409)
+
+
+async def test_create_server_same_name_after_delete_is_201_again(env: Env) -> None:
+    first = (await env.client.post(BASE, json={"name": "home-lab"})).json()["data"]["server"]
+    deleted = await env.client.delete(f"{BASE}/{first['id']}")
+
+    second = await env.client.post(BASE, json={"name": "home-lab"})
+
+    assert deleted.status_code == 204
+    assert second.status_code == 201
+    assert second.json()["data"]["server"]["id"] != first["id"]
+
+
+@pytest.mark.parametrize("legacy_name", LEGACY_SERVER_NAMES)
+async def test_list_returns_server_registered_before_the_name_rule_as_is(
+    env: Env, legacy_name: str
+) -> None:
+    created = (await env.client.post(BASE, json={"name": "legacy"})).json()["data"]["server"]
+    env.setup.servers.servers[0].name = legacy_name
+
+    listed = await env.client.get(BASE)
+    fetched = await env.client.get(f"{BASE}/{created['id']}")
+    reissued = await env.client.post(f"{BASE}/{created['id']}/registration-token")
+
+    assert [s["name"] for s in listed.json()["data"]] == [legacy_name]
+    assert fetched.json()["data"]["name"] == legacy_name
+    assert reissued.status_code == 200
+    assert reissued.json()["data"]["server"]["name"] == legacy_name
 
 
 async def test_bootstrap_and_connect_flow_through_api(env: Env) -> None:

@@ -4,7 +4,11 @@ from pydantic import Field, StringConstraints, model_validator
 
 from app.enums import ReferenceProperty, VariableIssueCode, VariableIssueSeverity
 from app.schemas.response import ApiModel
-from app.services.variable_references import VariableReference
+from app.services.variable_references import (
+    ReferenceScheme,
+    ReferenceSuffix,
+    VariableReference,
+)
 from app.services.variable_service import (
     MAX_KEY_LENGTH,
     MAX_VALUE_LENGTH,
@@ -30,13 +34,46 @@ class VariableReferenceSchema(ApiModel):
         ),
         examples=["url"],
     )
+    scheme: ReferenceScheme = Field(
+        default=None,
+        description=(
+            "property=url 일 때 URL 스킴(`^[a-z][a-z0-9+.-]*$`, 예: `postgres+asyncpg`). 생략하면"
+            " 앱은 `http`, DB 는 엔진 기본 스킴이다."
+        ),
+        examples=["http"],
+    )
+    suffix: ReferenceSuffix = Field(
+        default=None,
+        description=(
+            "property=url 일 때 호스트·포트 뒤에 그대로 붙는 경로+쿼리+프래그먼트. `/`·`?`·`#` 로"
+            " 시작하고 공백·제어 문자 없이 2048자 이하다. DB 는 자격 증명을 플랫폼 값으로 두고,"
+            " suffix 에 경로가 있으면 기본 데이터베이스 경로 대신 쓴다."
+        ),
+        examples=["/api/v1?tenant=demo"],
+    )
+
+    @model_validator(mode="after")
+    def _url_only(self) -> "VariableReferenceSchema":
+        if self.property != ReferenceProperty.URL and (self.scheme or self.suffix):
+            raise ValueError("scheme and suffix are only for the url property")
+        return self
 
     def to_reference(self) -> VariableReference:
-        return VariableReference(service_id=self.service_id, property=self.property)
+        return VariableReference(
+            service_id=self.service_id,
+            property=self.property,
+            scheme=self.scheme,
+            suffix=self.suffix,
+        )
 
     @classmethod
     def from_reference(cls, reference: VariableReference) -> "VariableReferenceSchema":
-        return cls(service_id=reference.service_id, property=reference.property)
+        return cls(
+            service_id=reference.service_id,
+            property=reference.property,
+            scheme=reference.scheme,
+            suffix=reference.suffix,
+        )
 
 
 class _ValueOrReference(ApiModel):
