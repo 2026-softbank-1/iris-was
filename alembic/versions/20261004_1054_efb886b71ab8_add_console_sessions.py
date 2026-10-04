@@ -4,7 +4,7 @@
 고치지 않으며 지우지 않는다(ADR 0033).
 
 Revision ID: efb886b71ab8
-Revises: 663b24ad4296
+Revises: a7d3c9e15b24
 Create Date: 2026-10-04 10:54:46.171894
 
 """
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "efb886b71ab8"
-down_revision: str | Sequence[str] | None = "663b24ad4296"
+down_revision: str | Sequence[str] | None = "a7d3c9e15b24"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
