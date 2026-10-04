@@ -43,6 +43,7 @@ from app.repositories.deployment_status_history_repository import (
 )
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
+from app.repositories.onprem_metric_sample_repository import OnpremMetricSampleRepository
 from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
@@ -373,6 +374,7 @@ def get_onprem_server_service(session: SessionDep, settings: SettingsDep) -> Onp
             else None
         ),
         offline_after=timedelta(seconds=settings.onprem_server_offline_after_seconds),
+        metric_sample_repository=OnpremMetricSampleRepository(session),
     )
 
 
@@ -701,6 +703,7 @@ def build_observability_service(
         settings.traffic_cluster,
         target_repository=TargetRepository(session),
         pod_log_client=pod_log_client,
+        metric_sample_repository=OnpremMetricSampleRepository(session),
     )
 
 

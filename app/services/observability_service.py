@@ -2,7 +2,7 @@ import asyncio
 import json
 import math
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Literal
@@ -13,6 +13,8 @@ from app.clients.argocd_client import PodLogClient
 from app.clients.observability_client import (
     LogEntry,
     MetricGrouping,
+    MetricKind,
+    MetricPoint,
     MetricSeries,
     NetworkLogEntry,
     ObservabilityClient,
@@ -27,6 +29,8 @@ from app.core.exceptions import (
     ServiceNotFoundError,
 )
 from app.enums import TargetKind
+from app.models.onprem_metric_sample import OnpremMetricSample
+from app.repositories.onprem_metric_sample_repository import OnpremMetricSampleRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
 
@@ -35,6 +39,57 @@ MAX_POD_SERIES = 50
 APP_CONTAINER = "app"
 # on-prem 로그를 Argo CD 에서 읽을 때 Pod 마다 가져오는 최대 줄 수. 시각·검색은 받은 뒤 거른다.
 ONPREM_TAIL_LINES = 5000
+# Prometheus 경로와 같은 metric 이름·단위. 등록한 서버는 CPU·메모리만 보내 네트워크는 비어 있다.
+_SERVER_METRICS: tuple[tuple[MetricKind, str], ...] = (
+    ("cpu", "cores"),
+    ("memory", "bytes"),
+    ("network_receive", "bytes/s"),
+    ("network_transmit", "bytes/s"),
+)
+
+
+def bucket_server_metrics(
+    samples: list[OnpremMetricSample],
+    start: datetime,
+    step: int,
+    group_by: MetricGrouping,
+) -> list[MetricSeries]:
+    """서버가 보낸 표본을 step 칸으로 묶어 Prometheus 경로와 같은 모양의 시리즈로 만든다.
+
+    칸마다 Pod 별 평균을 내고, total 은 그 평균을 Pod 끼리 더한다. 칸의 시각은 칸이 시작하는
+    시각(start + i·step)이고, 표본이 없는 칸은 점을 두지 않는다. CPU 는 millicores 를 cores 로
+    바꾼다.
+    """
+    origin = start.timestamp()
+    # (pod, 칸) → [cpu 합, memory 합, 개수]
+    sums: dict[tuple[str, int], list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0])
+    for sample in samples:
+        bucket = int((sample.collected_at.timestamp() - origin) // step)
+        acc = sums[(sample.pod, bucket)]
+        acc[0] += sample.cpu_millicores / 1000
+        acc[1] += sample.memory_bytes
+        acc[2] += 1
+    averages = {key: (cpu / count, memory / count) for key, (cpu, memory, count) in sums.items()}
+
+    def points(values: dict[int, float]) -> list[MetricPoint]:
+        return [MetricPoint(origin + bucket * step, values[bucket]) for bucket in sorted(values)]
+
+    series: list[MetricSeries] = []
+    for index, (kind, unit) in enumerate(_SERVER_METRICS):
+        if group_by == "total":
+            totals: dict[int, float] = defaultdict(float)
+            if index < 2:
+                for (_, bucket), values in averages.items():
+                    totals[bucket] += values[index]
+            series.append(MetricSeries(kind, unit, points(totals)))
+            continue
+        if index >= 2:
+            continue
+        by_pod: dict[str, dict[int, float]] = defaultdict(dict)
+        for (pod, bucket), values in averages.items():
+            by_pod[pod][bucket] = values[index]
+        series.extend(MetricSeries(kind, unit, points(by_pod[pod]), pod) for pod in sorted(by_pod))
+    return series
 
 
 class ObservabilityService:
@@ -48,6 +103,7 @@ class ObservabilityService:
         *,
         target_repository: TargetRepository | None = None,
         pod_log_client: PodLogClient | None = None,
+        metric_sample_repository: OnpremMetricSampleRepository | None = None,
     ) -> None:
         self._service_repository = service_repository
         self._client = client
@@ -55,8 +111,12 @@ class ObservabilityService:
         self._traffic_cluster = traffic_cluster
         self._target_repository = target_repository
         self._pod_log_client = pod_log_client
+        # 사용자가 등록한 서버가 보낸 메트릭 표본. 그 서버 타깃의 메트릭만 여기서 읽는다.
+        self._metric_sample_repository = metric_sample_repository
         # DB 를 읽는 단계(get_scope·get_target_kind)에서 채운다. 외부 조회 단계는 DB 를 읽지 않는다.
         self._target_kinds: dict[int, TargetKind] = {}
+        # 사용자가 등록한 서버의 타깃 id. 메트릭을 서버가 보낸 표본에서 읽는다.
+        self._server_target_ids: set[int] = set()
 
     async def get_scope(self, owner_id: int, service_id: int, target_id: int) -> str:
         service = await self._service_repository.find_by_id_and_owner_id(service_id, owner_id)
@@ -81,6 +141,8 @@ class ObservabilityService:
             targets = await self._target_repository.search_by_ids([target_id])
             if targets:
                 kind = targets[0].kind
+                if targets[0].onprem_server is not None:
+                    self._server_target_ids.add(target_id)
         self._target_kinds[target_id] = kind
         return kind
 
@@ -165,17 +227,24 @@ class ObservabilityService:
         step: int,
         group_by: MetricGrouping = "total",
     ) -> list[MetricSeries]:
-        self._require_collected_target(target_id)
+        """CPU·메모리·네트워크 시계열. 사용자가 등록한 서버는 서버가 보낸 표본(CPU·메모리)에서,
+        그 밖의 on-prem 타깃은 503, AWS 는 Prometheus 에서 읽는다.
+        """
+        if target_id not in self._server_target_ids:
+            self._require_collected_target(target_id)
         if (end - start).total_seconds() / step > 1440:
             raise InvalidInputError("range and step may produce at most 1440 points per metric")
-        series = await self._client.search_metrics(
-            self._get_url(target_id, "prometheus_url"),
-            namespace,
-            start.timestamp(),
-            end.timestamp(),
-            step,
-            group_by,
-        )
+        if target_id in self._server_target_ids:
+            series = await self._search_server_metrics(namespace, start, end, step, group_by)
+        else:
+            series = await self._client.search_metrics(
+                self._get_url(target_id, "prometheus_url"),
+                namespace,
+                start.timestamp(),
+                end.timestamp(),
+                step,
+                group_by,
+            )
         # 롤링 배포가 잦은 긴 범위는 Pod 이름이 바뀌며 시리즈가 늘어난다. 잘라내지 않고 거절한다.
         if group_by == "pod":
             pods_per_metric = Counter(item.metric for item in series)
@@ -185,6 +254,20 @@ class ObservabilityService:
                     max_pods=MAX_POD_SERIES,
                 )
         return series
+
+    async def _search_server_metrics(
+        self,
+        namespace: str,
+        start: datetime,
+        end: datetime,
+        step: int,
+        group_by: MetricGrouping,
+    ) -> list[MetricSeries]:
+        if self._metric_sample_repository is None:
+            raise NotConfiguredError("on-prem metric storage is not configured")
+        service_id = int(namespace.removeprefix("svc-"))
+        samples = await self._metric_sample_repository.search_by_service_id(service_id, start, end)
+        return bucket_server_metrics(samples, start, step, group_by)
 
     async def search_traffic_metrics(
         self, target_id: int, namespace: str, start: datetime, end: datetime, step: int

@@ -429,7 +429,11 @@ has_validating_admission_policy() {
 
 install_ecr_refresh() {
   step 8 "이미지 pull 자격증명 갱신 작업 설치 중"
-  if is_dry; then plan "CronJob $SYSTEM_NAMESPACE/iris-ecr-refresh (1분마다) 설치 후 1회 실행"; return; fi
+  if is_dry; then
+    plan "CronJob $SYSTEM_NAMESPACE/iris-ecr-refresh (1분마다) 설치 후 1회 실행"
+    plan "같은 CronJob 이 svc-* Pod 의 CPU·메모리(metrics-server)를 플랫폼에 보낸다"
+    return
+  fi
   # RBAC 는 namespace 를 패턴으로 좁히지 못한다. 쓰기 범위(svc-*, 이름·타입)는 아래 admission policy 가 막는다.
   kc apply -f - >/dev/null <<'EOF'
 apiVersion: v1
@@ -458,6 +462,10 @@ rules:
     resources: [serviceaccounts]
     resourceNames: [default]
     verbs: [get, patch]
+  # K3s 기본 metrics-server 의 Pod 사용량을 읽어 플랫폼에 보낸다(읽기만).
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -480,6 +488,44 @@ metadata:
 data:
   refresh.sh: |
     set -eu -o pipefail
+    # ECR 갱신이 어떻게 끝나든(exit 0·1) 그 뒤에 svc-* Pod 의 CPU·메모리를 보낸다. 메트릭 실패는
+    # 한 줄만 남기고 Job 결과(ECR 갱신의 종료 코드)를 바꾸지 않는다.
+    push_metrics() {
+      local raw body code
+      raw=$(kubectl get --raw /apis/metrics.k8s.io/v1beta1/pods 2>/dev/null) ||
+        { echo "메트릭 읽기 실패(metrics-server), 건너뜀"; return 0; }
+      # CPU 는 n·u·m·코어, 메모리는 Ki·Mi·Gi·k·M·G·바이트로 온다. 컨테이너를 Pod 별로 더한다.
+      body=$(printf '%s' "$raw" | jq -c --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+        def cpu: if endswith("n") then (.[:-1] | tonumber) / 1000000
+          elif endswith("u") then (.[:-1] | tonumber) / 1000
+          elif endswith("m") then (.[:-1] | tonumber)
+          else (tonumber * 1000) end;
+        def mem: if endswith("Ki") then (.[:-2] | tonumber) * 1024
+          elif endswith("Mi") then (.[:-2] | tonumber) * 1048576
+          elif endswith("Gi") then (.[:-2] | tonumber) * 1073741824
+          elif endswith("k") then (.[:-1] | tonumber) * 1000
+          elif endswith("M") then (.[:-1] | tonumber) * 1000000
+          elif endswith("G") then (.[:-1] | tonumber) * 1000000000
+          else tonumber end;
+        {collectedAt: $at, pods: ([.items[]
+          | select(.metadata.namespace | test("^svc-[0-9]+$"))
+          | {namespace: .metadata.namespace, pod: .metadata.name,
+             cpuMillicores: ([.containers[].usage.cpu | cpu] | add // 0),
+             memoryBytes: ([.containers[].usage.memory | mem] | add // 0 | floor)}] | .[:500])}') ||
+        { echo "메트릭 변환 실패, 건너뜀"; return 0; }
+      code=$(printf 'Authorization: Bearer %s\n' "$SERVER_SECRET" |
+        curl -sS -o /dev/null -w '%{http_code}' -X POST --max-time 30 -H @- \
+          -H 'Content-Type: application/json' --data "$body" \
+          "$API_URL/api/v1/onprem-servers/metrics") ||
+        { echo "메트릭 전송 실패, 건너뜀"; return 0; }
+      [ "$code" = "204" ] || echo "메트릭 전송 실패(HTTP $code), 건너뜀"
+    }
+    on_exit() {
+      local rc=$?
+      push_metrics || true
+      exit "$rc"
+    }
+    trap on_exit EXIT
     response=$(printf 'Authorization: Bearer %s\n' "$SERVER_SECRET" |
       curl -sS -X POST --max-time 30 -H @- -H 'Accept: application/json' --data '' \
         "$API_URL/api/v1/onprem-servers/registry-credentials")

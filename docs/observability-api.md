@@ -8,7 +8,7 @@
 
 Control API에 두 주소를 환경변수로 주입한다(Secret `iris-platform-was-env`). AWS target 은 모두 같은 백엔드를 쓴다(수집 대상이 AWS workload 클러스터 하나다). 값이 없으면 `503 NOT_CONFIGURED`다.
 
-**on-prem target**(공용 `onprem`·사용자 등록 서버 `onprem-{key}`)은 수집 대상이 아니다. 런타임 로그(`logs`·`logs/stream`·배포의 `deploy-logs`)만 Control API 가 Argo CD Pod 로그 API(`GET /api/v1/applications/svc-{id}/logs`, container `app`, Pod 마다 최대 5000줄)로 읽어 같은 모양으로 돌려준다. 지금 떠 있는 Pod 의 로그만 있고(과거 이력·release 구분 없음), 검색은 받은 줄 안에서 하며, SSE 는 5초마다 다시 읽는다. 메트릭·트래픽 지표·네트워크 로그는 `503 NOT_CONFIGURED` 다. 설정은 `ARGOCD_SERVER_URL`·`ARGOCD_LOGS_TOKEN`(없으면 on-prem 로그만 `503 NOT_CONFIGURED`), 설계는 [ADR 0034](adr/0034-onprem-runtime-logs-via-argocd.md).
+**on-prem target**(공용 `onprem`·사용자 등록 서버 `onprem-{key}`)은 수집 대상이 아니다. 런타임 로그(`logs`·`logs/stream`·배포의 `deploy-logs`)만 Control API 가 Argo CD Pod 로그 API(`GET /api/v1/applications/svc-{id}/logs`, container `app`, Pod 마다 최대 5000줄)로 읽어 같은 모양으로 돌려준다. 지금 떠 있는 Pod 의 로그만 있고(과거 이력·release 구분 없음), 검색은 받은 줄 안에서 하며, SSE 는 5초마다 다시 읽는다. 트래픽 지표·네트워크 로그는 `503 NOT_CONFIGURED` 다. 메트릭은 사용자 등록 서버(`onprem-{key}`)만 서버가 1분마다 보낸 CPU·메모리 표본(`onprem_metric_samples`, 7일)에서 같은 모양으로 읽고(네트워크 시리즈는 비어 있다), 공용 `onprem` 은 `503 NOT_CONFIGURED` 다. 설정은 `ARGOCD_SERVER_URL`·`ARGOCD_LOGS_TOKEN`(없으면 on-prem 로그만 `503 NOT_CONFIGURED`), 설계는 [ADR 0034](adr/0034-onprem-runtime-logs-via-argocd.md).
 
 ```dotenv
 LOKI_URL=http://loki.observability:3100
