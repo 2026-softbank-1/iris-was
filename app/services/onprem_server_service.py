@@ -10,6 +10,7 @@ import logging
 import re
 import secrets
 import string
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -37,8 +38,10 @@ from app.core.exceptions import (
 )
 from app.core.security import generate_url_token, hash_url_token, verify_url_token
 from app.enums import OnpremServerConnectionStatus, OnpremServerStatus, TargetKind
+from app.models.onprem_metric_sample import OnpremMetricSample
 from app.models.onprem_server import OnpremServer
 from app.models.target import Target
+from app.repositories.onprem_metric_sample_repository import OnpremMetricSampleRepository
 from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.target_repository import TargetRepository
@@ -48,6 +51,11 @@ logger = logging.getLogger(__name__)
 REGISTRATION_TOKEN_TTL = timedelta(hours=24)
 # 하트비트(last_seen_at)를 이보다 자주 쓰지 않는다. 서버는 1분마다 부른다.
 HEARTBEAT_WRITE_INTERVAL = timedelta(seconds=30)
+# 서버가 보낸 메트릭 표본을 남기는 기간과, 지난 표본을 지우는 간격(초, 프로세스마다).
+METRIC_RETENTION = timedelta(days=7)
+METRIC_RETENTION_INTERVAL = 600.0
+_last_retention_at: float | None = None
+_SERVICE_NAMESPACE = re.compile(r"svc-([0-9]+)")
 ONPREM_DOMAIN_SUFFIX = "internal.likelion.uk"
 TAILSCALE_TAGS = ("tag:iris-onprem",)
 INSTALL_SCRIPT_PATH = Path(__file__).resolve().parent.parent / "assets" / "onprem" / "install.sh"
@@ -134,6 +142,16 @@ class OnpremConnection:
 
 
 @dataclass(frozen=True)
+class PodMetric:
+    """서버가 보낸 Pod 하나의 사용량. metrics-server 값을 서버가 단위를 맞춰 보낸다."""
+
+    namespace: str
+    pod: str
+    cpu_millicores: float
+    memory_bytes: int
+
+
+@dataclass(frozen=True)
 class RegistryCredentials:
     registry: str
     username: str
@@ -163,6 +181,7 @@ class OnpremServerService:
         cipher: VariableCipher | None = None,
         ecr_pull_client: EcrPullCredentialClient | None = None,
         offline_after: timedelta = timedelta(seconds=DEFAULT_ONPREM_SERVER_OFFLINE_AFTER_SECONDS),
+        metric_sample_repository: OnpremMetricSampleRepository | None = None,
     ) -> None:
         self._session = session
         self._onprem_server_repository = onprem_server_repository
@@ -174,6 +193,8 @@ class OnpremServerService:
         # registry-credentials 만 쓴다.
         self._ecr_pull_client = ecr_pull_client
         self._offline_after = offline_after
+        # 서버가 보낸 메트릭 표본(metrics API)만 쓴다.
+        self._metric_sample_repository = metric_sample_repository
 
     def connection_status(self, server: OnpremServer) -> OnpremServerConnectionStatus:
         """API 가 알리는 상태. 하트비트가 끊긴 CONNECTED 서버는 DISCONNECTED 다."""
@@ -362,17 +383,8 @@ class OnpremServerService:
         비밀이 틀리면 401, 맞지만 아직 CONNECTED 가 아니면 409(서버의 CronJob 이 다음 회차를
         기다린다), 그다음 ECR pull Role 설정이 없으면 503 이다.
         """
-        server = await self._onprem_server_repository.find_by_server_secret_hash(
-            hash_url_token(server_secret)
-        )
-        if (
-            server is None
-            or server.server_secret_hash is None
-            or not verify_url_token(server_secret, server.server_secret_hash)
-        ):
-            raise UnauthorizedError("invalid server secret")
         # 인증이 끝나면 연결 확인 전(409)·설정 없음(503)이어도 서버가 살아 있다는 하트비트로 남긴다.
-        await self._record_seen(server)
+        server = await self._authenticate_server(server_secret)
         if server.status != OnpremServerStatus.CONNECTED:
             raise OnpremServerNotConnectedError(
                 "onprem server is not connected",
@@ -419,6 +431,51 @@ class OnpremServerService:
             service_ids,
         )
 
+    async def ingest_metrics(
+        self, server_secret: str, collected_at: datetime, pods: list[PodMetric]
+    ) -> None:
+        """서버가 보낸 Pod CPU·메모리 표본을 남긴다. 하트비트로도 센다.
+
+        이 서버 타깃에 붙은(삭제되지 않은) 서비스의 namespace `svc-{id}` 만 남기고 나머지는 버린다.
+        보존 기간(7일)이 지난 표본은 프로세스마다 10분에 한 번 지운다.
+        """
+        if self._metric_sample_repository is None:
+            raise NotConfiguredError("metric storage is not configured")
+        server = await self._authenticate_server(server_secret)
+        service_ids = set(await self._service_repository.search_ids_by_target_id(server.target_id))
+        samples = [
+            OnpremMetricSample(
+                service_id=service_id,
+                pod=pod.pod,
+                collected_at=collected_at,
+                cpu_millicores=pod.cpu_millicores,
+                memory_bytes=pod.memory_bytes,
+            )
+            for pod in pods
+            if (service_id := _service_id_of(pod.namespace)) is not None
+            and service_id in service_ids
+        ]
+        await self._metric_sample_repository.add_all(samples)
+        if _retention_due(time.monotonic()):
+            await self._metric_sample_repository.delete_collected_before(
+                datetime.now(UTC) - METRIC_RETENTION
+            )
+        await self._session.commit()
+
+    async def _authenticate_server(self, server_secret: str) -> OnpremServer:
+        """서버 비밀로 서버를 찾는다. 틀리거나 무효인 비밀은 401 이고, 맞으면 하트비트를 남긴다."""
+        server = await self._onprem_server_repository.find_by_server_secret_hash(
+            hash_url_token(server_secret)
+        )
+        if (
+            server is None
+            or server.server_secret_hash is None
+            or not verify_url_token(server_secret, server.server_secret_hash)
+        ):
+            raise UnauthorizedError("invalid server secret")
+        await self._record_seen(server)
+        return server
+
     async def _record_seen(self, server: OnpremServer) -> None:
         """하트비트를 남기고 바로 커밋한다. 뒤에서 오류로 응답해도 남는다."""
         await self._onprem_server_repository.touch_last_seen(
@@ -454,6 +511,20 @@ def _validate_server_name(name: str, owner_id: int) -> None:
     raise InvalidInputError(
         "invalid onprem server name", issues=[FieldIssue("name", reason)], owner_id=owner_id
     )
+
+
+def _service_id_of(namespace: str) -> int | None:
+    match = _SERVICE_NAMESPACE.fullmatch(namespace)
+    return int(match[1]) if match else None
+
+
+def _retention_due(now: float) -> bool:
+    """보존 정리를 할 차례인가. 프로세스마다 METRIC_RETENTION_INTERVAL 에 한 번이다."""
+    global _last_retention_at
+    if _last_retention_at is not None and now - _last_retention_at < METRIC_RETENTION_INTERVAL:
+        return False
+    _last_retention_at = now
+    return True
 
 
 def _check_registration_token(

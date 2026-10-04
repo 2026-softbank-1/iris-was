@@ -50,6 +50,7 @@ def test_install_script_dry_run_prints_every_step_without_token() -> None:
     assert "https://api.likelion.uk/api/v1/onprem-servers/bootstrap" in result.stdout
     assert "likelion servers" in result.stdout
     assert "tailscale0 의 tcp 6443·80" in result.stdout
+    assert "CPU·메모리(metrics-server)를 플랫폼에 보낸다" in result.stdout
     assert "10.42.0.0/16 10.43.0.0/16" in result.stdout
     assert REGISTRATION_TOKEN not in result.stdout + result.stderr
 

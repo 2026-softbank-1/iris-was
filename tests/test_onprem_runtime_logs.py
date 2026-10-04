@@ -111,7 +111,7 @@ def _service(kind: TargetKind, pod_log_client=None, loki_url="http://loki"):
     services.find_by_id_and_owner_id.return_value = object()
     services.search_target_ids_by_service_ids.return_value = {42: [7]}
     targets = AsyncMock()
-    targets.search_by_ids.return_value = [SimpleNamespace(kind=kind)]
+    targets.search_by_ids.return_value = [SimpleNamespace(kind=kind, onprem_server=None)]
     return ObservabilityService(
         services,
         AsyncMock(),

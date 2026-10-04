@@ -5212,6 +5212,30 @@
         "title": "HostAliasResponse",
         "type": "object"
       },
+      "IngestOnpremMetricsRequest": {
+        "properties": {
+          "collectedAt": {
+            "description": "서버가 값을 읽은 시각(시간대 포함)",
+            "format": "date-time",
+            "title": "Collectedat",
+            "type": "string"
+          },
+          "pods": {
+            "items": {
+              "$ref": "#/components/schemas/OnpremPodMetricRequest"
+            },
+            "maxItems": 500,
+            "title": "Pods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "collectedAt",
+          "pods"
+        ],
+        "title": "IngestOnpremMetricsRequest",
+        "type": "object"
+      },
       "InstallationResponse": {
         "properties": {
           "accountLogin": {
@@ -5556,6 +5580,55 @@
           "serverSecret"
         ],
         "title": "OnpremConnectResponse",
+        "type": "object"
+      },
+      "OnpremPodMetricRequest": {
+        "properties": {
+          "cpuMillicores": {
+            "description": "컨테이너 합계 CPU(millicores)",
+            "examples": [
+              12.5
+            ],
+            "minimum": 0.0,
+            "title": "Cpumillicores",
+            "type": "number"
+          },
+          "memoryBytes": {
+            "description": "컨테이너 합계 메모리(bytes)",
+            "examples": [
+              123456
+            ],
+            "minimum": 0.0,
+            "title": "Memorybytes",
+            "type": "integer"
+          },
+          "namespace": {
+            "description": "Pod 의 namespace. 이 서버 타깃에 붙은 서비스의 `svc-{id}` 만 남는다",
+            "examples": [
+              "svc-12"
+            ],
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Namespace",
+            "type": "string"
+          },
+          "pod": {
+            "examples": [
+              "app-5d9c7b8f6d-x2k4q"
+            ],
+            "maxLength": 253,
+            "minLength": 1,
+            "title": "Pod",
+            "type": "string"
+          }
+        },
+        "required": [
+          "namespace",
+          "pod",
+          "cpuMillicores",
+          "memoryBytes"
+        ],
+        "title": "OnpremPodMetricRequest",
         "type": "object"
       },
       "OnpremServerConnectionStatus": {
@@ -9639,6 +9712,66 @@
         ]
       }
     },
+    "/api/v1/onprem-servers/metrics": {
+      "post": {
+        "description": "서버의 CronJob 이 `Authorization: Bearer <serverSecret>` 로 1분마다 보낸다(최대 500 Pod).\n하트비트로도 센다. 이 서버 타깃에 붙은 서비스의 `svc-{id}` namespace 만 남기고 나머지는\n조용히 버린다. 남긴 값은 `/services/{id}/metrics` 가 7일 동안 보여 준다.",
+        "operationId": "ingest_onprem_metrics_api_v1_onprem_servers_metrics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestOnpremMetricsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "OnpremServerSecret": []
+          }
+        ],
+        "summary": "서버 Pod CPU·메모리 표본 보내기",
+        "tags": [
+          "onprem-servers"
+        ]
+      }
+    },
     "/api/v1/onprem-servers/registry-credentials": {
       "post": {
         "description": "서버의 CronJob 이 `Authorization: Bearer <serverSecret>` 로 부른다. 비밀이 틀리면 401,\n아직 `CONNECTED` 가 아니면 409 `ONPREM_SERVER_NOT_CONNECTED` 다.\n이 서버 타깃에 붙은 서비스의 ECR 저장소만 받을 수 있다. 붙은 서비스가 없으면 password 가 없다.",
@@ -13541,7 +13674,7 @@
     },
     "/api/v1/services/{service_id}/metrics": {
       "get": {
-        "description": "on-prem 타깃은 메트릭을 수집하지 않아 503 NOT_CONFIGURED 다.",
+        "description": "사용자가 등록한 온프레미스 서버 타깃은 서버가 1분마다 보낸 CPU·메모리 표본(7일)에서 같은 모양으로 읽는다(네트워크는 비어 있다). 공용 on-prem 타깃은 503 NOT_CONFIGURED 다.",
         "operationId": "search_metrics_api_v1_services__service_id__metrics_get",
         "parameters": [
           {

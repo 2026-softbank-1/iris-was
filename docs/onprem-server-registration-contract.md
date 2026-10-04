@@ -144,6 +144,17 @@ sequenceDiagram
 - 확인 순서는 401(서버 비밀이 틀리거나 재발급으로 무효) → 409 `ONPREM_SERVER_NOT_CONNECTED`(`CONNECTED` 전) → 503 `NOT_CONFIGURED`(WAS 에 ECR pull Role 설정이 없음)다. CronJob 은 409·503 을 실패로 남기지 않고 다음 회차를 기다린다.
 - 서버의 CronJob(설치 스크립트가 만든다)이 1분마다 불러 `svc-{id}/iris-ecr-pull` Secret 을 갱신하고 default SA 에 `imagePullSecrets` 로 붙인다.
 
+### `POST /api/v1/onprem-servers/metrics` → 204
+헤더 `Authorization: Bearer <serverSecret>`(registry-credentials 와 같은 인증, 틀리면 401). 하트비트로도 센다(§3).
+요청:
+```json
+{ "collectedAt": "2026-10-04T12:00:00Z",
+  "pods": [{ "namespace": "svc-12", "pod": "app-x", "cpuMillicores": 12.5, "memoryBytes": 123456 }] }
+```
+- `collectedAt` 은 시간대가 있어야 하고 `pods` 는 500개까지, 값은 0 이상이다(그 밖은 422). CPU 는 컨테이너 합계 millicores, 메모리는 컨테이너 합계 bytes.
+- 이 서버 타깃에 붙은(삭제되지 않은) 서비스의 namespace `svc-{id}` 만 남기고 나머지는 조용히 버린다.
+- 표본은 `onprem_metric_samples` 에 7일 남는다. `GET /services/{id}/metrics` 가 서버 타깃이면 이 표본을 요청한 `step` 칸으로 묶어(칸마다 Pod 별 평균, total 은 Pod 합) Prometheus 경로와 같은 모양(`cpu` cores·`memory` bytes·`network_*` 은 빈 시리즈)으로 준다. 공용 `onprem` 타깃의 메트릭과 모든 on-prem 타깃의 트래픽 지표·네트워크 로그는 그대로 503 이다.
+
 ## 6. 설치 스크립트 (`install.sh`, Ubuntu 22.04/24.04 x86_64·arm64)
 
 `curl -fsSL <api>/api/v1/onprem-servers/install.sh | sudo bash -s -- --token <T> [--api-url <URL>]`
@@ -155,7 +166,7 @@ sequenceDiagram
 5. 배포 권한: namespace `iris-system`, SA `iris-argocd`, ClusterRole `iris-onprem-service-deployer`(iris-infra `clusters/onprem-workload/argocd-service-deployer.yaml` 과 같은 규칙) + `iris-system` 의 ConfigMap 쓰기 권한(probe 용), 만료 없는 토큰 Secret(`kubernetes.io/service-account-token`). 복사한 ClusterRole 은 Secret 을 포함해 클러스터 전체를 읽으므로 이 토큰을 쓰는 management Argo CD 는 `iris-system/iris-server-secret` 도 읽을 수 있다(알려진 위험, ADR 0029). ClusterRole 에는 서비스 콘솔(Argo CD 터미널, ADR 0035)을 위한 `pods/exec`(get·create)가 있다. 이 규칙이 생기기 전에 등록한 서버는 등록 토큰이 1회용이라 설치를 다시 실행할 수 없으므로 `curl -fsSL <api>/api/v1/onprem-servers/install.sh | sudo bash -s -- --rbac-only` 로 권한만 갱신한다(토큰 불필요, 멱등). 토큰 교체: 이 legacy SA 토큰 Secret 은 `iat`·`jti` 가 없어 Secret 만 다시 만들면 같은 JWT 가 나온다. 바꾸려면 SA `iris-system/iris-argocd` 와 토큰 Secret `iris-argocd-token` 을 지우고, 등록 토큰을 재발급받아 `install.sh` 를 다시 실행한다
 6. Argo Rollouts·Sealed Secrets controller 설치(버전 고정)
 7. `connect` 호출 → `serverSecret` 을 `iris-system/iris-server-secret` 에 저장
-8. ECR 갱신 CronJob(`iris-system/iris-ecr-refresh`, 1분) 설치·1회 실행. `ONPREM_SERVER_NOT_CONNECTED`(409)·`NOT_CONFIGURED`(503) 응답은 로그 한 줄만 남기고 성공으로 끝낸다(실패한 Job 을 쌓지 않는다). 1분인 이유: 새 서비스의 `svc-{id}` namespace 가 생긴 뒤 다음 회차까지 첫 pull 을 기다리므로 주기가 곧 첫 배포 대기다(5분 주기에서 운영 E2E 첫 배포가 약 3분 기다렸다). 대기를 없애는 kubelet credential provider 는 다음 단계(§10)다. 첫 Pod 가 Secret 보다 먼저 뜨면 ImagePullBackOff 로 재시도하다 Secret 이 생기면 받아진다(§7.1)
+8. ECR 갱신 CronJob(`iris-system/iris-ecr-refresh`, 1분) 설치·1회 실행. 같은 Job 이 ECR 갱신 뒤(성공·실패와 상관없이) K3s 기본 metrics-server 의 `svc-*` Pod 사용량(`/apis/metrics.k8s.io/v1beta1/pods`, SA 에 `metrics.k8s.io` pods get·list)을 `metrics` 로 보낸다. 메트릭 실패는 로그 한 줄만 남기고 Job 결과를 바꾸지 않는다. 설치는 metrics-server 를 끄지 않는다. `ONPREM_SERVER_NOT_CONNECTED`(409)·`NOT_CONFIGURED`(503) 응답은 로그 한 줄만 남기고 성공으로 끝낸다(실패한 Job 을 쌓지 않는다). 1분인 이유: 새 서비스의 `svc-{id}` namespace 가 생긴 뒤 다음 회차까지 첫 pull 을 기다리므로 주기가 곧 첫 배포 대기다(5분 주기에서 운영 E2E 첫 배포가 약 3분 기다렸다). 대기를 없애는 kubelet credential provider 는 다음 단계(§10)다. 첫 Pod 가 Secret 보다 먼저 뜨면 ImagePullBackOff 로 재시도하다 Secret 이 생기면 받아진다(§7.1)
 9. 상태를 `GET` 할 수단은 없으므로 "웹·CLI 에서 연결 상태를 확인하세요" 를 출력하고 끝
 
 다시 실행해도 같은 결과가 되어야 한다(이미 설치된 것은 건너뜀). 토큰·가입 키는 출력하지 않는다(`set +x`).

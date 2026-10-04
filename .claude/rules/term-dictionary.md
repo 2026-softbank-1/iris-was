@@ -425,6 +425,18 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 - 쓰기만 하고 고치지 않는다. 소프트 삭제를 쓰지 않는다(감사 기록이라 지우지 않는다).
 - 화면은 Pod 목록 조회용과 연결용으로 ticket 을 따로 받으므로, 콘솔을 한 번 열면 행이 두 건 생긴다.
 
+
+### 4.16 온프레미스 메트릭 표본 (OnpremMetricSample) — `onprem_metric_samples`\*
+
+사용자가 등록한 서버가 1분마다 보낸 Pod 하나의 CPU·메모리 사용량 1건이다. 쌓기만 하고 7일이 지나면 지운다. 서버 타깃 서비스의 메트릭 조회(`/services/{id}/metrics`)가 읽는다.
+
+| 필드 | 설명 |
+|---|---|
+| `service_id`\* | 서비스(namespace `svc-{id}`). 그 서버 타깃에 붙은 서비스만 남긴다 |
+| `pod`\* | Pod 이름 |
+| `collected_at`\* | 서버가 metrics-server 값을 읽은 시각 |
+| `cpu_millicores`\*, `memory_bytes`\* | 컨테이너 합계 CPU(millicores)·메모리(bytes) |
+
 ---
 
 ## 5. Enum 값 정의
