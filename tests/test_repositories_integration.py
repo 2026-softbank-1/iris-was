@@ -89,7 +89,7 @@ async def _seed(session: AsyncSession) -> tuple[User, Project, GithubInstallatio
 async def test_seeded_targets_exist(session: AsyncSession) -> None:
     names = [t.name for t in await TargetRepository(session).search_all()]
 
-    assert names == ["aws", "onprem"]
+    assert names == ["aws", "onprem", "gcp"]
 
 
 async def test_project_name_is_unique_per_owner_until_deleted(session: AsyncSession) -> None:
@@ -145,7 +145,7 @@ async def test_count_services_counts_online_by_latest_release(session: AsyncSess
 
 async def test_service_targets_are_replaced(session: AsyncSession) -> None:
     _, project, installation = await _seed(session)
-    first, second = [t.id for t in await TargetRepository(session).search_all()]
+    first, second = [t.id for t in await TargetRepository(session).search_all()][:2]
     services = ServiceRepository(session)
     service = await services.save(_service(project, installation, "web"))
 
