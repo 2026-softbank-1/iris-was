@@ -3,6 +3,7 @@
 GitOps 저장소·Argo CD 는 test_deploy_flow 의 메모리 대역을 쓴다.
 """
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -10,12 +11,14 @@ from typing import Any
 
 import pytest
 from cryptography.fernet import Fernet
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.clients.argocd_client import ArgoAppStatus
 from app.clients.secret_sealer import SecretSealer
 from app.core.crypto import VariableCipher
+from app.core.exceptions import InvalidInputError, OnpremServerNameConflictError
 from app.enums import (
     DeploymentStatus,
     DeploymentTrigger,
@@ -23,6 +26,7 @@ from app.enums import (
     JobKind,
     OnpremServerFailureCode,
     OnpremServerStatus,
+    TargetKind,
 )
 from app.models import (
     DeploymentRequest,
@@ -43,7 +47,7 @@ from app.services.onprem_server_service import (
     OnpremServerService,
 )
 from app.services.onprem_server_sync_service import MAX_GITOPS_ATTEMPTS, OnpremServerSyncService
-from tests.fakes_onprem import CA_PEM, SEALED_SECRETS_CERT, SERVER_KEY
+from tests.fakes_onprem import CA_PEM, LEGACY_SERVER_NAMES, SEALED_SECRETS_CERT, SERVER_KEY
 from tests.sealed_support import make_controller_key, unseal
 from tests.test_deploy_flow import SETTINGS, FakeArgo, FakeGitOps, Harness
 from tests.worker_support import (
@@ -533,3 +537,251 @@ async def test_worker_whose_lease_was_taken_over_writes_nothing(session_factory:
     assert w.gitops.head == "c0"
     assert server.gitops_commit_sha is None
     assert server.locked_by == "worker-2"
+
+
+async def _count(session_factory: Any, model: Any, owner_id: int) -> int:
+    async with session_factory() as session:
+        count = await session.scalar(
+            select(func.count()).select_from(model).where(model.owner_id == owner_id)
+        )
+    return int(count or 0)
+
+
+async def test_create_server_same_name_conflicts_and_leaves_no_extra_rows(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id, other_id = await w.owner(1), await w.owner(2)
+    await w.call(lambda s: s.create_server(owner_id, "e2e-dup"))
+
+    with pytest.raises(OnpremServerNameConflictError):
+        await w.call(lambda s: s.create_server(owner_id, "e2e-dup"))
+    await w.call(lambda s: s.create_server(other_id, "e2e-dup"))
+
+    assert await _count(session_factory, OnpremServer, owner_id) == 1
+    assert await _count(session_factory, Target, owner_id) == 1
+    assert await _count(session_factory, OnpremServer, other_id) == 1
+
+
+async def test_create_server_same_name_after_delete_is_allowed(session_factory: Any) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    first: OnpremServerRegistration = await w.call(lambda s: s.create_server(owner_id, "e2e-dup"))
+    await w.call(lambda s: s.delete_server(owner_id, first.server.id))
+
+    second: OnpremServerRegistration = await w.call(lambda s: s.create_server(owner_id, "e2e-dup"))
+
+    assert second.server.id != first.server.id
+    servers: list[OnpremServer] = await w.call(lambda s: s.search_servers(owner_id))
+    assert [server.id for server in servers] == [second.server.id]
+    with pytest.raises(OnpremServerNameConflictError):
+        await w.call(lambda s: s.create_server(owner_id, "e2e-dup"))
+
+
+async def test_create_server_concurrent_same_name_creates_one_and_conflicts_the_other(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+
+    results = await asyncio.gather(
+        w.call(lambda s: s.create_server(owner_id, "e2e-dup")),
+        w.call(lambda s: s.create_server(owner_id, "e2e-dup")),
+        return_exceptions=True,
+    )
+
+    conflicts = [r for r in results if isinstance(r, OnpremServerNameConflictError)]
+    created = [r for r in results if isinstance(r, OnpremServerRegistration)]
+    assert len(conflicts) == 1 and len(created) == 1
+    assert await _count(session_factory, OnpremServer, owner_id) == 1
+    assert await _count(session_factory, Target, owner_id) == 1
+
+
+async def _add_server_row(
+    session: AsyncSession,
+    owner_id: int,
+    *,
+    name: str,
+    server_key: str,
+    target_key: str | None = None,
+) -> OnpremServer:
+    """사전 조회를 거치지 않고 Repository 로 바로 넣는다. 유일 인덱스가 거절하는지 본다."""
+    target = await TargetRepository(session).add(
+        Target(
+            name=f"onprem-{target_key or server_key}",
+            kind=TargetKind.ONPREM,
+            domain_suffix="internal.likelion.uk",
+            owner_id=owner_id,
+        )
+    )
+    return await OnpremServerRepository(session).save(
+        OnpremServer(
+            owner_id=owner_id,
+            name=name,
+            server_key=server_key,
+            target_id=target.id,
+            status=OnpremServerStatus.PENDING,
+            registration_token_hash=f"hash-{name}-{server_key}",
+            registration_expires_at=datetime.now(UTC) + timedelta(hours=24),
+        )
+    )
+
+
+async def test_save_duplicate_name_violating_the_index_raises_name_conflict(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    async with session_factory.begin() as session:
+        await _add_server_row(session, owner_id, name="e2e-dup", server_key="aaaaaaaa")
+
+    async with session_factory() as session:
+        with pytest.raises(OnpremServerNameConflictError) as raised:
+            await _add_server_row(session, owner_id, name="e2e-dup", server_key="bbbbbbbb")
+        await session.rollback()
+
+    assert isinstance(raised.value.__cause__, IntegrityError)
+    assert await _count(session_factory, OnpremServer, owner_id) == 1
+
+
+async def test_save_duplicate_name_of_deleted_server_is_allowed_by_partial_index(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    async with session_factory.begin() as session:
+        first = await _add_server_row(session, owner_id, name="e2e-dup", server_key="aaaaaaaa")
+        first.mark_as_deleted()
+
+    async with session_factory.begin() as session:
+        await _add_server_row(session, owner_id, name="e2e-dup", server_key="bbbbbbbb")
+
+    assert await _count(session_factory, OnpremServer, owner_id) == 2
+
+
+async def test_save_duplicate_server_key_is_not_a_name_conflict(session_factory: Any) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    async with session_factory.begin() as session:
+        await _add_server_row(session, owner_id, name="first", server_key="aaaaaaaa")
+
+    async with session_factory() as session:
+        # 이름이 달라 이름 인덱스는 어기지 않고 server_key 의 unique 제약만 어긴다.
+        with pytest.raises(IntegrityError) as raised:
+            await _add_server_row(
+                session, owner_id, name="second", server_key="aaaaaaaa", target_key="bbbbbbbb"
+            )
+        await session.rollback()
+
+    assert "uq_onprem_servers_server_key" in str(raised.value)
+    assert await _count(session_factory, OnpremServer, owner_id) == 1
+
+
+async def _names(session_factory: Any, owner_id: int) -> list[str]:
+    async with session_factory() as session:
+        rows = await session.scalars(
+            select(OnpremServer.name)
+            .where(OnpremServer.owner_id == owner_id)
+            .order_by(OnpremServer.id)
+        )
+        return list(rows)
+
+
+async def test_create_server_stores_trimmed_name_and_conflicts_on_the_trimmed_value(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+
+    first: OnpremServerRegistration = await w.call(
+        lambda s: s.create_server(owner_id, " home-lab ")
+    )
+
+    assert first.server.name == "home-lab"
+    assert await _names(session_factory, owner_id) == ["home-lab"]
+    for duplicate in ("home-lab", "  home-lab", "home-lab\n"):
+        with pytest.raises(OnpremServerNameConflictError):
+            await w.call(lambda s, name=duplicate: s.create_server(owner_id, name))
+    assert await _names(session_factory, owner_id) == ["home-lab"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "home lab",
+        " home lab ",
+        "E2E Dup 2!",
+        "-abc",
+        "ㄱabc",
+        "서버🙂",
+        "a" * 64,
+        "   ",
+        "",
+        "1",
+        "2024",
+    ],
+)
+async def test_create_server_rejects_invalid_name_and_leaves_no_rows(
+    session_factory: Any, name: str
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+
+    with pytest.raises(InvalidInputError):
+        await w.call(lambda s: s.create_server(owner_id, name))
+
+    assert await _count(session_factory, OnpremServer, owner_id) == 0
+    assert await _count(session_factory, Target, owner_id) == 0
+
+
+async def test_create_server_accepts_63_hangul_name_that_fits_the_column(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    name = "서" * 63
+
+    registration: OnpremServerRegistration = await w.call(lambda s: s.create_server(owner_id, name))
+
+    assert registration.server.name == name
+    assert await _names(session_factory, owner_id) == [name]
+    with pytest.raises(InvalidInputError):
+        await w.call(lambda s: s.create_server(owner_id, name + "서"))
+
+
+async def test_create_server_names_differing_only_by_case_do_not_conflict(
+    session_factory: Any,
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+
+    await w.call(lambda s: s.create_server(owner_id, "Home-Lab"))
+    await w.call(lambda s: s.create_server(owner_id, "home-lab"))
+
+    assert await _names(session_factory, owner_id) == ["Home-Lab", "home-lab"]
+    with pytest.raises(OnpremServerNameConflictError):
+        await w.call(lambda s: s.create_server(owner_id, "home-lab"))
+
+
+@pytest.mark.parametrize("legacy_name", LEGACY_SERVER_NAMES)
+async def test_server_with_a_legacy_name_stays_usable_after_the_name_rule(
+    session_factory: Any, legacy_name: str
+) -> None:
+    w = World(session_factory)
+    owner_id = await w.owner()
+    # 규칙이 생기기 전에 등록한 공백·특수문자·숫자만인 이름. Repository 로 바로 넣는다.
+    async with session_factory.begin() as session:
+        legacy = await _add_server_row(session, owner_id, name=legacy_name, server_key="aaaaaaaa")
+
+    listed: list[OnpremServer] = await w.call(lambda s: s.search_servers(owner_id))
+    fetched: OnpremServer = await w.call(lambda s: s.get_server(owner_id, legacy.id))
+    reissued: OnpremServerRegistration = await w.call(
+        lambda s: s.reissue_registration_token(owner_id, legacy.id)
+    )
+    with pytest.raises(InvalidInputError):
+        await w.call(lambda s: s.create_server(owner_id, legacy_name))
+    await w.call(lambda s: s.delete_server(owner_id, legacy.id))
+
+    assert [server.name for server in listed] == [legacy_name]
+    assert fetched.name == reissued.server.name == legacy_name
+    assert await w.call(lambda s: s.search_servers(owner_id)) == []

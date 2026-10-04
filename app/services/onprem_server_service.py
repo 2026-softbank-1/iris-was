@@ -69,6 +69,15 @@ _RERUNNABLE_STATUSES = (
 )
 # iris-infra chart `iris-onprem-server` 의 values schema 가 받는 tailnet FQDN 모양과 같다.
 _TAILNET_SUFFIX = re.compile(r"\.[a-z0-9-]+\.ts\.net")
+# 서버 이름(앞뒤 공백을 자른 뒤): 1~63자, 영문 대소문자·숫자·한글 완성형(가-힣)·`.`·`_`·`-` 만 쓰고
+# 첫 글자는 영문·숫자·한글이며 숫자만으로는 안 된다. 이름이 CLI 인자·화면·로그에 그대로 쓰여, 공백·
+# 특수문자가 있으면 따옴표가 필요하고 표시가 깨진다. 숫자만인 이름은 CLI `<이름|id>` 가 숫자를 id 로
+# 먼저 읽어 다른 서버를 가리킬 수 있다. 대소문자는 구분한다. 규칙은 등록할 때만 본다.
+# OpenAPI 의 JSON Schema(ECMA) 패턴으로도 쓰므로 `\Z` 대신 `$` 를 쓴다.
+SERVER_NAME_MAX_LENGTH = 63
+SERVER_NAME_PATTERN = re.compile(r"(?![0-9]+$)[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,62}")
+_SERVER_NAME_DIGITS_ONLY = re.compile(r"[0-9]+")
+_SERVER_NAME_FIRST = re.compile(r"[A-Za-z0-9가-힣]")
 
 
 def generate_server_key() -> str:
@@ -166,16 +175,22 @@ class OnpremServerService:
     async def create_server(self, owner_id: int, name: str) -> OnpremServerRegistration:
         """서버와 전용 타깃을 한 트랜잭션에서 만든다. 등록 토큰은 24시간 유효하다.
 
+        이름은 앞뒤 공백을 자른 값으로 규칙을 검사하고 저장하고 중복을 비교한다(규칙을 어기면 422).
         사용자마다 MAX_SERVERS_PER_OWNER 대까지다. 같은 사용자의 등록은 사용자 행 잠금으로
         줄을 세운다.
         """
+        name = name.strip()
+        _validate_server_name(name, owner_id)
         count = await self._onprem_server_repository.count_active_by_owner_id_for_update(owner_id)
         if count >= MAX_SERVERS_PER_OWNER:
             raise OnpremServerLimitExceededError(
                 "onprem server limit exceeded", limit=MAX_SERVERS_PER_OWNER
             )
         if await self._onprem_server_repository.find_by_owner_id_and_name(owner_id, name):
-            raise OnpremServerNameConflictError("onprem server name already exists", name=name)
+            # fields 는 logging extra 로 넘어가므로 LogRecord 예약 속성인 `name` 을 쓰면 안 된다.
+            raise OnpremServerNameConflictError(
+                "onprem server name already exists", onprem_server_name=name
+            )
         server_key = generate_server_key()
         target = await self._target_repository.add(
             Target(
@@ -186,17 +201,23 @@ class OnpremServerService:
             )
         )
         token = generate_url_token()
-        server = await self._onprem_server_repository.save(
-            OnpremServer(
-                owner_id=owner_id,
-                name=name,
-                server_key=server_key,
-                target_id=target.id,
-                status=OnpremServerStatus.PENDING,
-                registration_token_hash=hash_url_token(token),
-                registration_expires_at=datetime.now(UTC) + REGISTRATION_TOKEN_TTL,
+        try:
+            server = await self._onprem_server_repository.save(
+                OnpremServer(
+                    owner_id=owner_id,
+                    name=name,
+                    server_key=server_key,
+                    target_id=target.id,
+                    status=OnpremServerStatus.PENDING,
+                    registration_token_hash=hash_url_token(token),
+                    registration_expires_at=datetime.now(UTC) + REGISTRATION_TOKEN_TTL,
+                )
             )
-        )
+        except Exception:
+            # flush 가 실패하면 세션 트랜잭션은 더 쓸 수 없다. 앞서 만든 타깃 행과 사용자 행 잠금을
+            # 함께 버리고 오류는 그대로 올린다(이름 충돌은 409, 그 밖의 DB 오류는 500).
+            await self._session.rollback()
+            raise
         await self._session.commit()
         logger.info(
             "onprem server created",
@@ -395,6 +416,25 @@ class OnpremServerService:
         if server is None:
             raise OnpremServerNotFoundError("onprem server not found", onprem_server_id=server_id)
         return server
+
+
+def _validate_server_name(name: str, owner_id: int) -> None:
+    """앞뒤 공백을 자른 이름이 규칙을 지키는지 본다. 사유 하나만 알리고 값은 오류에 담지 않는다."""
+    if SERVER_NAME_PATTERN.fullmatch(name):
+        return
+    if not name:
+        reason = "must not be blank"
+    elif len(name) > SERVER_NAME_MAX_LENGTH:
+        reason = f"must be at most {SERVER_NAME_MAX_LENGTH} characters"
+    elif _SERVER_NAME_DIGITS_ONLY.fullmatch(name):
+        reason = "must not be only digits"
+    elif not _SERVER_NAME_FIRST.fullmatch(name[0]):
+        reason = "must start with a letter, digit or Hangul syllable"
+    else:
+        reason = "may contain only letters, digits, Hangul syllables, '.', '_' and '-' (no spaces)"
+    raise InvalidInputError(
+        "invalid onprem server name", issues=[FieldIssue("name", reason)], owner_id=owner_id
+    )
 
 
 def _check_registration_token(
