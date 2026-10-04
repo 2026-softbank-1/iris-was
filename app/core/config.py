@@ -222,6 +222,12 @@ class DeployWorkerSettings(BaseSettings):
     # 자기 project 만 보므로 따로 받는다(role `iris-deploy-reader`, applications get). 없으면 서버
     # 연결 확인을 하지 않아 서버가 REGISTERING 에 머문다.
     argocd_probe_token: SecretStr | None = None
+    # 지운 온프레미스 서버의 tailnet 기기(`iris-{serverKey}`, tag:iris-onprem)를 지우는
+    # Tailscale API 키(devices 읽기·쓰기). 없으면 기기를 남기고 경고 로그만 남긴다. 개인 API 키는
+    # 최대 90일이라 만료 전에 바꾼다(나중에 OAuth client 로 바꾼다).
+    tailscale_api_key: SecretStr | None = None
+    # `-` 는 키가 속한 기본 tailnet 이다.
+    tailscale_tailnet: str = "-"
     # values 에 deploymentStrategy 를 쓴다. 이 키를 모르는 이전 chart(0.7.0 미만)의 schema 가
     # 거절하므로 chart 0.7.0 이 배포된 뒤에 켠다. Control API 와 같은 값으로 둔다.
     deployment_strategy_enabled: bool = False

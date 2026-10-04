@@ -16,6 +16,7 @@ from app.clients.argocd_client import ArgoCdClient
 from app.clients.aws_clients import EcrClient
 from app.clients.github_client import GITHUB_API_URL, GitHubClient
 from app.clients.secret_sealer import SecretSealer
+from app.clients.tailscale_client import TAILSCALE_API_URL, TailscaleClient
 from app.core.config import get_deploy_worker_settings, get_settings
 from app.core.crypto import VariableCipher
 from app.core.database import get_session_factory
@@ -163,6 +164,17 @@ async def main() -> None:
                 )
             )
             probe_argocd = ArgoCdClient(probe_http, settings.gitops_repository)
+        tailscale = None
+        if settings.tailscale_api_key is not None:
+            tailscale_headers = {
+                "Authorization": f"Bearer {settings.tailscale_api_key.get_secret_value()}"
+            }
+            tailscale_http = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    base_url=TAILSCALE_API_URL, headers=tailscale_headers, timeout=30.0
+                )
+            )
+            tailscale = TailscaleClient(tailscale_http, settings.tailscale_tailnet)
         servers = None
         # 서버 SA 토큰(암호문)을 풀어 봉인하므로 봉인 인증서와 복호화 키가 모두 있어야 켠다.
         if settings.platform_sealed_secrets_cert and cipher is not None:
@@ -181,6 +193,7 @@ async def main() -> None:
                     settings.platform_sealed_secrets_cert, setting="PLATFORM_SEALED_SECRETS_CERT"
                 ),
                 cipher=cipher,
+                tailscale=tailscale,
             )
         else:
             logger.warning(

@@ -89,7 +89,7 @@ sequenceDiagram
 ### `POST /api/v1/onprem-servers/{id}/registration-token` → 200 `{server, registrationToken, installCommand}`
 `PENDING`·`REGISTERING`·`FAILED` 일 때만(`CONNECTED` 는 409 `INVALID_STATUS_TRANSITION`). 이전 토큰·serverSecret 은 무효, 상태는 `PENDING`. `REGISTERING` 이면 Worker 가 하던 반영·연결 확인을 버린다(잘못된 서버에서 실행했거나 연결이 멈췄을 때 처음부터 다시 한다). 저장한 접속 정보(`tailnetFqdn`·CA·SA 토큰·봉인 인증서)도 지운다. 서버는 새 토큰으로 `connect` 를 다시 보내야 한다.
 ### `DELETE /api/v1/onprem-servers/{id}` → 204
-서비스가 붙어 있거나 붙었던 서비스를 내리는 중이면(진행 중 배포 요청) 409 `ONPREM_SERVER_IN_USE`. 소프트 삭제 + 타깃 소프트 삭제 + Worker 가 `platform/onprem-servers/{key}/` 를 지운다.
+서비스가 붙어 있거나 붙었던 서비스를 내리는 중이면(진행 중 배포 요청) 409 `ONPREM_SERVER_IN_USE`. 소프트 삭제 + 타깃 소프트 삭제 + Worker 가 `platform/onprem-servers/{key}/` 를 지운다. 이어서 Worker 가 Tailscale API 로 그 서버의 tailnet 기기를 지운다. hostname 이 `iris-{key}` 이고 태그에 `tag:iris-onprem` 이 있는 기기만 지우고, 이미 없으면(404) 지운 것으로 본다. WAS 설정 `TAILSCALE_API_KEY` 가 없으면 기기를 남기고 경고 로그만 남긴다. 실패하면 디렉터리 정리와 함께 재시도하고, 5번 실패하면 `last_error` 를 남기고 멈춘다(서버 삭제 응답은 이미 204 다).
 
 ### 타깃·배포 변경
 - `GET /api/v1/targets`: 공용 타깃(`owner_id` 없음) + 내 서버 타깃만. `TargetResponse` 에 `onpremServerId: int | null`, `onpremServerName: str | null`, `connectionStatus: onprem_server_status | null`(공용 타깃은 셋 다 null = 항상 배포 가능) 추가.
@@ -206,4 +206,5 @@ cluster:
 - 서버 쪽 로그·메트릭 수집
 - 서버 연결 끊김 감지(`CONNECTED` 이후 재확인)
 - Ubuntu 외 배포판(Debian·RHEL)
+- 기기 정리용 Tailscale 개인 API 키를 OAuth client 로 바꾸기(개인 키는 최대 90일)
 - 이미지 pull 자격증명을 kubelet credential provider 로 받기(첫 배포의 Secret 대기·namespace 마다 남는 Secret·CronJob 제거)
