@@ -25,6 +25,7 @@ from app.routers import (
     domain_router,
     github_router,
     observability_router,
+    onprem_server_router,
     project_router,
     repair_router,
     scaling_router,
@@ -121,7 +122,17 @@ OPENAPI_TAGS = [
         "name": "diagnosis",
         "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",
     },
-    {"name": "targets", "description": "배포 타깃(aws · onprem)"},
+    {
+        "name": "targets",
+        "description": "배포 타깃. 공용(aws · onprem)과 내가 등록한 온프레미스 서버의 타깃",
+    },
+    {
+        "name": "onprem-servers",
+        "description": (
+            "사용자가 배포 대상으로 직접 붙이는 온프레미스 서버 등록·조회·삭제와, "
+            "서버의 설치 스크립트가 부르는 설치·연결·ECR 자격증명 API"
+        ),
+    },
     {"name": "domains", "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회"},
     {
         "name": "variables",
@@ -167,6 +178,7 @@ app.include_router(upload_router.router)
 app.include_router(diagnosis_router.router)
 app.include_router(repair_router.router)
 app.include_router(target_router.router)
+app.include_router(onprem_server_router.router)
 app.include_router(domain_router.router)
 app.include_router(variable_router.router)
 app.include_router(webhook_router.router)

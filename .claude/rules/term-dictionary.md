@@ -54,6 +54,8 @@ erDiagram
   services ||--o{ service_variables : "환경변수"
   services ||--o{ service_uploads : "CLI 업로드"
   service_uploads |o--o| deployment_requests : "소스로 쓰임 (한 번)"
+  users ||--o{ onprem_servers : "등록"
+  onprem_servers ||--|| targets : "전용 타깃"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
@@ -218,12 +220,15 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 | 필드 | 설명 |
 |---|---|
-| `name`\* | 타깃 이름. unique (`aws`·`onprem`) |
+| `name`\* | 타깃 이름. unique (`aws`·`onprem`, 등록한 서버는 `onprem-{serverKey}`) |
 | `kind`\* | `target_kind` Enum (§5) |
 | `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사. 점이 하나인 `likelion.uk` 꼴이다(와일드카드 인증서가 label 한 단계만 덮는다). 비어 있으면 그 타깃엔 도메인이 없다. 서비스 주소는 `{서비스 이름}-{service_id}.{domain_suffix}` 로 계산하며 저장하지 않는다 |
 | `cluster_ref`\* | 클러스터 접속 정보의 비밀 저장소 참조 이름. 접속 정보 자체는 담지 않는다 |
+| `owner_id`\* | 비어 있으면 모두가 쓰는 공용 타깃, 있으면 그 사용자가 등록한 온프레미스 서버(§4.15)의 전용 타깃이다. 사용자는 공용 타깃과 자기 서버 타깃만 보고 고른다(남의 서버 타깃은 없는 타깃과 같다) |
 
-`service_targets` 는 서비스가 배포되는 타깃을 잇는다. 서비스당 타깃 1개, 기본 `aws`. GitOps 경로 aws=`prod`, 그 외=타깃 이름(`services/{id}/onprem`).
+`service_targets` 는 서비스가 배포되는 타깃을 잇는다. 서비스당 타깃 1개, 기본 `aws`. GitOps 경로 aws=`prod`, 그 외=타깃 이름(`services/{id}/onprem`, `services/{id}/onprem-{serverKey}`).
+
+등록한 서버 타깃의 서비스 주소는 `{서비스 이름}-{service_id}-{serverKey}.internal.likelion.uk` 다. 라벨이 63자를 넘으면 서비스 이름 부분을 줄인다. `build_service_host`(`app/services/domain_service.py`) 한 곳에서 계산한다.
 
 ### 4.10 배포 상태 이력 (DeploymentStatusHistory) — `deployment_status_histories`\*
 
@@ -309,6 +314,33 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 - 아카이브의 루트가 서비스 소스의 루트다. `services.root_directory` 는 업로드에 적용하지 않는다.
 - 쓰이지 못하고 만료된 지 1일이 지난 행은 새 업로드를 받을 때 지운다(쓰인 행은 배포 요청이 가리켜 남긴다). S3 객체는 버킷 lifecycle(1일)이 지운다.
 
+### 4.15 온프레미스 서버 (OnpremServer) — `onprem_servers`\*
+
+사용자가 배포 대상으로 직접 붙인 서버(Ubuntu + K3s) 1대다. 등록하면 전용 타깃(`targets`, `kind=ONPREM`, `owner_id`=사용자)이 함께 생긴다. 설치 스크립트가 등록 토큰으로 설정을 받고(bootstrap) 클러스터 접속 정보를 보내면(connect), Deploy Worker 가 GitOps 에 반영하고 probe Application 으로 연결을 확인한다 (ADR 0029, [계약](../../docs/onprem-server-registration-contract.md)).
+
+| 필드 | 설명 |
+|---|---|
+| `owner_id`\*, `name`\* | 소유자, 이름(1~63자). 이름은 소유자 안에서 유일하다(삭제되지 않은 것끼리) |
+| `server_key`\* | `[a-z][a-z0-9]{7}` 무작위 8자. unique. 타깃 이름(`onprem-{key}`)·Tailscale hostname(`iris-{key}`)·Argo cluster(`onprem-{key}`)·host 의 기준이다. 비밀이 아니다 |
+| `target_id`\* | 이 서버 전용 타깃. unique |
+| `status`\*, `failure_code`\* | `onprem_server_status`·`onprem_server_failure_code` Enum (§5) |
+| `registration_token_hash`\*, `registration_expires_at`\* | 1회용 등록 토큰(`secrets.token_urlsafe(32)`)의 SHA-256(hex)과 만료(만든 때부터 24시간). 평문은 등록·재발급 응답에서만 보인다 |
+| `tailnet_fqdn`\*, `api_ca_cert`\*, `sealed_secrets_cert`\* | 서버가 connect 로 보낸 tailnet 주소(`iris-{key}.` 로 시작), K3s API CA, 서버 Sealed Secrets controller 인증서(모두 공개값). 이 서버로 가는 서비스 변수는 이 인증서로 봉인한다 |
+| `encrypted_service_account_token`\* | Argo CD 가 쓸 만료 없는 SA 토큰의 Fernet 암호문(`VARIABLES_ENCRYPTION_KEY`) |
+| `server_secret_hash`\* | 서버 비밀의 SHA-256(hex). 서버가 ECR pull 자격증명을 받을 때 Bearer 로 보낸다(아직 `CONNECTED` 가 아니면 `ONPREM_SERVER_NOT_CONNECTED`). 평문은 connect 응답에서만 보인다 |
+| `connect_generation`\* | connect 를 받을 때마다 +1. Worker 는 선점할 때의 값과 같을 때만 결과를 쓴다 |
+| `gitops_commit_sha`\*, `gitops_attempts`\* | `platform/onprem-servers/{key}/` 를 바꾸거나(등록) 지운(삭제) GitOps 커밋, 지금 커밋을 위해 실패한 횟수 |
+| `connect_deadline_at`\* | 커밋이 main 에 반영된 뒤 정한다(+15분). 값이 있으면 커밋이 반영된 것이다 |
+| `connected_at`\* | `CONNECTED` 가 된 시각 |
+| `next_check_at`\*, `locked_by`\*, `locked_until`\* | Worker 가 할 일이 있는 시각(없으면 비어 있다)과 lease. jobs 큐 대신 이 행을 `FOR UPDATE SKIP LOCKED` 로 선점한다 |
+| `last_error`\* | Worker 의 마지막 실패 메시지 |
+
+- 서버를 지우면 서버와 타깃을 소프트 삭제하고 Worker 가 GitOps 의 서버 디렉터리를 지운다. 삭제되지 않은 서비스가 붙어 있거나 붙은 서비스의 배포가 진행 중이면 지울 수 없다(`ONPREM_SERVER_IN_USE`).
+- 서버 타깃으로의 배포 요청은 서버가 `CONNECTED` 일 때만 만든다(`TARGET_NOT_CONNECTED`). 서비스를 내리는 `REMOVE` 요청은 막지 않는다.
+- bootstrap·connect 는 `PENDING`·`REGISTERING`·`FAILED` 에서 받는다(설치 재실행). bootstrap 은 상태를 바꾸지 않고, connect 는 `REGISTERING` 으로 만든다.
+- 서버 타깃은 `kind=ONPREM` 이라 공용 `onprem` 처럼 롤링만 쓴다(`CANARY`·`BLUE_GREEN` 저장 거절, 적용 방식 `ROLLING`, values 에 `deploymentStrategy` 없음. ADR 0028).
+- 서버 타깃 서비스의 values 에는 `imagePullSecrets: [{name: iris-ecr-pull}]`(서버 CronJob 이 `svc-{id}` 에 만드는 ECR pull Secret)를 더한다.
+
 ---
 
 ## 5. Enum 값 정의
@@ -350,7 +382,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 ### 타깃 종류 (`target_kind`)\* — `targets.kind`
 
-`AWS`(클러스터) · `ONPREM`(온프레미스 클러스터, Tailscale 경유)
+`AWS`(클러스터) · `ONPREM`(온프레미스 클러스터, Tailscale 경유. 공용 `onprem` 과 사용자가 등록한 서버의 `onprem-{serverKey}`)
 
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 
@@ -385,6 +417,21 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 ### 빌드 상태 (`build_status`)\* — `builds.status`
 
 `PENDING`(Worker 대기) → `SNAPSHOTTING`(소스 스냅샷 중) → `BUILDING`(CodeBuild 실행 중) → `SUCCEEDED` / `FAILED` / `CANCELLED`. 요청의 `status` 는 빌드가 직접 바꾸지 않고 Worker 가 `DeploymentStatusService` 로 옮긴다.
+
+### 온프레미스 서버 상태 (`onprem_server_status`)\* — `onprem_servers.status`
+
+| 코드 | 의미 | 다음 |
+|---|---|---|
+| `PENDING` | 등록만 했다. 서버에서 명령을 아직 실행하지 않았다 | `REGISTERING`, (토큰 재발급 시 그대로 `PENDING`) |
+| `REGISTERING` | 서버가 connect 를 보냈다. Worker 가 GitOps 반영·연결 확인 중 | `CONNECTED`, `FAILED`, (토큰 재발급 시 `PENDING`) |
+| `CONNECTED` | probe Application 이 Synced+Healthy. 배포할 수 있다 | (끝, 삭제만) |
+| `FAILED` | 기한 안에 연결되지 않았거나 GitOps 반영에 실패했다 | 토큰 재발급 → `PENDING`, 같은 토큰이 만료 전이면 명령 재실행 → `REGISTERING` |
+
+토큰 재발급은 `PENDING`·`REGISTERING`·`FAILED` 에서 된다(`CONNECTED` 는 `INVALID_STATUS_TRANSITION`). `REGISTERING` 에서 재발급하면 `connect_generation` 을 올리고 lease 를 비워 Worker 가 하던 일을 버린다. 사용자마다 서버는 5대까지다(`ONPREM_SERVER_LIMIT_EXCEEDED`).
+
+### 온프레미스 서버 실패 코드 (`onprem_server_failure_code`)\* — `onprem_servers.failure_code`
+
+`CONNECT_TIMED_OUT`(커밋 반영 후 15분 안에 probe 가 정상화되지 않았다) · `GITOPS_COMMIT_FAILED`(서버 values 커밋 재시도 5번을 소진했다). §5 `failure_code`(배포)와 다르다.
 
 ### CLI 로그인 세션 상태 (`cli_login_session_status`)\* — `cli_login_sessions.status`
 
@@ -444,6 +491,11 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | 소스 재패킹 | `repack_source_archive`\* | 업로드 아카이브를 항목마다 검사하며 GitHub tarball 처럼 최상위 디렉터리 아래로 다시 묶는 일. buildspec 이 `--strip-components=1` 로 풀기 때문이고, 경로 이탈·링크·압축 폭탄 방어선이다 (ADR 0023) |
 | pollSecret | `poll_secret`\* | CLI 로그인 세션을 만든 CLI 만 아는 폴링 비밀. 서버에는 해시(`poll_secret_hash`)만 둔다 |
 | 폴링 간격 | `interval`\* | CLI 가 `/token` 을 부르는 간격(2초). 이보다 빠르면 `429` 와 `Retry-After` 로 답한다 |
+| serverKey | `server_key`\* | 등록한 온프레미스 서버를 가리키는 8자 키(§4.15). 비밀이 아니다 |
+| 등록 토큰 | `registration_token`\* | 서버 설치 명령에 들어가는 1회용 비밀(24시간). bootstrap·connect 에만 쓴다. 서버에는 해시만 둔다 |
+| 서버 비밀 | `server_secret`\* | connect 응답으로 서버가 받는 비밀. ECR pull 자격증명(`registry-credentials`)을 받을 때 Bearer 로 보낸다. 서버에는 해시만 둔다 |
+| probe Application | `probe_application_name`\* | `iris-onprem-probe-{key}`. management 의 Argo CD 가 서버 클러스터에 ConfigMap 하나를 동기화해 연결을 확인한다. Synced+Healthy 면 `CONNECTED` |
+| 연결 세대 | `connect_generation`\* | 서버가 connect 를 다시 보낼 때마다 올라가는 번호. Worker 가 그 사이에 만든 결과(커밋 기록·상태)를 버리는 기준이다 |
 
 ---
 
@@ -461,4 +513,5 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
 | Session | 로그인 상태를 나르는 세션 토큰(JWT). 변수·함수는 `session_token`, `SessionService` | CLI 로그인 세션(`CliLoginSession`), DB 세션(`AsyncSession`) | CLI 로그인 세션은 토큰을 CLI 로 넘기려고 기다리는 행이라 항상 `cli_login_session`. DB 세션 변수는 `session`(Repository·Service 관례) |
 | Rollout | Argo Rollouts 의 `Rollout` 리소스 (chart 0.7.0 이 `Deployment` 대신 만든다) | 배포 요청·release 의 "배포", K8s `Deployment` 의 rollout | 리소스는 `argo_rollout`. 롤링·카나리·블루그린 선택은 `deployment_strategy` |
+| Server | 사용자가 등록한 온프레미스 서버(`OnpremServer`) | 배포 타깃(Target), Argo CD cluster, Control API 서버 | 엔티티·변수는 `onprem_server`. 그 서버로 배포할 때 고르는 것은 전용 `target`. Argo 쪽 이름은 `onprem-{serverKey}` |
 | Rollback | job `ROLLBACK` = revert commit(자동). 트리거 `ROLLBACK` = 사용자가 이전 이미지로 시작한 새 배포 요청 | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분. 요청은 `deployment_request`, revert 는 `revert_commit` |

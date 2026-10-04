@@ -237,6 +237,46 @@ class InvalidStatusTransitionError(ConflictError):
     code = "INVALID_STATUS_TRANSITION"
 
 
+class OnpremServerNotFoundError(NotFoundError):
+    """모르는 서버이거나 다른 사용자의 서버다. 둘을 구분해 알리지 않는다."""
+
+    code = "ONPREM_SERVER_NOT_FOUND"
+
+
+class OnpremServerNameConflictError(ConflictError):
+    code = "ONPREM_SERVER_NAME_CONFLICT"
+
+
+class OnpremServerLimitExceededError(ConflictError):
+    """사용자마다 등록할 수 있는 서버 수를 넘었다. 한도는 fields 의 limit 이다."""
+
+    code = "ONPREM_SERVER_LIMIT_EXCEEDED"
+
+
+class OnpremServerInUseError(ConflictError):
+    """서버 타깃에 서비스가 붙어 있거나 그 서비스의 배포가 진행 중이라 지울 수 없다."""
+
+    code = "ONPREM_SERVER_IN_USE"
+
+
+class OnpremServerNotConnectedError(ConflictError):
+    """서버 비밀은 맞지만 서버가 아직 CONNECTED 가 아니다. 서버는 다음 회차에 다시 부른다."""
+
+    code = "ONPREM_SERVER_NOT_CONNECTED"
+
+
+class InvalidRegistrationTokenError(UnauthorizedError):
+    """등록 토큰이 없거나 만료됐거나 이미 연결된 서버의 토큰이다. 셋을 구분해 알리지 않는다."""
+
+    code = "INVALID_REGISTRATION_TOKEN"
+
+
+class TargetNotConnectedError(ConflictError):
+    """배포 타깃이 등록한 서버인데 아직 연결되지 않았다(CONNECTED 가 아니다)."""
+
+    code = "TARGET_NOT_CONNECTED"
+
+
 class GitOpsConflictError(ConflictError):
     """GitOps 브랜치가 그새 움직여 fast-forward 할 수 없다. HEAD 위에 커밋을 다시 만든다."""
 

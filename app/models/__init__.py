@@ -7,6 +7,7 @@ from app.models.deployment_repair import DeploymentRepair
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
+from app.models.onprem_server import OnpremServer
 from app.models.project import Project
 from app.models.release import Release
 from app.models.service import Service
@@ -25,6 +26,7 @@ __all__ = [
     "DeploymentStatusHistory",
     "GithubInstallation",
     "Job",
+    "OnpremServer",
     "Project",
     "Release",
     "Service",

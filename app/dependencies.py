@@ -5,14 +5,21 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.aws_clients import ArtifactStore, BuildLogReader, CloudWatchBuildLogClient
+from app.clients.aws_clients import (
+    ArtifactStore,
+    BuildLogReader,
+    CloudWatchBuildLogClient,
+    EcrPullCredentialClient,
+)
 from app.clients.diagnosis_agent_client import HttpDiagnosisAgentClient
 from app.clients.oauth_client import GithubOAuthClient
 from app.clients.observability_client import LokiPrometheusObservabilityClient
@@ -33,6 +40,7 @@ from app.repositories.deployment_status_history_repository import (
 )
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
+from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.service_repository import ServiceRepository
@@ -51,6 +59,11 @@ from app.services.diagnosis_service import DiagnosisService, DiagnosisServiceOpe
 from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
+from app.services.onprem_server_service import (
+    INSTALL_SCRIPT_PATH,
+    OnpremBootstrapSettings,
+    OnpremServerService,
+)
 from app.services.project_service import ProjectService
 from app.services.repair_github_auth_service import RepairGithubAuthService
 from app.services.repair_handoff_service import RepairHandoffService
@@ -270,6 +283,78 @@ def get_domain_service(session: SessionDep) -> DomainService:
 DomainServiceDep = Annotated[DomainService, Depends(get_domain_service)]
 
 
+@lru_cache
+def _get_ecr_pull_client(
+    region: str, role_arn: str, session_seconds: int
+) -> EcrPullCredentialClient:
+    # boto3 클라이언트는 만드는 데 시간이 걸려 요청마다 만들지 않는다.
+    return EcrPullCredentialClient(region, role_arn, session_seconds)
+
+
+def get_onprem_server_service(session: SessionDep, settings: SettingsDep) -> OnpremServerService:
+    # 설정이 없어도 다른 API 는 쓸 수 있어야 하므로, 없다는 사실은 그 설정을 쓰는 API 가 알린다.
+    return OnpremServerService(
+        session,
+        OnpremServerRepository(session),
+        TargetRepository(session),
+        ServiceRepository(session),
+        OnpremBootstrapSettings(
+            tailscale_auth_key=(
+                settings.onprem_tailscale_auth_key.get_secret_value()
+                if settings.onprem_tailscale_auth_key is not None
+                else None
+            ),
+            k3s_version=settings.onprem_k3s_version,
+            argo_rollouts_version=settings.onprem_argo_rollouts_version,
+            sealed_secrets_version=settings.onprem_sealed_secrets_version,
+        ),
+        cipher=(
+            VariableCipher(settings.variables_encryption_key.get_secret_value())
+            if settings.variables_encryption_key is not None
+            else None
+        ),
+        ecr_pull_client=(
+            _get_ecr_pull_client(
+                settings.aws_region,
+                settings.onprem_ecr_pull_role_arn,
+                settings.onprem_ecr_pull_session_seconds,
+            )
+            if settings.aws_region and settings.onprem_ecr_pull_role_arn
+            else None
+        ),
+    )
+
+
+OnpremServerServiceDep = Annotated[OnpremServerService, Depends(get_onprem_server_service)]
+
+
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+
+
+def get_onprem_install_base_url(settings: SettingsDep) -> str:
+    """installCommand 에 넣는 Control API 주소. 서버가 root 로 내려받아 실행하므로 요청의 Host 로
+    만들지 않고 설정에서만 읽으며, 로컬 개발이 아니면 https 만 받는다.
+    """
+    base_url = settings.api_base_url
+    if base_url is None:
+        raise NotConfiguredError("api base url is not configured", setting="API_BASE_URL")
+    parsed = urlsplit(base_url)
+    is_local_http = parsed.scheme == "http" and parsed.hostname in _LOCAL_HOSTS
+    if parsed.scheme != "https" and not is_local_http:
+        raise NotConfiguredError("api base url must use https", setting="API_BASE_URL")
+    return base_url.rstrip("/")
+
+
+OnpremInstallBaseUrlDep = Annotated[str, Depends(get_onprem_install_base_url)]
+
+
+def get_onprem_install_script_path() -> Path:
+    return INSTALL_SCRIPT_PATH
+
+
+OnpremInstallScriptPathDep = Annotated[Path, Depends(get_onprem_install_script_path)]
+
+
 def get_variable_service(session: SessionDep, settings: SettingsDep) -> VariableService:
     if settings.variables_encryption_key is None:
         raise NotConfiguredError(
@@ -406,6 +491,24 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+_server_secret_scheme = HTTPBearer(
+    auto_error=False,
+    scheme_name="OnpremServerSecret",
+    description="온프레미스 서버 비밀(connect 응답의 serverSecret)",
+)
+
+
+async def get_onprem_server_secret(
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Security(_server_secret_scheme)] = None,
+) -> str:
+    """서버가 `Authorization: Bearer` 로 보낸 서버 비밀. 맞는지는 서비스가 확인한다."""
+    if bearer is None or not bearer.credentials:
+        raise UnauthorizedError("server secret required")
+    return bearer.credentials
+
+
+OnpremServerSecretDep = Annotated[str, Depends(get_onprem_server_secret)]
 
 
 def build_observability_service(
