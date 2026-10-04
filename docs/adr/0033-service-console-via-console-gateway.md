@@ -64,7 +64,8 @@ K8s 접속 라이브러리
 - 셸 입출력은 기록하지 않는다. 사용자가 Pod 안에서 한 일은 추적하지 못한다. 필요해지면 별도 결정이다.
 - Pod 에 셸이 없는 이미지는 콘솔을 쓸 수 없다(`SHELL_NOT_FOUND`). 디버그 컨테이너(`pods/ephemeralcontainers`)는 이번 범위가 아니다.
 - 데이터베이스 서비스(StatefulSet, 컨테이너 이름도 `app`)도 같은 방식으로 붙는다.
-- 실제 EKS·ALB 로는 검증하지 못한다. WebSocket 프로토콜은 가짜 클러스터 Client 로 테스트했고, `v4.channel.k8s.io` 채널 번호(0 stdin·1 stdout·3 상태·4 resize)와 EKS 토큰 형식은 쿠버네티스·AWS 문서를 근거로 했다. 배포 후 dev 에서 한 번 붙어 확인한다.
+- 클러스터 프로토콜은 로컬 K3s v1.33.13(Docker)의 실제 API 서버로 확인했다: Pod 조회, 셸 탐색(bash 이미지·busybox·셸 없는 `pause` 이미지), 대화형 exec(입력·출력·UTF-8·초기 터미널 크기와 resize·종료 코드), 없는 Pod, 잘못된 토큰, 그리고 Control API 가 서명한 ticket → Gateway(uvicorn) → K3s 전체 경로. 그 클러스터에서 ClusterRole 이 `pods/exec` `create` 만 주면 exec 업그레이드가 `403` 이고 `create` + `get` 이면 된다(WebSocket 업그레이드가 GET 이라서). 그래서 `get` 을 함께 준다. 더 새 버전에서 `get` 이 필요 없어지는지는 배포 후 EKS 에서 확인해 불필요하면 뺀다.
+- 실제 EKS·ALB 로는 검증하지 못했다. EKS bearer 토큰(`k8s-aws-v1.`)은 AWS 의 `eks get-token` 형식을 따라 만들고 서명 헤더만 단위 테스트로 확인했다. 배포 후 dev 에서 한 번 붙어 확인한다.
 
 ## 다음 단계: 온프레미스 (이번 범위 밖)
 Control API 는 ONPREM 타깃에 409 `CONSOLE_TARGET_NOT_SUPPORTED` 를 돌려준다. 온프레미스 서버(사용자 K3s, Tailscale 경유)는 다음과 같이 잇는다.

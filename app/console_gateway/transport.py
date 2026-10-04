@@ -51,5 +51,6 @@ class WebSocketTransport:
     async def close(self) -> None:
         try:
             await self._websocket.close()
-        except (RuntimeError, OSError):
+        except (WebSocketDisconnect, RuntimeError, OSError):
+            # 클라이언트가 먼저 끊었거나 이미 닫았다. 닫을 것이 없다.
             return

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
@@ -246,14 +247,28 @@ async def test_exec_websocket_full_session(live: LiveGateway) -> None:
     assert channel.is_closed
 
 
-async def test_exec_websocket_client_disconnect_closes_cluster_channel(live: LiveGateway) -> None:
-    async with live.connect() as ws:
-        await ws.send(_auth(live.harness.ticket()))
-        assert (await _recv(ws))["type"] == "ready"
+async def test_exec_websocket_client_disconnect_closes_cluster_channel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    harness = Harness()
+    # uvicorn 은 처리되지 않은 예외를 전파하지 않는 `uvicorn.error` 로거에 남긴다.
+    uvicorn_logger = logging.getLogger("uvicorn.error")
+    uvicorn_logger.addHandler(caplog.handler)
+    server, task, port = await _start_gateway(harness)
+    try:
+        async with LiveGateway(harness, port).connect() as ws:
+            await ws.send(_auth(harness.ticket()))
+            assert (await _recv(ws))["type"] == "ready"
 
-    channel = live.harness.cluster.channel
-    async with asyncio.timeout(5):
-        await channel.closed.wait()
+        async with asyncio.timeout(5):
+            await harness.cluster.channel.closed.wait()
+    finally:
+        # 연결 처리가 끝나야 서버가 멈춘다. 그 뒤에 처리되지 않은 예외가 없었는지 본다.
+        server.should_exit = True
+        await task
+        uvicorn_logger.removeHandler(caplog.handler)
+
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
 
 
 async def test_exec_websocket_ignores_binary_and_malformed_frames(live: LiveGateway) -> None:
