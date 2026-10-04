@@ -31,7 +31,9 @@ README 에서 옮긴 전체 엔드포인트 목록과 규칙이다.
 | `GET /services/{id}/deployments/{deploymentId}/repair-context` | 인증된 조정기에 특정 진단 원문·원본 소스 정보를 제공한다. 단기 소스 URL 응답은 캐시하지 않는다 |
 | `POST /services/{id}/repair-github-token` | 기존 WAS 세션과 App 설치로 해당 소스 저장소의 Contents·Pull requests write 단기 토큰 발급. 소유권·저장소 일치를 검사하고 응답은 no-store. [운영 명세](repair-api.md) |
 | `GET /services/{id}/deployments/{deploymentId}/diagnosis` | 배포의 가장 최근 AI 진단 조회(`RUNNING`·`SUCCEEDED`·`FAILED`). 폴링에 쓴다. 방금 실패했으면 자동 시작 전 몇 초는 `404` |
-| `GET /targets` | 배포 타깃(aws·onprem) 목록 |
+| `GET /targets` | 배포 타깃 목록: 공용(aws·onprem) + 내가 등록한 서버의 타깃(`onpremServerId`·`connectionStatus`). 서버 타깃은 `CONNECTED` 일 때만 배포할 수 있다(아니면 배포 요청이 `409 TARGET_NOT_CONNECTED`) |
+| `POST·GET /onprem-servers` · `GET·DELETE /onprem-servers/{id}` · `POST /onprem-servers/{id}/registration-token` | 내 온프레미스 서버 등록(전용 타깃·1회용 등록 토큰·`installCommand`)·목록·조회·삭제(서비스가 붙어 있거나 지운 서비스가 아직 내려가지 않았으면 `409 ONPREM_SERVER_IN_USE`)·토큰 재발급. 사용자마다 5대까지(`409 ONPREM_SERVER_LIMIT_EXCEEDED`). [ADR 0029](adr/0029-user-registered-onprem-servers.md), [계약](onprem-server-registration-contract.md) |
+| `GET /onprem-servers/install.sh` · `POST /onprem-servers/bootstrap` · `POST /onprem-servers/connect` · `POST /onprem-servers/registry-credentials` | 서버의 설치 스크립트가 부른다(사용자 인증 없음). 등록 토큰·서버 비밀(Bearer)로 인증한다 |
 | `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
 | `GET·POST /services/{id}/variables` | 환경변수 목록(`variables` + 자동 주입 `systemVariables`)·추가 |
 | `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 변수 전체를 교체한다(없는 키는 삭제). 따옴표 값은 여러 줄에 걸칠 수 있고, 거부하면 422 `details` 에 줄 번호와 사유를 싣는다 |
