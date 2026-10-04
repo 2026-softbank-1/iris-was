@@ -83,6 +83,7 @@ async def create_deployment_request(
         source_deployment_request_id=body.source_deployment_id,
         upload_id=body.upload_id,
         idempotency_key=idempotency_key,
+        skip_variable_validation=body.skip_variable_validation,
     )
     return ApiResponse(data=DeploymentResponse.from_model(request))
 

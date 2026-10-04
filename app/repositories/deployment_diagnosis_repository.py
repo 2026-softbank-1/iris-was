@@ -6,7 +6,13 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import DiagnosisNotFoundError
-from app.enums import DeploymentStatus, DeploymentTrigger, DiagnosisStatus
+from app.enums import (
+    PRE_EXECUTION_FAILURE_CODES,
+    DeploymentStatus,
+    DeploymentTrigger,
+    DiagnosisStatus,
+    ServiceKind,
+)
 from app.models.base import now_utc
 from app.models.deployment_diagnosis import DeploymentDiagnosis
 from app.models.deployment_request import DeploymentRequest
@@ -93,7 +99,8 @@ class DeploymentDiagnosisRepository:
         `failed_after` 이후에 끝난 `statuses` 의 요청 중 진단 기록이 없는 것이다. 이미 끝난
         진단(성공·실패)이나 막 시작한 진행 중 진단이 있으면 고르지 않는다. `stale_before`
         이전에 시작하고 끝나지 않은 진행 중 행만 있으면(서버가 죽어 남은 것) 다시 고른다.
-        `REMOVE` 요청과 삭제된 서비스·프로젝트의 요청은 진단하지 않는다.
+        `REMOVE` 요청, 시작 전에 끝난 실패(VARIABLES_INVALID·DEPENDENCY_FAILED), 관리형 DB,
+        삭제된 서비스·프로젝트의 요청은 진단하지 않는다.
         """
         has_blocking_diagnosis = (
             select(DeploymentDiagnosis.id)
@@ -113,6 +120,13 @@ class DeploymentDiagnosisRepository:
             .where(
                 DeploymentRequest.status.in_(statuses),
                 DeploymentRequest.trigger_type != DeploymentTrigger.REMOVE,
+                # 빌드·배포를 시작하기 전에 끝난 실패(환경변수 검증·앞 단계 실패)는 로그가 없다.
+                or_(
+                    DeploymentRequest.failure_code.is_(None),
+                    DeploymentRequest.failure_code.not_in(PRE_EXECUTION_FAILURE_CODES),
+                ),
+                # 관리형 DB 는 사용자 소스가 없어 진단할 코드가 없다.
+                Service.kind == ServiceKind.APP,
                 DeploymentRequest.updated_at >= failed_after,
                 Service.is_deleted.is_(False),
                 Project.is_deleted.is_(False),

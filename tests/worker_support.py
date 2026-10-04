@@ -25,8 +25,10 @@ requires_database = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATAB
 
 # users 는 TRUNCATE 하지 않는다. targets 가 users 를 참조해 CASCADE 가 공용 타깃까지 비운다.
 _DATA_TABLES = (
-    "onprem_servers, jobs, releases, builds, deployment_status_histories, deployment_requests, "
-    "service_uploads, service_targets, services, projects, user_github_installations, "
+    "onprem_servers, stack_deployment_steps, stack_deployments, service_variables, "
+    "jobs, releases, builds, deployment_status_histories, deployment_requests, service_uploads, "
+    "service_targets, services, repository_analyses, service_stacks, projects, "
+    "user_github_installations, database_init_scripts, "
     "github_installations, cli_login_sessions"
 )
 

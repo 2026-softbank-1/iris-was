@@ -1,13 +1,19 @@
 import logging
 from collections.abc import Mapping
 from http import HTTPStatus
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.exceptions import AppError, InvalidInputError, TooManyRequestsError
+from app.core.exceptions import (
+    AppError,
+    InvalidInputError,
+    TooManyRequestsError,
+    VariablesInvalidError,
+)
 from app.schemas.response import ApiResponse, ErrorDetail
 
 logger = logging.getLogger(__name__)
@@ -19,8 +25,9 @@ def error_response(
     message: str,
     details: list[ErrorDetail] | None = None,
     headers: Mapping[str, str] | None = None,
+    data: Any = None,
 ) -> JSONResponse:
-    body = ApiResponse[None](success=False, code=code, message=message, details=details)
+    body = ApiResponse[Any](success=False, code=code, message=message, details=details, data=data)
     return JSONResponse(
         body.model_dump(mode="json", by_alias=True, exclude_none=True),
         status_code=status_code,
@@ -44,7 +51,9 @@ async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
         if isinstance(exc, InvalidInputError) and exc.issues
         else None
     )
-    return error_response(exc.status_code, exc.code, exc.message, details, headers)
+    # 환경변수 검증 실패는 웹이 이슈(키·코드·제안)를 그대로 그리도록 data 에 검증 결과를 싣는다.
+    data = exc.data if isinstance(exc, VariablesInvalidError) else None
+    return error_response(exc.status_code, exc.code, exc.message, details, headers, data)
 
 
 async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

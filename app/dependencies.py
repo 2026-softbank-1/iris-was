@@ -32,6 +32,7 @@ from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.build_repository import BuildRepository
 from app.repositories.cli_login_session_repository import CliLoginSessionRepository
+from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
 from app.repositories.deployment_repair_repository import DeploymentRepairRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -43,7 +44,12 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
+from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_stack_repository import (
+    ServiceStackRepository,
+    StackDeploymentRepository,
+)
 from app.repositories.service_upload_repository import ServiceUploadRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
@@ -51,6 +57,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.automatic_repair_service import AutomaticRepairOpener, AutomaticRepairService
 from app.services.cli_login_service import CliLoginService
+from app.services.database_service import DatabaseService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_log_service import DeploymentLogService
 from app.services.deployment_request_service import DeploymentRequestService
@@ -69,14 +76,19 @@ from app.services.repair_github_auth_service import RepairGithubAuthService
 from app.services.repair_handoff_service import RepairHandoffService
 from app.services.repair_publication_service import RepairPublicationService
 from app.services.repair_service import RepairService, RepairServiceOpener
+from app.services.repository_analysis_service import RepositoryAnalysisService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
 from app.services.service_teardown_service import ServiceTeardownService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
+from app.services.stack_apply_service import StackApplyService
+from app.services.stack_push_service import StackPushService
+from app.services.stack_service import StackService
 from app.services.target_service import TargetService
 from app.services.upload_service import UploadService
 from app.services.variable_service import VariableService
+from app.services.variable_validation import VariableValidationService
 from app.services.webhook_service import WebhookService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -268,6 +280,8 @@ def get_service_registry_service(
         DeploymentRequestRepository(session),
         service_teardown_service,
         deployment_strategy_enabled=settings.deployment_strategy_enabled,
+        repository_analysis_repository=RepositoryAnalysisRepository(session),
+        is_networking_enabled=settings.project_networking_enabled,
     )
 
 
@@ -365,10 +379,34 @@ def get_variable_service(session: SessionDep, settings: SettingsDep) -> Variable
         ServiceRepository(session),
         ServiceVariableRepository(session),
         VariableCipher(settings.variables_encryption_key.get_secret_value()),
+        is_networking_enabled=settings.project_networking_enabled,
     )
 
 
 VariableServiceDep = Annotated[VariableService, Depends(get_variable_service)]
+
+
+def _find_cipher(settings: Settings) -> VariableCipher | None:
+    if settings.variables_encryption_key is None:
+        return None
+    return VariableCipher(settings.variables_encryption_key.get_secret_value())
+
+
+def get_variable_validation_service(
+    session: SessionDep, settings: SettingsDep
+) -> VariableValidationService:
+    # 암호화 키가 없으면 값 검사(localhost·호스트·스킴)만 건너뛴다. 필수 키·참조는 본다.
+    return VariableValidationService(
+        ServiceRepository(session),
+        ServiceVariableRepository(session),
+        is_networking_enabled=settings.project_networking_enabled,
+        cipher=_find_cipher(settings),
+    )
+
+
+VariableValidationServiceDep = Annotated[
+    VariableValidationService, Depends(get_variable_validation_service)
+]
 
 
 def get_service_scaling_service(
@@ -387,9 +425,7 @@ ServiceScalingServiceDep = Annotated[ServiceScalingService, Depends(get_service_
 
 
 def get_deployment_status_service(session: SessionDep) -> DeploymentStatusService:
-    return DeploymentStatusService(
-        DeploymentRequestRepository(session), DeploymentStatusHistoryRepository(session)
-    )
+    return DeploymentStatusService.create(session)
 
 
 DeploymentStatusServiceDep = Annotated[
@@ -399,8 +435,10 @@ DeploymentStatusServiceDep = Annotated[
 
 def get_manual_deployment_service(
     session: SessionDep,
+    settings: SettingsDep,
     deployment_request_service: DeploymentRequestServiceDep,
     source_repository_service: SourceRepositoryServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
 ) -> ManualDeploymentService:
     # 브랜치 최신 커밋을 GitHub 에서 읽으므로 GitHub App 설정이 필요하다.
     return ManualDeploymentService(
@@ -411,11 +449,95 @@ def get_manual_deployment_service(
         deployment_request_service,
         source_repository_service,
         ServiceUploadRepository(session),
+        variable_validation_service,
+        database_images=settings.database_images,
     )
 
 
 ManualDeploymentServiceDep = Annotated[
     ManualDeploymentService, Depends(get_manual_deployment_service)
+]
+
+
+def get_database_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    service_registry_service: ServiceRegistryServiceDep,
+    deployment_request_service: DeploymentRequestServiceDep,
+) -> DatabaseService:
+    return DatabaseService(
+        session,
+        service_registry_service,
+        ServiceRepository(session),
+        ServiceVariableRepository(session),
+        deployment_request_service,
+        _find_cipher(settings),
+        is_networking_enabled=settings.project_networking_enabled,
+        database_images=settings.database_images,
+    )
+
+
+DatabaseServiceDep = Annotated[DatabaseService, Depends(get_database_service)]
+
+
+def get_stack_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    deployment_request_service: DeploymentRequestServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
+) -> StackService:
+    return StackService(
+        session,
+        ProjectRepository(session),
+        ServiceRepository(session),
+        ServiceVariableRepository(session),
+        ServiceStackRepository(session),
+        StackDeploymentRepository(session),
+        DeploymentRequestRepository(session),
+        deployment_request_service,
+        variable_validation_service,
+        database_images=settings.database_images,
+    )
+
+
+StackServiceDep = Annotated[StackService, Depends(get_stack_service)]
+
+
+def get_repository_analysis_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    source_repository_service: SourceRepositoryServiceDep,
+    service_registry_service: ServiceRegistryServiceDep,
+    manual_deployment_service: ManualDeploymentServiceDep,
+    database_service: DatabaseServiceDep,
+    stack_service: StackServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
+) -> RepositoryAnalysisService:
+    # 저장소 접근·브랜치 최신 커밋을 GitHub 에서 확인하므로 GitHub App 설정이 필요하다.
+    return RepositoryAnalysisService(
+        session,
+        ProjectRepository(session),
+        RepositoryAnalysisRepository(session),
+        GithubInstallationRepository(session),
+        source_repository_service,
+        service_registry_service,
+        manual_deployment_service,
+        stack_apply_service=StackApplyService(
+            service_registry_service,
+            database_service,
+            ServiceRepository(session),
+            ServiceVariableRepository(session),
+            ServiceStackRepository(session),
+            DatabaseInitScriptRepository(session),
+            is_networking_enabled=settings.project_networking_enabled,
+        ),
+        stack_service=stack_service,
+        variable_validation_service=variable_validation_service,
+    )
+
+
+RepositoryAnalysisServiceDep = Annotated[
+    RepositoryAnalysisService, Depends(get_repository_analysis_service)
 ]
 
 
@@ -456,6 +578,8 @@ def get_webhook_service(
     session: SessionDep,
     settings: SettingsDep,
     deployment_request_service: DeploymentRequestServiceDep,
+    stack_service: StackServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
 ) -> WebhookService:
     if settings.github_webhook_secret is None:
         raise NotConfiguredError(
@@ -467,6 +591,14 @@ def get_webhook_service(
         GithubInstallationRepository(session),
         deployment_request_service,
         settings.github_webhook_secret.get_secret_value(),
+        stack_push_service=StackPushService(
+            stack_service,
+            ServiceStackRepository(session),
+            RepositoryAnalysisRepository(session),
+            ProjectRepository(session),
+            variable_validation_service,
+        ),
+        variable_validation_service=variable_validation_service,
     )
 
 

@@ -102,6 +102,14 @@ class CreateDeploymentRequest(ApiModel):
             raise ValueError("uploadId is only for CLI")
         return self
 
+    skip_variable_validation: bool = Field(
+        default=False,
+        description=(
+            "MANUAL·CLI·REDEPLOY·RESTART 는 만들기 전에 환경변수를 검증해 error 가 있으면"
+            " `422 VARIABLES_INVALID`(`data.issues`)다. true 면 검증을 건너뛴다(오탐 우회)."
+        ),
+    )
+
 
 class DeploymentResponse(ApiModel):
     """배포 요청 1건. 상태 이름: QUEUED=Initializing, SUCCEEDED=Active."""

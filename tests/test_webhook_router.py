@@ -85,7 +85,7 @@ async def test_push_webhook_returns_created_deployment_request_ids(client: Async
     assert response.status_code == 200
     assert response.json() == {
         "success": True,
-        "data": {"isHandled": True, "deploymentRequestIds": [1]},
+        "data": {"isHandled": True, "deploymentRequestIds": [1], "repositoryAnalysisIds": []},
     }
 
 

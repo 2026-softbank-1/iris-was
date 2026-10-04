@@ -68,6 +68,33 @@ class Build(TimestampMixin, Base):
             finished_at=now,
         )
 
+    @classmethod
+    def for_image(cls, deployment_request_id: int, image: Any, source_sha: str) -> "Build":
+        """빌드 없이 고정 공식 이미지(관리형 DB)를 배포하는 요청의 빌드. image 는 ImageRef 다."""
+        now = now_utc()
+        return cls(
+            deployment_request_id=deployment_request_id,
+            status=BuildStatus.SUCCEEDED,
+            source_sha=source_sha,
+            image_repository=image.repository,
+            image_tag=image.tag,
+            image_digest=image.digest,
+            deploy_config={},
+            started_at=now,
+            finished_at=now,
+        )
+
+    @property
+    def deploy_config_is_fixed_image(self) -> bool:
+        """빌드 없이 고정 공식 이미지(관리형 DB)를 가리킨다. ECR 이미지가 아니다."""
+        return (
+            self.builder is None
+            and self.codebuild_build_id is None
+            and (
+                self.image_repository is not None and self.image_repository.startswith("docker.io/")
+            )
+        )
+
     @property
     def is_finished(self) -> bool:
         return self.status in (BuildStatus.SUCCEEDED, BuildStatus.FAILED, BuildStatus.CANCELLED)
