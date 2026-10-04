@@ -242,3 +242,32 @@ class OnpremServerFailureCode(StrEnum):
     CONNECT_TIMED_OUT = "CONNECT_TIMED_OUT"
     # 서버 values 를 GitOps 저장소에 커밋하지 못하고 재시도를 소진했다.
     GITOPS_COMMIT_FAILED = "GITOPS_COMMIT_FAILED"
+
+
+class ConsoleUnavailableReason(StrEnum):
+    """서비스 콘솔을 열 수 없는 사유(API 응답 값, 저장하지 않는다). 판정 순서는 선언 순서와 다르다:
+    타깃 종류 → 설정 → 떠 있는 release."""
+
+    # 그 타깃에 떠 있는(lastKnownGood) release 가 없다.
+    NO_RUNNING_DEPLOYMENT = "NO_RUNNING_DEPLOYMENT"
+    # 온프레미스 타깃은 아직 지원하지 않는다(ADR 0033).
+    TARGET_NOT_SUPPORTED = "TARGET_NOT_SUPPORTED"
+    # Control API 에 콘솔 설정(ticket 서명키·Gateway 주소)이 없다.
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+
+
+class ConsoleErrorCode(StrEnum):
+    """Console Gateway 가 내보내는 오류 코드. REST 오류 본문의 code 이자 WebSocket `error` 프레임의
+    code 다. 저장하지 않는다."""
+
+    UNAUTHORIZED = "UNAUTHORIZED"
+    TOKEN_EXPIRED = "TOKEN_EXPIRED"
+    TOKEN_REUSED = "TOKEN_REUSED"
+    POD_NOT_FOUND = "POD_NOT_FOUND"
+    POD_NOT_READY = "POD_NOT_READY"
+    SHELL_NOT_FOUND = "SHELL_NOT_FOUND"
+    SESSION_LIMIT_EXCEEDED = "SESSION_LIMIT_EXCEEDED"
+    IDLE_TIMEOUT = "IDLE_TIMEOUT"
+    MAX_DURATION_EXCEEDED = "MAX_DURATION_EXCEEDED"
+    CLUSTER_UNAVAILABLE = "CLUSTER_UNAVAILABLE"
+    INTERNAL_ERROR = "INTERNAL_ERROR"

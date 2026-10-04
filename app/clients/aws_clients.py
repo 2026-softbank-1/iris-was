@@ -6,6 +6,7 @@ AWS 호출 실패는 모두 ExternalError(재시도) 로 바꾼다. 쓰로틀링
 import asyncio
 import base64
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +19,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.exceptions import (
+    ClusterUnavailableError,
     ExternalError,
     InvalidInputError,
     NotConfiguredError,
@@ -482,3 +484,71 @@ class ArtifactStore:
             ExpiresIn=PRESIGNED_URL_SECONDS,
         )
         return url
+
+
+EKS_TOKEN_PREFIX = "k8s-aws-v1."
+# EKS 가 받아 주는 토큰 수명은 15분이다. 여유를 두고 10분마다 새로 만든다.
+EKS_TOKEN_CACHE_SECONDS = 10 * 60
+# 토큰에 서명된 요청 자체의 유효 시간. EKS 는 이 값이 60초 이하인 토큰만 받는다.
+_EKS_PRESIGN_EXPIRES_SECONDS = 60
+_EKS_CLUSTER_ID_HEADER = "x-k8s-aws-id"
+
+
+def _retrieve_cluster_name(params: dict[str, Any], context: dict[str, Any], **_: Any) -> None:
+    """`ClusterName` 은 STS 파라미터가 아니라 서명할 헤더 값이라 빼서 context 에 둔다."""
+    if "ClusterName" in params:
+        context["eks_cluster"] = params.pop("ClusterName")
+
+
+def _inject_cluster_name_header(request: Any, **_: Any) -> None:
+    if "eks_cluster" in request.context:
+        request.headers[_EKS_CLUSTER_ID_HEADER] = request.context["eks_cluster"]
+
+
+class EksTokenProvider:
+    """EKS 클러스터 API 의 bearer 토큰. Console Gateway 가 쓴다(ADR 0033).
+
+    `awscli eks get-token` 과 같은 방식이다. `x-k8s-aws-id: <클러스터 이름>` 헤더를 서명한
+    `sts:GetCallerIdentity` presigned URL 을 `k8s-aws-v1.` + base64url 로 감싼 것이 토큰이다.
+    자격증명은 IRSA·Pod Identity 의 기본 자격증명 체인에서 받는다.
+    """
+
+    def __init__(
+        self,
+        cluster_name: str,
+        region: str,
+        client_factory: Callable[..., Any] = boto3.client,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._cluster_name = cluster_name
+        self._monotonic = monotonic
+        # 리전 엔드포인트를 쓴다. 전역 엔드포인트는 서명 리전이 달라 EKS 가 거절한다.
+        self._sts = client_factory(
+            "sts", region_name=region, endpoint_url=f"https://sts.{region}.amazonaws.com"
+        )
+        events = self._sts.meta.events
+        events.register("provide-client-params.sts.GetCallerIdentity", _retrieve_cluster_name)
+        events.register("before-sign.sts.GetCallerIdentity", _inject_cluster_name_header)
+        self._lock = asyncio.Lock()
+        self._token: str | None = None
+        self._expires_at = 0.0
+
+    async def get_token(self) -> str:
+        async with self._lock:
+            now = self._monotonic()
+            if self._token is None or now >= self._expires_at:
+                try:
+                    self._token = await _call(self._build_token)
+                except ExternalError as exc:
+                    raise ClusterUnavailableError("cluster token request failed") from exc
+                self._expires_at = now + EKS_TOKEN_CACHE_SECONDS
+            return self._token
+
+    def _build_token(self) -> str:
+        url = self._sts.generate_presigned_url(
+            "get_caller_identity",
+            Params={"ClusterName": self._cluster_name},
+            ExpiresIn=_EKS_PRESIGN_EXPIRES_SECONDS,
+            HttpMethod="GET",
+        )
+        return EKS_TOKEN_PREFIX + base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
