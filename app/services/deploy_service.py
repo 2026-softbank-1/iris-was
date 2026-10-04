@@ -40,6 +40,7 @@ from app.enums import (
     FailureCode,
     JobKind,
     ReleaseStatus,
+    TargetKind,
 )
 from app.models import Job, Release
 from app.models.target import AWS_TARGET_NAME, Target
@@ -261,6 +262,8 @@ class DeployService:
         *,
         cipher: VariableCipher | None = None,
         sealer: SecretSealer | None = None,
+        gcp_argocd: ArgoCdClient | None = None,
+        gcp_sealer: SecretSealer | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._github = github
@@ -272,6 +275,9 @@ class DeployService:
         # 사용자가 등록한 서버로 가는 변수는 sealer 대신 그 서버의 인증서로 봉인한다.
         self._cipher = cipher
         self._sealer = sealer
+        # GCP 타깃은 Argo project·Sealed Secrets controller 가 달라 토큰·인증서를 따로 받는다.
+        self._gcp_argocd = gcp_argocd
+        self._gcp_sealer = gcp_sealer
         self._gitops_writer: GitOpsWriter | None = None
 
     @property
@@ -603,6 +609,8 @@ class DeployService:
         return {key: value for key, value in plaintexts.items() if value != ""}
 
     def _target_sealer(self, target: Target) -> SecretSealer | None:
+        if target.kind == TargetKind.GCP:
+            return self._gcp_sealer
         server = target.onprem_server
         if server is None:
             return self._sealer
@@ -611,6 +619,16 @@ class DeployService:
         return SecretSealer(
             server.sealed_secrets_cert, setting="onprem_servers.sealed_secrets_cert"
         )
+
+    def _argocd_for(self, target: Target) -> ArgoCdClient:
+        """타깃의 Application 을 읽을 Argo CD client. GCP 는 project 가 달라 전용 토큰을 쓴다."""
+        if target.kind != TargetKind.GCP:
+            return self._argocd
+        if self._gcp_argocd is None:
+            raise NotConfiguredError(
+                "gcp argocd token is not configured", setting="ARGOCD_GCP_TOKEN"
+            )
+        return self._gcp_argocd
 
     # --- RECONCILE
 
@@ -626,7 +644,7 @@ class DeployService:
         now = datetime.now(UTC)
         observed: tuple[ArgoAppStatus | None, bool, bool]
         try:
-            observed = await self._observe(release.service_id, target)
+            observed = await self._observe(release.target, release.service_id, target)
         except ExternalError:
             if now <= release.deadline_at:
                 logger.warning(
@@ -649,16 +667,17 @@ class DeployService:
             await self._fail(job, release, failure_code, observed[0])
 
     async def _observe(
-        self, service_id: int, target_sha: str
+        self, target: Target, service_id: int, target_sha: str
     ) -> tuple[ArgoAppStatus | None, bool, bool]:
         """Argo 가 아직 목표 커밋을 못 봤으면 refresh 해서 한 번 더 읽는다."""
-        name = _argo_application_name(service_id)
-        status = await self._argocd.get_application(name)
+        argocd = self._argocd_for(target)
+        name = _argo_application_name(service_id, target)
+        status = await argocd.get_application(name)
         if status is None:
             return None, False, False
         sync_contained = await self._contains(target_sha, status.sync_revision)
         if not sync_contained:
-            status = await self._argocd.get_application(name, refresh=True)
+            status = await argocd.get_application(name, refresh=True)
             if status is None:
                 return None, False, False
             sync_contained = await self._contains(target_sha, status.sync_revision)
@@ -866,8 +885,8 @@ class DeployService:
         now = datetime.now(UTC)
         is_expired = now > job.created_at + REMOVE_TIMEOUT
         try:
-            application = await self._argocd.get_application(
-                _argo_application_name(request.service_id)
+            application = await self._argocd_for(target).get_application(
+                _argo_application_name(request.service_id, target)
             )
         except ExternalError:
             if is_expired:
@@ -1066,7 +1085,10 @@ def _deadline(deploy: DeployConfig, strategy: DeploymentStrategy | None) -> date
     )
 
 
-def _argo_application_name(service_id: int) -> str:
+def _argo_application_name(service_id: int, target: Target) -> str:
+    """iris-infra ApplicationSet 이 만드는 이름. GCP 는 `gcp-svc-{id}`, 그 밖은 `svc-{id}` 다."""
+    if target.kind == TargetKind.GCP:
+        return f"gcp-svc-{service_id}"
     return f"svc-{service_id}"
 
 

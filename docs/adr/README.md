@@ -68,3 +68,4 @@
 | [0032](0032-database-init-scripts.md) | 관리형 DB 는 레포의 `/docker-entrypoint-initdb.d` 스크립트를 첫 기동에 한 번 실행하고, 이미 있는 DB 에는 다시 실행하지 않는다 | 제안됨 (chart 0.9.0 과 함께) |
 | [0033](0033-service-console-via-console-gateway.md) | 서비스 콘솔은 Console Gateway 가 `pods/exec` 를 중계하고, Control API 는 서명한 ticket 만 발급한다 | 제안됨 (iris-infra Gateway·Prod RBAC 적용·E2E 대기) |
 | [0034](0034-onprem-runtime-logs-via-argocd.md) | on-prem 타깃의 런타임 로그는 Control API 가 Argo CD Pod 로그 API 로 읽는다(읽기 전용 예외) | 제안됨 (iris-infra `iris-log-reader` 토큰 발급 대기) |
+| [0036](0036-gcp-deploy-target.md) | GCP(GKE) 를 공용 배포 타깃 `gcp` 로 더하고, Deploy Worker 가 `services/{id}/gcp` 와 `gcp-svc-{id}` 로 배포한다 | 채택 |

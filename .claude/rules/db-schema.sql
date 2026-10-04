@@ -36,7 +36,7 @@ CREATE TABLE targets (
     is_deleted BOOLEAN DEFAULT false NOT NULL,
     deleted_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT pk_targets PRIMARY KEY (id),
-    CONSTRAINT ck_targets_target_kind CHECK (kind IN ('AWS', 'ONPREM')),
+    CONSTRAINT ck_targets_target_kind CHECK (kind IN ('AWS', 'ONPREM', 'GCP')),
     CONSTRAINT fk_targets_owner_id_users FOREIGN KEY(owner_id) REFERENCES users (id),
     CONSTRAINT uq_targets_name UNIQUE (name)
 );
