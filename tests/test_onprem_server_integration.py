@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.clients.argocd_client import ArgoAppStatus
 from app.clients.secret_sealer import SecretSealer
+from app.clients.tailscale_client import TailscaleApiError, TailscaleDevice
 from app.core.crypto import VariableCipher
 from app.core.exceptions import InvalidInputError, OnpremServerNameConflictError
 from app.enums import (
@@ -70,11 +71,35 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
         yield factory
 
 
+class FakeTailscale:
+    """Tailscale API 대역. 지운 기기 id 를 기록하고, fail 이 남아 있으면 그만큼 실패한다."""
+
+    def __init__(self, devices: list[TailscaleDevice] | None = None) -> None:
+        self.devices = list(devices or [])
+        self.deleted: list[str] = []
+        self.fail = 0
+
+    async def search_devices(self) -> list[TailscaleDevice]:
+        if self.fail:
+            self.fail -= 1
+            raise TailscaleApiError("tailscale request failed", status_code=500)
+        return list(self.devices)
+
+    async def delete_device(self, device_id: str) -> None:
+        self.deleted.append(device_id)
+        self.devices = [d for d in self.devices if d.id != device_id]
+
+
 class World:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        tailscale: FakeTailscale | None = None,
+    ) -> None:
         self.session_factory = session_factory
         self.gitops = FakeGitOps()
         self.argo = FakeArgo()
+        self.tailscale = tailscale
         self.sync = self.make_sync("worker-1")
 
     def make_sync(
@@ -88,6 +113,7 @@ class World:
             worker_id,
             platform_sealer=SecretSealer(PLATFORM_CERT),
             cipher=cipher,
+            tailscale=self.tailscale,  # type: ignore[arg-type]
         )
 
     async def call[T](self, action: Any) -> T:
@@ -785,3 +811,89 @@ async def test_server_with_a_legacy_name_stays_usable_after_the_name_rule(
     assert [server.name for server in listed] == [legacy_name]
     assert fetched.name == reissued.server.name == legacy_name
     assert await w.call(lambda s: s.search_servers(owner_id)) == []
+
+
+def _devices(key: str) -> list[TailscaleDevice]:
+    return [
+        TailscaleDevice("d1", f"iris-{key}", f"iris-{key}.t.ts.net", ("tag:iris-onprem",)),
+        # 같은 hostname 이지만 서버 태그가 없는 사용자 기기, 다른 서버, 이름이 다른 기기.
+        TailscaleDevice("d2", f"iris-{key}", "laptop.t.ts.net", ()),
+        TailscaleDevice("d3", "iris-other000", "iris-other000.t.ts.net", ("tag:iris-onprem",)),
+        TailscaleDevice("d4", f"iris-{key}-1", "x.t.ts.net", ("tag:iris-onprem",)),
+    ]
+
+
+async def _deleted_registered_server(w: World) -> OnpremServerRegistration:
+    owner_id = await w.owner()
+    registration = await w.register(owner_id)
+    await w.run_next()
+    await w.call(lambda s: s.delete_server(owner_id, registration.server.id))
+    return registration
+
+
+async def test_delete_removes_only_the_servers_tagged_tailscale_device(
+    session_factory: Any,
+) -> None:
+    tailscale = FakeTailscale()
+    w = World(session_factory, tailscale)
+    registration = await _deleted_registered_server(w)
+    tailscale.devices = _devices(registration.server.server_key)
+
+    await w.run_next()
+
+    server = await w.load(registration.server.id)
+    assert tailscale.deleted == ["d1"]
+    assert server.next_check_at is None
+    assert f"platform/onprem-servers/{registration.server.server_key}" not in w.head_tree()
+
+
+async def test_delete_without_tailscale_key_still_finishes_cleanup(session_factory: Any) -> None:
+    w = World(session_factory)
+    registration = await _deleted_registered_server(w)
+
+    await w.run_next()
+
+    server = await w.load(registration.server.id)
+    assert server.next_check_at is None
+    assert server.last_error is None
+
+
+async def test_tailscale_failure_retries_then_deletes_without_new_commit(
+    session_factory: Any,
+) -> None:
+    tailscale = FakeTailscale()
+    w = World(session_factory, tailscale)
+    registration = await _deleted_registered_server(w)
+    tailscale.devices = _devices(registration.server.server_key)
+    tailscale.fail = 1
+
+    await w.run_next()
+    server = await w.load(registration.server.id)
+    assert server.gitops_attempts == 1
+    assert server.last_error is not None and "TailscaleApiError" in server.last_error
+    assert server.next_check_at is not None
+    removal_head = w.gitops.head
+
+    await w.run_next()
+
+    server = await w.load(registration.server.id)
+    assert tailscale.deleted == ["d1"]
+    assert w.gitops.head == removal_head
+    assert server.next_check_at is None
+
+
+async def test_tailscale_failures_exhausted_give_up_with_error(session_factory: Any) -> None:
+    tailscale = FakeTailscale()
+    w = World(session_factory, tailscale)
+    registration = await _deleted_registered_server(w)
+    tailscale.devices = _devices(registration.server.server_key)
+    tailscale.fail = MAX_GITOPS_ATTEMPTS
+
+    for _ in range(MAX_GITOPS_ATTEMPTS):
+        await w.run_next()
+
+    server = await w.load(registration.server.id)
+    assert tailscale.deleted == []
+    assert server.next_check_at is None
+    assert server.last_error is not None
+    assert server.is_deleted

@@ -27,13 +27,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.clients.argocd_client import ArgoCdClient
 from app.clients.github_client import GitHubClient
 from app.clients.secret_sealer import SecretSealer
+from app.clients.tailscale_client import TailscaleClient, TailscaleDevice
 from app.core.crypto import VariableCipher
 from app.core.exceptions import ExternalError, NotConfiguredError
 from app.enums import OnpremServerFailureCode, OnpremServerStatus
 from app.models.onprem_server import OnpremServer
 from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.services.gitops_writer import GitOpsWriter
-from app.services.onprem_server_service import onprem_target_name
+from app.services.onprem_server_service import onprem_target_name, tailscale_hostname
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,19 @@ ARGOCD_NAMESPACE = "argocd"
 K3S_API_PORT = 6443
 APPS_PORT = 80
 _MAX_ERROR_LENGTH = 1000
+
+
+# 설치 스크립트가 서버를 tailnet 에 가입시킬 때 붙이는 태그. 이 태그가 없는 기기는 지우지 않는다.
+ONPREM_DEVICE_TAG = "tag:iris-onprem"
+
+
+def select_server_devices(devices: list[TailscaleDevice], server_key: str) -> list[TailscaleDevice]:
+    """지운 서버의 tailnet 기기. hostname 이 `iris-{key}` 이고 서버 태그가 있는 것만 고른다.
+
+    두 조건을 모두 봐야 사용자가 같은 이름으로 붙인 다른 기기를 지우지 않는다.
+    """
+    hostname = tailscale_hostname(server_key)
+    return [d for d in devices if d.hostname == hostname and ONPREM_DEVICE_TAG in d.tags]
 
 
 def server_directory(server_key: str) -> str:
@@ -135,6 +149,7 @@ class OnpremServerSyncService:
         *,
         platform_sealer: SecretSealer,
         cipher: VariableCipher | None,
+        tailscale: TailscaleClient | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._github = github
@@ -145,6 +160,8 @@ class OnpremServerSyncService:
         self._platform_sealer = platform_sealer
         # 서버의 ServiceAccount 토큰(암호문)을 푼다. Control API 와 같은 키다.
         self._cipher = cipher
+        # 지운 서버의 tailnet 기기를 정리한다. 없으면(TAILSCALE_API_KEY 미설정) 기기를 남긴다.
+        self._tailscale = tailscale
 
     async def claim_next_server(self) -> OnpremServer | None:
         async with self._session_factory.begin() as session:
@@ -344,9 +361,15 @@ class OnpremServerSyncService:
     # --- 삭제
 
     async def _remove(self, claim: _Claim, server: OnpremServer) -> None:
-        """서버 디렉터리를 지우는 커밋. 이미 없으면 건너뛴다. 재시도를 소진하면 운영자 몫이다."""
+        """서버 디렉터리를 지우는 커밋을 올리고 서버의 tailnet 기기를 지운다.
+
+        두 단계 모두 다시 해도 같다(디렉터리가 이미 없으면 커밋을 건너뛰고, 기기가 없으면 404 를
+        무시한다). 어느 쪽이든 실패하면 지수 백오프로 처음부터 다시 하고, 재시도를 소진하면
+        `last_error` 를 남기고 멈춘다(운영자 몫). 서버 삭제 자체는 API 에서 이미 끝났다.
+        """
         try:
             await self._delete_directory(claim, server)
+            await self._delete_tailscale_devices(claim)
         except _StaleClaimError:
             raise
         except Exception as exc:
@@ -368,9 +391,32 @@ class OnpremServerSyncService:
             return
         await self._update(claim, lambda s: s.schedule_check(None))
         logger.info(
-            "onprem server directory removed",
+            "onprem server cleaned up",
             extra={"action": "remove_server", "onprem_server_id": claim.server_id},
         )
+
+    async def _delete_tailscale_devices(self, claim: _Claim) -> None:
+        if self._tailscale is None:
+            logger.warning(
+                "tailscale device cleanup is off",
+                extra={
+                    "action": "remove_server",
+                    "onprem_server_id": claim.server_id,
+                    "setting": "TAILSCALE_API_KEY",
+                },
+            )
+            return
+        devices = select_server_devices(await self._tailscale.search_devices(), claim.server_key)
+        for device in devices:
+            await self._tailscale.delete_device(device.id)
+            logger.info(
+                "tailscale device deleted",
+                extra={
+                    "action": "remove_server",
+                    "onprem_server_id": claim.server_id,
+                    "tailscale_device_id": device.id,
+                },
+            )
 
     async def _delete_directory(self, claim: _Claim, server: OnpremServer) -> None:
         token = await self._gitops.token()
