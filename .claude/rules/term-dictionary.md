@@ -233,13 +233,13 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 | 필드 | 설명 |
 |---|---|
-| `name`\* | 타깃 이름. unique (`aws`·`onprem`, 등록한 서버는 `onprem-{serverKey}`) |
+| `name`\* | 타깃 이름. unique (`aws`·`gcp`·`onprem`, 등록한 서버는 `onprem-{serverKey}`) |
 | `kind`\* | `target_kind` Enum (§5) |
 | `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사. 점이 하나인 `likelion.uk` 꼴이다(와일드카드 인증서가 label 한 단계만 덮는다). 비어 있으면 그 타깃엔 도메인이 없다. 서비스 주소는 `{서비스 이름}-{service_id}.{domain_suffix}` 로 계산하며 저장하지 않는다 |
 | `cluster_ref`\* | 클러스터 접속 정보의 비밀 저장소 참조 이름. 접속 정보 자체는 담지 않는다 |
 | `owner_id`\* | 비어 있으면 모두가 쓰는 공용 타깃, 있으면 그 사용자가 등록한 온프레미스 서버(§4.15)의 전용 타깃이다. 사용자는 공용 타깃과 자기 서버 타깃만 보고 고른다(남의 서버 타깃은 없는 타깃과 같다) |
 
-`service_targets` 는 서비스가 배포되는 타깃을 잇는다. 서비스당 타깃 1개, 기본 `aws`. GitOps 경로 aws=`prod`, 그 외=타깃 이름(`services/{id}/onprem`, `services/{id}/onprem-{serverKey}`).
+`service_targets` 는 서비스가 배포되는 타깃을 잇는다. 서비스당 타깃 1개, 기본 `aws`. GitOps 경로 aws=`prod`, 그 외=타깃 이름(`services/{id}/gcp`, `services/{id}/onprem`, `services/{id}/onprem-{serverKey}`). Argo CD Application 은 `svc-{id}`, GCP 만 `gcp-svc-{id}`(project `iris-svc-gcp-project`) 다 (ADR 0036).
 
 등록한 서버 타깃의 서비스 주소는 `{서비스 이름}-{service_id}-{serverKey}.internal.likelion.uk` 다. 라벨이 63자를 넘으면 서비스 이름 부분을 줄인다. `build_service_host`(`app/services/domain_service.py`) 한 곳에서 계산한다.
 
@@ -478,7 +478,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 ### 타깃 종류 (`target_kind`)\* — `targets.kind`
 
-`AWS`(클러스터) · `ONPREM`(온프레미스 클러스터, Tailscale 경유. 공용 `onprem` 과 사용자가 등록한 서버의 `onprem-{serverKey}`)
+`AWS`(클러스터) · `GCP`(GKE `gcp-dev-workload`, 공용 `gcp`. 롤링만, 관리형 DB·프로젝트 내부 통신 없음. ADR 0036) · `ONPREM`(온프레미스 클러스터, Tailscale 경유. 공용 `onprem` 과 사용자가 등록한 서버의 `onprem-{serverKey}`)
 
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 

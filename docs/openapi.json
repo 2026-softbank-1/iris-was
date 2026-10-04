@@ -8039,7 +8039,8 @@
       "TargetKind": {
         "enum": [
           "AWS",
-          "ONPREM"
+          "ONPREM",
+          "GCP"
         ],
         "title": "TargetKind",
         "type": "string"

@@ -118,6 +118,7 @@ class DiagnosisStatus(StrEnum):
 class TargetKind(StrEnum):
     AWS = "AWS"
     ONPREM = "ONPREM"
+    GCP = "GCP"
 
 
 class CliLoginSessionStatus(StrEnum):

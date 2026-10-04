@@ -141,6 +141,16 @@ async def main() -> None:
             else None
         )
         worker_id = f"{socket.gethostname()}:{os.getpid()}"
+        gcp_argocd = None
+        if settings.argocd_gcp_token is not None:
+            gcp_token = settings.argocd_gcp_token.get_secret_value()
+            gcp_headers = {"Authorization": f"Bearer {gcp_token}"}
+            gcp_http = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    base_url=settings.argocd_server_url, headers=gcp_headers, timeout=60.0
+                )
+            )
+            gcp_argocd = ArgoCdClient(gcp_http, settings.gitops_repository)
         service = DeployService(
             session_factory=get_session_factory(),
             github=github,
@@ -151,6 +161,12 @@ async def main() -> None:
             cipher=cipher,
             sealer=(
                 SecretSealer(settings.sealed_secrets_cert) if settings.sealed_secrets_cert else None
+            ),
+            gcp_argocd=gcp_argocd,
+            gcp_sealer=(
+                SecretSealer(settings.gcp_sealed_secrets_cert, setting="GCP_SEALED_SECRETS_CERT")
+                if settings.gcp_sealed_secrets_cert
+                else None
             ),
         )
         probe_argocd = None

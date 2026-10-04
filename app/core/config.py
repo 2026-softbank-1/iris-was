@@ -235,6 +235,13 @@ class DeployWorkerSettings(BaseSettings):
     # 자기 project 만 보므로 따로 받는다(role `iris-deploy-reader`, applications get). 없으면 서버
     # 연결 확인을 하지 않아 서버가 REGISTERING 에 머문다.
     argocd_probe_token: SecretStr | None = None
+    # GCP 타깃(GKE `gcp-dev-workload`)의 Sealed Secrets controller 공개 인증서(PEM, 비밀이 아니다).
+    # GCP 로 가는 서비스 변수를 봉인한다. 없으면 변수가 있는 GCP 배포는 실패한다.
+    gcp_sealed_secrets_cert: str | None = None
+    # GCP 서비스 Application(`gcp-svc-{id}`, Argo project `iris-svc-gcp-project`)을 읽는 토큰
+    # (role `iris-deploy-reader`). ARGOCD_TOKEN 은 자기 project 만 보므로 따로 받는다. 없으면 GCP
+    # 배포 상태를 확인하지 못해 그 배포는 재시도 끝에 실패한다.
+    argocd_gcp_token: SecretStr | None = None
     # 지운 온프레미스 서버의 tailnet 기기(`iris-{serverKey}`, tag:iris-onprem)를 지우는
     # Tailscale API 키(devices 읽기·쓰기). 없으면 기기를 남기고 경고 로그만 남긴다. 개인 API 키는
     # 최대 90일이라 만료 전에 바꾼다(나중에 OAuth client 로 바꾼다).
