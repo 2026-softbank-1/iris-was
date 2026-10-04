@@ -20,6 +20,7 @@ from app.dependencies import build_automatic_repair_opener, build_diagnosis_serv
 from app.routers import (
     auth_router,
     cli_login_router,
+    console_router,
     deployment_router,
     diagnosis_router,
     domain_router,
@@ -110,6 +111,13 @@ OPENAPI_TAGS = [
         "description": "실패한 배포의 AI 코드 수정 후보·artifact 조회와 서비스용 GitHub 쓰기 인증",
     },
     {"name": "observability", "description": "서비스 런타임 로그·메트릭·SSE"},
+    {
+        "name": "console",
+        "description": (
+            "서비스 콘솔(실행 중인 레플리카의 셸). 열 수 있는지 조회하고 Console Gateway 용 "
+            "ticket 을 발급한다. 연결 자체는 Console Gateway(REST·WebSocket)가 한다"
+        ),
+    },
     {"name": "auth", "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)"},
     {"name": "user", "description": "현재 사용자"},
     {"name": "github", "description": "GitHub App 설치와 저장소·브랜치 조회"},
@@ -184,6 +192,7 @@ register_exception_handlers(app)
 app.include_router(auth_router.router)
 app.include_router(cli_login_router.router)
 app.include_router(observability_router.router)
+app.include_router(console_router.router)
 app.include_router(scaling_router.router)
 app.include_router(user_router.router)
 app.include_router(github_router.router)
