@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.enums import OnpremServerFailureCode, OnpremServerStatus
 from app.models.base import Base, BigIntPk, SoftDeleteMixin, TimestampMixin, enum_column
 
+# 같은 소유자 안에서 삭제되지 않은 서버끼리 이름이 유일하다는 부분 유일 인덱스. 이 인덱스를 어긴
+# 삽입만 이름 충돌로 본다(Repository 가 위반한 제약 이름으로 가린다).
+ONPREM_SERVER_NAME_INDEX = "uq_onprem_servers_owner_id_name"
+
 
 class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
     """사용자가 배포 대상으로 직접 붙인 온프레미스 서버 1대. 서버마다 전용 타깃이 하나 있다.
@@ -18,7 +22,7 @@ class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "onprem_servers"
     __table_args__ = (
         Index(
-            "uq_onprem_servers_owner_id_name",
+            ONPREM_SERVER_NAME_INDEX,
             "owner_id",
             "name",
             unique=True,

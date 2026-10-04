@@ -112,10 +112,50 @@ async def test_install_command_allows_local_http_api_base_url(env: Env) -> None:
     assert response.json()["data"]["installCommand"].endswith(" --api-url http://localhost:8000")
 
 
+async def test_create_server_same_name_is_409_name_conflict(env: Env) -> None:
+    first = await env.client.post(BASE, json={"name": "e2e-dup"})
+    second = await env.client.post(BASE, json={"name": "e2e-dup"})
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    body = second.json()
+    assert body["success"] is False
+    assert body["code"] == "ONPREM_SERVER_NAME_CONFLICT"
+    assert [s.name for s in env.setup.servers.servers] == ["e2e-dup"]
+
+
+async def test_create_server_name_differing_only_by_surrounding_spaces_conflicts(
+    env: Env,
+) -> None:
+    await env.client.post(BASE, json={"name": "home-lab"})
+
+    response = await env.client.post(BASE, json={"name": " home-lab "})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "ONPREM_SERVER_NAME_CONFLICT"
+
+
 async def test_create_server_blank_name_is_422(env: Env) -> None:
     response = await env.client.post(BASE, json={"name": "  "})
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("name", ["", "   ", "a" * 64, "서" * 64, " " + "a" * 64])
+async def test_create_server_name_outside_1_to_63_chars_is_422(env: Env, name: str) -> None:
+    response = await env.client.post(BASE, json={"name": name})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert env.setup.servers.servers == []
+
+
+@pytest.mark.parametrize("name", ["a", "a" * 63, "서" * 63])
+async def test_create_server_name_of_1_to_63_chars_is_201(env: Env, name: str) -> None:
+    response = await env.client.post(BASE, json={"name": name})
+
+    assert response.status_code == 201
+    assert response.json()["data"]["server"]["name"] == name
 
 
 async def test_bootstrap_and_connect_flow_through_api(env: Env) -> None:

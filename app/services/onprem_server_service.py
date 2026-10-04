@@ -175,7 +175,10 @@ class OnpremServerService:
                 "onprem server limit exceeded", limit=MAX_SERVERS_PER_OWNER
             )
         if await self._onprem_server_repository.find_by_owner_id_and_name(owner_id, name):
-            raise OnpremServerNameConflictError("onprem server name already exists", name=name)
+            # fields 는 logging extra 로 넘어가므로 LogRecord 예약 속성인 `name` 을 쓰면 안 된다.
+            raise OnpremServerNameConflictError(
+                "onprem server name already exists", onprem_server_name=name
+            )
         server_key = generate_server_key()
         target = await self._target_repository.add(
             Target(
@@ -186,17 +189,23 @@ class OnpremServerService:
             )
         )
         token = generate_url_token()
-        server = await self._onprem_server_repository.save(
-            OnpremServer(
-                owner_id=owner_id,
-                name=name,
-                server_key=server_key,
-                target_id=target.id,
-                status=OnpremServerStatus.PENDING,
-                registration_token_hash=hash_url_token(token),
-                registration_expires_at=datetime.now(UTC) + REGISTRATION_TOKEN_TTL,
+        try:
+            server = await self._onprem_server_repository.save(
+                OnpremServer(
+                    owner_id=owner_id,
+                    name=name,
+                    server_key=server_key,
+                    target_id=target.id,
+                    status=OnpremServerStatus.PENDING,
+                    registration_token_hash=hash_url_token(token),
+                    registration_expires_at=datetime.now(UTC) + REGISTRATION_TOKEN_TTL,
+                )
             )
-        )
+        except Exception:
+            # flush 가 실패하면 세션 트랜잭션은 더 쓸 수 없다. 앞서 만든 타깃 행과 사용자 행 잠금을
+            # 함께 버리고 오류는 그대로 올린다(이름 충돌은 409, 그 밖의 DB 오류는 500).
+            await self._session.rollback()
+            raise
         await self._session.commit()
         logger.info(
             "onprem server created",
