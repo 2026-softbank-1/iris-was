@@ -3,8 +3,14 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.exceptions import ConflictError, ServiceNotFoundError, UnauthorizedError
+from app.core.exceptions import (
+    ConflictError,
+    InvalidInputError,
+    ServiceNotFoundError,
+    UnauthorizedError,
+)
 from app.dependencies import get_current_user, get_repair_github_auth_service
+from app.enums import ServiceKind
 from app.main import app
 from app.models.user import User
 from app.services.repair_github_auth_service import RepairGithubAuthService
@@ -44,6 +50,18 @@ async def test_issue_token_requires_service_owner_and_exact_source(auth_setup: t
     assert result.repository == "iris-org/web"
     assert "ghs_repair_fake" not in repr(result)
     assert github.repair_token_requests == [(22, "iris-org/web")]
+
+
+async def test_database_service_has_no_repair_repository(auth_setup: tuple) -> None:
+    setup, service, github = auth_setup
+    setup.service.kind = ServiceKind.DATABASE
+    setup.service.source_repository_url = ""
+
+    with pytest.raises(InvalidInputError, match="database services have no source repository"):
+        await service.check_access(OWNER, setup.service.id)
+    with pytest.raises(InvalidInputError, match="database services have no source repository"):
+        await service.issue_token(OWNER, setup.service.id, "iris-org/web")
+    assert github.repair_token_requests == []
 
 
 @pytest.fixture

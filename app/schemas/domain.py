@@ -13,7 +13,10 @@ class ServiceDomainResponse(ApiModel):
     target_kind: TargetKind
     host: str | None = Field(
         default=None,
-        description="`{서비스 이름}-{서비스 id}.{타깃 접미사}`. 도메인 규칙이 없는 타깃은 없다.",
+        description=(
+            "`{서비스 이름}-{서비스 id}.{타깃 접미사}`. "
+            "도메인 규칙이 없는 타깃과 관리형 DB 는 없다."
+        ),
         examples=["my-app-12.likelion.uk"],
     )
     url: str | None = Field(

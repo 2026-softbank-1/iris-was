@@ -43,7 +43,7 @@ def build_service_host(
 @dataclass(frozen=True)
 class ServiceDomainDetail:
     target: Target
-    # 타깃에 도메인 접미사가 없으면 None 이다.
+    # 타깃에 도메인 접미사가 없거나 관리형 DB 면 None 이다.
     host: str | None
     # 이 타깃에 SUCCEEDED release 가 있다. 그 전에는 주소가 있어도 앱이 응답하지 않는다(503).
     is_connected: bool
@@ -76,7 +76,8 @@ class DomainService:
         return service
 
     async def _detail(self, service: Service, target: Target) -> ServiceDomainDetail:
-        if target.domain_suffix is None:
+        # 관리형 DB 는 values 에 route 가 없어 Ingress 가 생기지 않는다. 공개 주소가 없다.
+        if target.domain_suffix is None or service.is_database:
             return ServiceDomainDetail(target, None, False)
         host = build_service_host(
             service.name, service.id, target.domain_suffix, target_server_key(target)

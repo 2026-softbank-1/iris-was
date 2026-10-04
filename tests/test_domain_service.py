@@ -1,6 +1,7 @@
 import pytest
 
 from app.core.exceptions import ServiceNotFoundError
+from app.enums import ServiceKind
 from app.models.project import Project
 from app.models.service import Service
 from app.services.domain_service import DomainService, build_service_host
@@ -102,3 +103,13 @@ async def test_search_domains_of_other_owner_raises_not_found(setup: Setup) -> N
 
     with pytest.raises(ServiceNotFoundError):
         await setup.service.search_domains(OWNER + 1, service.id)
+
+
+async def test_search_domains_of_database_service_has_no_host(setup: Setup) -> None:
+    service = await setup.add_service(name="postgres", target_ids={AWS_ID})
+    service.kind = ServiceKind.DATABASE
+    setup.releases.connected.add((service.id, AWS_ID))
+
+    details = await setup.service.search_domains(OWNER, service.id)
+
+    assert [(d.target.name, d.host, d.is_connected) for d in details] == [("aws", None, False)]
