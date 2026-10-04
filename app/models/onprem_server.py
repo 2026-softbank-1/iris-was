@@ -1,9 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.enums import OnpremServerFailureCode, OnpremServerStatus
+from app.enums import (
+    OnpremServerConnectionStatus,
+    OnpremServerFailureCode,
+    OnpremServerStatus,
+)
 from app.models.base import Base, BigIntPk, SoftDeleteMixin, TimestampMixin, enum_column
 
 # 같은 소유자 안에서 삭제되지 않은 서버끼리 이름이 유일하다는 부분 유일 인덱스. 이 인덱스를 어긴
@@ -70,11 +74,29 @@ class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
     # 커밋이 main 에 반영된 뒤 정한다. 이 시각까지 probe 가 정상이 아니면 FAILED 다.
     connect_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 서버가 마지막으로 인증에 성공한 시각(하트비트). 서버의 ECR 갱신 CronJob 이 1분마다 부른다.
+    # 이 기능 전에 연결된 서버는 비어 있다.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Worker 가 이 시각 이후에 이 행을 처리한다. 할 일이 없으면 비어 있다.
     next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_by: Mapped[str | None] = mapped_column(String(255))
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+
+    def connection_status(
+        self, now: datetime, offline_after: timedelta
+    ) -> OnpremServerConnectionStatus:
+        """API 가 알리는 상태. CONNECTED 인데 하트비트가 offline_after 넘게 없으면 DISCONNECTED 다.
+
+        하트비트가 한 번도 없으면(기능 전에 연결된 서버) CONNECTED 로 본다.
+        """
+        if (
+            self.status == OnpremServerStatus.CONNECTED
+            and self.last_seen_at is not None
+            and now - self.last_seen_at > offline_after
+        ):
+            return OnpremServerConnectionStatus.DISCONNECTED
+        return OnpremServerConnectionStatus(self.status.value)
 
     def is_registration_expired(self, now: datetime) -> bool:
         return self.registration_expires_at <= now
@@ -123,6 +145,7 @@ class OnpremServer(TimestampMixin, SoftDeleteMixin, Base):
         self.connect_deadline_at = None
         self.last_error = None
         self.next_check_at = now
+        self.last_seen_at = now
 
     def record_gitops_commit(self, commit_sha: str) -> None:
         self.gitops_commit_sha = commit_sha

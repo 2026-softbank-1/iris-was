@@ -12,7 +12,7 @@ from app.enums import (
     DeploymentStrategy,
     DeploymentTrigger,
     FailureCode,
-    OnpremServerStatus,
+    OnpremServerConnectionStatus,
     ReferenceProperty,
     ServiceKind,
 )
@@ -374,17 +374,21 @@ class TargetResponse(ApiModel):
     onprem_server_name: str | None = Field(
         default=None, description="내가 등록한 온프레미스 서버의 이름", examples=["home-lab"]
     )
-    connection_status: OnpremServerStatus | None = Field(
+    connection_status: OnpremServerConnectionStatus | None = Field(
         default=None,
         description=(
-            "서버 타깃의 연결 상태. CONNECTED 일 때만 배포할 수 있다. "
-            "공용 타깃은 없다(항상 배포 가능)"
+            "서버 타깃의 연결 상태. CONNECTED 일 때만 배포할 수 있다(DISCONNECTED 는 하트비트가 "
+            "끊긴 것이다). 공용 타깃은 없다(항상 배포 가능)"
         ),
     )
 
     @classmethod
-    def from_model(cls, target: Target) -> "TargetResponse":
-        """`target.onprem_server` 를 함께 읽은 타깃이어야 한다."""
+    def from_model(
+        cls, target: Target, connection_status: OnpremServerConnectionStatus | None = None
+    ) -> "TargetResponse":
+        """`target.onprem_server` 를 함께 읽은 타깃이어야 한다. connection_status 는 하트비트로
+        계산한 서버 상태다(TargetService.connection_status).
+        """
         server = target.onprem_server
         return cls(
             id=target.id,
@@ -394,5 +398,5 @@ class TargetResponse(ApiModel):
             domain_suffix=target.domain_suffix,
             onprem_server_id=server.id if server is not None else None,
             onprem_server_name=server.name if server is not None else None,
-            connection_status=server.status if server is not None else None,
+            connection_status=connection_status,
         )

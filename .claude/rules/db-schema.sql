@@ -421,6 +421,7 @@ CREATE TABLE onprem_servers (
     gitops_attempts INTEGER DEFAULT 0 NOT NULL,
     connect_deadline_at TIMESTAMP WITH TIME ZONE,
     connected_at TIMESTAMP WITH TIME ZONE,
+    last_seen_at TIMESTAMP WITH TIME ZONE,
     next_check_at TIMESTAMP WITH TIME ZONE,
     locked_by VARCHAR(255),
     locked_until TIMESTAMP WITH TIME ZONE,

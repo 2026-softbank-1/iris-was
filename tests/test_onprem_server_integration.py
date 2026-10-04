@@ -897,3 +897,27 @@ async def test_tailscale_failures_exhausted_give_up_with_error(session_factory: 
     assert server.next_check_at is None
     assert server.last_error is not None
     assert server.is_deleted
+
+
+async def test_touch_last_seen_skips_recent_heartbeat(session_factory: Any) -> None:
+    w = World(session_factory)
+    registration = await w.register(await w.owner())
+    server_id = registration.server.id
+    first = datetime.now(UTC)
+    interval = timedelta(seconds=30)
+
+    async with session_factory.begin() as session:
+        await session.execute(update(OnpremServer).values(last_seen_at=None))
+    async with session_factory.begin() as session:
+        await OnpremServerRepository(session).touch_last_seen(server_id, first, interval)
+    async with session_factory.begin() as session:
+        await OnpremServerRepository(session).touch_last_seen(
+            server_id, first + timedelta(seconds=10), interval
+        )
+    assert (await w.load(server_id)).last_seen_at == first
+
+    async with session_factory.begin() as session:
+        await OnpremServerRepository(session).touch_last_seen(
+            server_id, first + timedelta(seconds=31), interval
+        )
+    assert (await w.load(server_id)).last_seen_at == first + timedelta(seconds=31)

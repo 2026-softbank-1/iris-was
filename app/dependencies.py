@@ -230,6 +230,7 @@ def get_deployment_request_service(
         ServiceVariableRepository(session),
         ServiceRepository(session),
         deployment_strategy_enabled=settings.deployment_strategy_enabled,
+        onprem_offline_after=timedelta(seconds=settings.onprem_server_offline_after_seconds),
     )
 
 
@@ -258,8 +259,11 @@ def get_project_service(
 ProjectServiceDep = Annotated[ProjectService, Depends(get_project_service)]
 
 
-def get_target_service(session: SessionDep) -> TargetService:
-    return TargetService(TargetRepository(session))
+def get_target_service(session: SessionDep, settings: SettingsDep) -> TargetService:
+    return TargetService(
+        TargetRepository(session),
+        offline_after=timedelta(seconds=settings.onprem_server_offline_after_seconds),
+    )
 
 
 TargetServiceDep = Annotated[TargetService, Depends(get_target_service)]
@@ -367,6 +371,7 @@ def get_onprem_server_service(session: SessionDep, settings: SettingsDep) -> Onp
             if settings.aws_region and settings.onprem_ecr_pull_role_arn
             else None
         ),
+        offline_after=timedelta(seconds=settings.onprem_server_offline_after_seconds),
     )
 
 

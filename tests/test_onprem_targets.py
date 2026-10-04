@@ -5,7 +5,13 @@ import re
 import pytest
 
 from app.core.exceptions import InvalidInputError, TargetNotConnectedError
-from app.enums import DeploymentStrategy, DeploymentTrigger, OnpremServerStatus, TargetKind
+from app.enums import (
+    DeploymentStrategy,
+    DeploymentTrigger,
+    OnpremServerConnectionStatus,
+    OnpremServerStatus,
+    TargetKind,
+)
 from app.models.deployment_request import DeploymentRequest
 from app.models.onprem_server import OnpremServer
 from app.models.target import Target
@@ -98,7 +104,8 @@ def test_target_server_key_reads_loaded_server() -> None:
 
 def test_target_response_carries_server_id_and_connection_status() -> None:
     response = TargetResponse.from_model(
-        _owned_target(7, OWNER, _server(OnpremServerStatus.REGISTERING))
+        _owned_target(7, OWNER, _server(OnpremServerStatus.REGISTERING)),
+        OnpremServerConnectionStatus.REGISTERING,
     )
     shared = TargetResponse.from_model(Target(id=1, name="aws", kind=TargetKind.AWS))
 

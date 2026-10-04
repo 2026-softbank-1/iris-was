@@ -51,7 +51,10 @@ sequenceDiagram
 | `PENDING` | 등록만 했다. 서버에서 명령을 아직 실행하지 않았다 | `REGISTERING`, (토큰 만료 시 재발급) |
 | `REGISTERING` | 서버가 `connect` 를 보냈다. Worker 가 GitOps 반영·연결 확인 중 | `CONNECTED`, `FAILED` |
 | `CONNECTED` | probe Application 이 Synced+Healthy. 배포 가능 | (끝, 삭제만) |
+| `DISCONNECTED` | 저장하지 않는 계산 상태. `CONNECTED` 인데 하트비트(`lastSeenAt`)가 `ONPREM_SERVER_OFFLINE_AFTER_SECONDS`(기본 180초) 넘게 없다. 배포 불가 | 서버가 다시 인증하면 저절로 `CONNECTED` |
 | `FAILED` | GitOps 커밋이 반영된 뒤 15분 안에 연결되지 않았거나 GitOps 반영 실패. `failureCode` 로 구분 | 토큰 재발급 후 명령 재실행 → `PENDING` |
+
+하트비트: 서버가 인증에 성공할 때마다(`registry-credentials` 는 서버 비밀 확인 직후·409/503 판단 전, `bootstrap`·`connect`) `last_seen_at` 을 남긴다(30초 안에 이미 남겼으면 쓰지 않는다). 서버 CronJob 이 1분마다 부르므로 하트비트가 된다. `last_seen_at` 이 비어 있으면(기능 전에 연결된 서버) `CONNECTED` 로 본다. `DISCONNECTED` 에서는 토큰 재발급이 안 된다(저장 상태는 `CONNECTED`). 서버가 살아나면 다시 설치하지 않아도 돌아온다.
 
 `failureCode`: `CONNECT_TIMED_OUT`(probe 가 기한 안에 정상화 안 됨) · `GITOPS_COMMIT_FAILED`(재시도 소진).
 
@@ -75,7 +78,7 @@ sequenceDiagram
 {
   "server": { "id": 3, "name": "home-lab", "serverKey": "k3x9q2ma", "status": "PENDING",
               "targetId": 7, "tailnetFqdn": null, "failureCode": null,
-              "registrationExpiresAt": "2026-10-05T03:00:00Z", "connectedAt": null,
+              "registrationExpiresAt": "2026-10-05T03:00:00Z", "connectedAt": null, "lastSeenAt": null,
               "createdAt": "2026-10-04T03:00:00Z" },
   "registrationToken": "<43자 base64url, 이 응답에서만>",
   "installCommand": "curl -fsSL https://api.likelion.uk/api/v1/onprem-servers/install.sh | sudo bash -s -- --token <registrationToken>"
@@ -92,11 +95,11 @@ sequenceDiagram
 서비스가 붙어 있거나 붙었던 서비스를 내리는 중이면(진행 중 배포 요청) 409 `ONPREM_SERVER_IN_USE`. 소프트 삭제 + 타깃 소프트 삭제 + Worker 가 `platform/onprem-servers/{key}/` 를 지운다. 이어서 Worker 가 Tailscale API 로 그 서버의 tailnet 기기를 지운다. hostname 이 `iris-{key}` 이고 태그에 `tag:iris-onprem` 이 있는 기기만 지우고, 이미 없으면(404) 지운 것으로 본다. WAS 설정 `TAILSCALE_API_KEY` 가 없으면 기기를 남기고 경고 로그만 남긴다. 실패하면 디렉터리 정리와 함께 재시도하고, 5번 실패하면 `last_error` 를 남기고 멈춘다(서버 삭제 응답은 이미 204 다).
 
 ### 타깃·배포 변경
-- `GET /api/v1/targets`: 공용 타깃(`owner_id` 없음) + 내 서버 타깃만. `TargetResponse` 에 `onpremServerId: int | null`, `onpremServerName: str | null`, `connectionStatus: onprem_server_status | null`(공용 타깃은 셋 다 null = 항상 배포 가능) 추가.
+- `GET /api/v1/targets`: 공용 타깃(`owner_id` 없음) + 내 서버 타깃만. `TargetResponse` 에 `onpremServerId: int | null`, `onpremServerName: str | null`, `connectionStatus: onprem_server_status | DISCONNECTED | null`(공용 타깃은 셋 다 null = 항상 배포 가능) 추가. 서버 응답의 `status` 도 같은 값(`DISCONNECTED` 포함)이고 `lastSeenAt`(마지막 하트비트)을 준다.
 - 서버가 연결돼도 그 서버를 고른 서비스의 첫 배포를 자동으로 시작하지 않는다. 사용자가 배포한다.
 - `registrationExpiresAt` 은 늘 그대로 준다. `PENDING`·`FAILED` 에서만 의미가 있다.
 - 서비스 생성·수정: 남의 서버 타깃·삭제된 서버 타깃은 422 로, 없는 타깃과 메시지·코드까지 같게 준다(존재를 드러내지 않는다).
-- 배포 요청 생성: 타깃 서버가 `CONNECTED` 가 아니면 409 `TARGET_NOT_CONNECTED`.
+- 배포 요청 생성: 타깃 서버가 `CONNECTED` 가 아니면(`DISCONNECTED` 포함) 409 `TARGET_NOT_CONNECTED`. `REMOVE` 는 막지 않는다.
 
 ## 5. 서버 쪽 API (사용자 인증 없음)
 
@@ -134,7 +137,7 @@ sequenceDiagram
 - 응답 `data`: `{ "status": "REGISTERING", "serverSecret": "<43자, 이 응답에서만>" }`. 상태는 `REGISTERING`, 같은 토큰으로 다시 보내면 값을 덮어쓰고 새 serverSecret 을 준다(재실행 멱등).
 
 ### `POST /api/v1/onprem-servers/registry-credentials`
-헤더 `Authorization: Bearer <serverSecret>` · `CONNECTED` 일 때만.
+헤더 `Authorization: Bearer <serverSecret>` · `CONNECTED` 일 때만. 서버 비밀이 맞으면 응답과 상관없이 하트비트(`last_seen_at`)를 남긴다(§3).
 응답 `data`: `{ "registry": "<계정>.dkr.ecr.ap-northeast-2.amazonaws.com", "username": "AWS", "password": "<ECR 토큰>", "expiresAt": "...", "serviceIds": [12, 15] }`
 - `expiresAt` 은 ECR 토큰 만료와 임시 자격증명 만료 중 이른 쪽이다. Control API 자격 증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션이 1시간이고, ECR 토큰도 그 안에서 끝날 수 있다. CronJob 이 1분마다 갱신하므로 문제없다.
 - Control API 가 ECR pull 전용 Role 을 AssumeRole 하면서 세션 정책으로 이 서버 타깃에 붙은 서비스들의 저장소만 허용한다. 붙은 서비스가 없으면 `serviceIds: []`, password 없음.
@@ -204,7 +207,6 @@ cluster:
 
 - Tailscale 가입 키 자동 발급(Worker 가 Tailscale API 로 서버마다 1회용 키 생성, ADR 0018 의 폴링 패턴)
 - 서버 쪽 로그·메트릭 수집
-- 서버 연결 끊김 감지(`CONNECTED` 이후 재확인)
 - Ubuntu 외 배포판(Debian·RHEL)
 - 기기 정리용 Tailscale 개인 API 키를 OAuth client 로 바꾸기(개인 키는 최대 90일)
 - 이미지 pull 자격증명을 kubelet credential provider 로 받기(첫 배포의 Secret 대기·namespace 마다 남는 Secret·CronJob 제거)

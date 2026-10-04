@@ -5557,6 +5557,18 @@
         "title": "OnpremConnectResponse",
         "type": "object"
       },
+      "OnpremServerConnectionStatus": {
+        "description": "API 가 알리는 서버 상태. 저장한 상태에 하트비트로 계산한 DISCONNECTED 를 더한다.\n\nDISCONNECTED 는 저장하지 않는다. CONNECTED 서버의 하트비트(last_seen_at)가 끊긴 동안만 보이고,\n서버가 다시 부르면 저절로 CONNECTED 로 돌아온다.",
+        "enum": [
+          "PENDING",
+          "REGISTERING",
+          "CONNECTED",
+          "DISCONNECTED",
+          "FAILED"
+        ],
+        "title": "OnpremServerConnectionStatus",
+        "type": "string"
+      },
       "OnpremServerFailureCode": {
         "enum": [
           "CONNECT_TIMED_OUT",
@@ -5629,6 +5641,19 @@
             "title": "Id",
             "type": "integer"
           },
+          "lastSeenAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "서버가 마지막으로 인증에 성공한 시각(하트비트, 1분마다)",
+            "title": "Lastseenat"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -5648,8 +5673,8 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/OnpremServerStatus",
-            "description": "PENDING 명령 실행 전 · REGISTERING 연결 확인 중 · CONNECTED 배포 가능 · FAILED 연결 실패(토큰 재발급 후 다시 실행)"
+            "$ref": "#/components/schemas/OnpremServerConnectionStatus",
+            "description": "PENDING 명령 실행 전 · REGISTERING 연결 확인 중 · CONNECTED 배포 가능 · DISCONNECTED 연결됐던 서버의 하트비트가 끊김(배포 불가, 서버가 다시 부르면 돌아온다) · FAILED 연결 실패(토큰 재발급 후 다시 실행)"
           },
           "tailnetFqdn": {
             "anyOf": [
@@ -7951,13 +7976,13 @@
           "connectionStatus": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/OnpremServerStatus"
+                "$ref": "#/components/schemas/OnpremServerConnectionStatus"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "서버 타깃의 연결 상태. CONNECTED 일 때만 배포할 수 있다. 공용 타깃은 없다(항상 배포 가능)"
+            "description": "서버 타깃의 연결 상태. CONNECTED 일 때만 배포할 수 있다(DISCONNECTED 는 하트비트가 끊긴 것이다). 공용 타깃은 없다(항상 배포 가능)"
           },
           "domainSuffix": {
             "anyOf": [
@@ -9754,7 +9779,7 @@
         ]
       },
       "get": {
-        "description": "연결 상태(`status`)를 확인할 때 쓴다. 남의 서버는 404 다.",
+        "description": "연결 상태(`status`)를 확인할 때 쓴다. 연결됐던 서버의 하트비트가 끊기면 `DISCONNECTED` 다.\n남의 서버는 404 다.",
         "operationId": "get_onprem_server_api_v1_onprem_servers__server_id__get",
         "parameters": [
           {
@@ -15440,7 +15465,7 @@
     },
     "/api/v1/targets": {
       "get": {
-        "description": "공용 타깃(`aws`·`onprem`)과 내가 등록한 온프레미스 서버의 타깃. 서버 타깃은\n`connectionStatus` 가 `CONNECTED` 일 때만 배포할 수 있다.",
+        "description": "공용 타깃(`aws`·`onprem`)과 내가 등록한 온프레미스 서버의 타깃. 서버 타깃은\n`connectionStatus` 가 `CONNECTED` 일 때만 배포할 수 있다(하트비트가 끊기면 `DISCONNECTED`).",
         "operationId": "search_targets_api_v1_targets_get",
         "responses": {
           "200": {

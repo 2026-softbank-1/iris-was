@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.aws_clients import EcrPullCredentialClient
 from app.clients.secret_sealer import SecretSealer
+from app.core.config import DEFAULT_ONPREM_SERVER_OFFLINE_AFTER_SECONDS
 from app.core.crypto import VariableCipher
 from app.core.exceptions import (
     ExternalError,
@@ -35,7 +36,7 @@ from app.core.exceptions import (
     UnauthorizedError,
 )
 from app.core.security import generate_url_token, hash_url_token, verify_url_token
-from app.enums import OnpremServerStatus, TargetKind
+from app.enums import OnpremServerConnectionStatus, OnpremServerStatus, TargetKind
 from app.models.onprem_server import OnpremServer
 from app.models.target import Target
 from app.repositories.onprem_server_repository import OnpremServerRepository
@@ -45,6 +46,8 @@ from app.repositories.target_repository import TargetRepository
 logger = logging.getLogger(__name__)
 
 REGISTRATION_TOKEN_TTL = timedelta(hours=24)
+# 하트비트(last_seen_at)를 이보다 자주 쓰지 않는다. 서버는 1분마다 부른다.
+HEARTBEAT_WRITE_INTERVAL = timedelta(seconds=30)
 ONPREM_DOMAIN_SUFFIX = "internal.likelion.uk"
 TAILSCALE_TAGS = ("tag:iris-onprem",)
 INSTALL_SCRIPT_PATH = Path(__file__).resolve().parent.parent / "assets" / "onprem" / "install.sh"
@@ -159,6 +162,7 @@ class OnpremServerService:
         *,
         cipher: VariableCipher | None = None,
         ecr_pull_client: EcrPullCredentialClient | None = None,
+        offline_after: timedelta = timedelta(seconds=DEFAULT_ONPREM_SERVER_OFFLINE_AFTER_SECONDS),
     ) -> None:
         self._session = session
         self._onprem_server_repository = onprem_server_repository
@@ -169,6 +173,11 @@ class OnpremServerService:
         self._cipher = cipher
         # registry-credentials 만 쓴다.
         self._ecr_pull_client = ecr_pull_client
+        self._offline_after = offline_after
+
+    def connection_status(self, server: OnpremServer) -> OnpremServerConnectionStatus:
+        """API 가 알리는 상태. 하트비트가 끊긴 CONNECTED 서버는 DISCONNECTED 다."""
+        return server.connection_status(datetime.now(UTC), self._offline_after)
 
     # --- 사용자 API
 
@@ -287,6 +296,7 @@ class OnpremServerService:
             hash_url_token(registration_token)
         )
         server = _check_registration_token(server, registration_token, _RERUNNABLE_STATUSES)
+        await self._record_seen(server)
         logger.info(
             "onprem server bootstrapped",
             extra={"action": "bootstrap", "onprem_server_id": server.id},
@@ -361,6 +371,8 @@ class OnpremServerService:
             or not verify_url_token(server_secret, server.server_secret_hash)
         ):
             raise UnauthorizedError("invalid server secret")
+        # 인증이 끝나면 연결 확인 전(409)·설정 없음(503)이어도 서버가 살아 있다는 하트비트로 남긴다.
+        await self._record_seen(server)
         if server.status != OnpremServerStatus.CONNECTED:
             raise OnpremServerNotConnectedError(
                 "onprem server is not connected",
@@ -406,6 +418,13 @@ class OnpremServerService:
             credential.expires_at,
             service_ids,
         )
+
+    async def _record_seen(self, server: OnpremServer) -> None:
+        """하트비트를 남기고 바로 커밋한다. 뒤에서 오류로 응답해도 남는다."""
+        await self._onprem_server_repository.touch_last_seen(
+            server.id, datetime.now(UTC), HEARTBEAT_WRITE_INTERVAL
+        )
+        await self._session.commit()
 
     async def _get_owned(
         self, owner_id: int, server_id: int, *, for_update: bool = False

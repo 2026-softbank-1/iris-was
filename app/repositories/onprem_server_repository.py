@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -95,6 +95,23 @@ class OnpremServerRepository:
             OnpremServer.is_deleted.is_(False),
         )
         return (await self._session.scalars(stmt)).one_or_none()
+
+    async def touch_last_seen(self, server_id: int, now: datetime, min_interval: timedelta) -> None:
+        """하트비트 시각을 남긴다. min_interval 안에 이미 남겼으면 쓰지 않는다(쓰기 줄이기).
+
+        행을 잠그지 않는 한 문장이라 Worker 의 lease 처리와 겹쳐도 기다리지 않는다.
+        """
+        await self._session.execute(
+            update(OnpremServer)
+            .where(
+                OnpremServer.id == server_id,
+                or_(
+                    OnpremServer.last_seen_at.is_(None),
+                    OnpremServer.last_seen_at <= now - min_interval,
+                ),
+            )
+            .values(last_seen_at=now)
+        )
 
     async def save(self, server: OnpremServer) -> OnpremServer:
         """같은 소유자·이름(삭제되지 않은 것)이 동시에 들어와 이름 유일 인덱스를 어기면

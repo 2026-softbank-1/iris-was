@@ -346,6 +346,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `gitops_commit_sha`\*, `gitops_attempts`\* | `platform/onprem-servers/{key}/` 를 바꾸거나(등록) 지운(삭제) GitOps 커밋, 지금 커밋을 위해 실패한 횟수 |
 | `connect_deadline_at`\* | 커밋이 main 에 반영된 뒤 정한다(+15분). 값이 있으면 커밋이 반영된 것이다 |
 | `connected_at`\* | `CONNECTED` 가 된 시각 |
+| `last_seen_at`\* | 서버가 마지막으로 인증에 성공한 시각(하트비트). `registry-credentials`(1분마다)·bootstrap·connect 가 남기고, 30초 안에 남겼으면 다시 쓰지 않는다. 기능 전에 연결된 서버는 비어 있다 |
 | `next_check_at`\*, `locked_by`\*, `locked_until`\* | Worker 가 할 일이 있는 시각(없으면 비어 있다)과 lease. jobs 큐 대신 이 행을 `FOR UPDATE SKIP LOCKED` 로 선점한다 |
 | `last_error`\* | Worker 의 마지막 실패 메시지 |
 
@@ -509,6 +510,8 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `REGISTERING` | 서버가 connect 를 보냈다. Worker 가 GitOps 반영·연결 확인 중 | `CONNECTED`, `FAILED`, (토큰 재발급 시 `PENDING`) |
 | `CONNECTED` | probe Application 이 Synced+Healthy. 배포할 수 있다 | (끝, 삭제만) |
 | `FAILED` | 기한 안에 연결되지 않았거나 GitOps 반영에 실패했다 | 토큰 재발급 → `PENDING`, 같은 토큰이 만료 전이면 명령 재실행 → `REGISTERING` |
+
+API 는 저장하지 않는 `DISCONNECTED` 도 알린다(`onprem_server_connection_status`, `OnpremServerConnectionStatus`): `CONNECTED` 인데 `last_seen_at` 이 `ONPREM_SERVER_OFFLINE_AFTER_SECONDS`(기본 180초)보다 오래됐으면 `DISCONNECTED` 이고 배포를 막는다(`TARGET_NOT_CONNECTED`). `last_seen_at` 이 비어 있으면 `CONNECTED` 로 본다. 서버가 다시 인증하면 저절로 돌아온다.
 
 토큰 재발급은 `PENDING`·`REGISTERING`·`FAILED` 에서 된다(`CONNECTED` 는 `INVALID_STATUS_TRANSITION`). `REGISTERING` 에서 재발급하면 `connect_generation` 을 올리고 lease 를 비워 Worker 가 하던 일을 버린다. 사용자마다 서버는 5대까지다(`ONPREM_SERVER_LIMIT_EXCEEDED`).
 

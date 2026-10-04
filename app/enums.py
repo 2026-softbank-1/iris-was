@@ -237,6 +237,20 @@ class OnpremServerStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class OnpremServerConnectionStatus(StrEnum):
+    """API 가 알리는 서버 상태. 저장한 상태에 하트비트로 계산한 DISCONNECTED 를 더한다.
+
+    DISCONNECTED 는 저장하지 않는다. CONNECTED 서버의 하트비트(last_seen_at)가 끊긴 동안만 보이고,
+    서버가 다시 부르면 저절로 CONNECTED 로 돌아온다.
+    """
+
+    PENDING = "PENDING"
+    REGISTERING = "REGISTERING"
+    CONNECTED = "CONNECTED"
+    DISCONNECTED = "DISCONNECTED"
+    FAILED = "FAILED"
+
+
 class OnpremServerFailureCode(StrEnum):
     # probe Application 이 기한 안에 Synced+Healthy 가 되지 않았다.
     CONNECT_TIMED_OUT = "CONNECT_TIMED_OUT"

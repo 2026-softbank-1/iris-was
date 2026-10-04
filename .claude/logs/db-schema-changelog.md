@@ -54,3 +54,4 @@
 - 2026-10-04: 관리형 DB·참조 변수. `services.kind`(APP·DATABASE, 기본 APP)·`database_engine`·`database_config`·`host_aliases` 추가, `services.github_installation_id` nullable, `service_variables.reference` JSONB 추가·`encrypted_value` nullable + `value_or_reference` CHECK, failure_code CHECK 에 VARIABLES_INVALID. revision `6b1f0c2d9a41`; DDL 동기화.
 - 2026-10-04: 스택. `service_stacks`·`stack_deployments`·`stack_deployment_steps` 추가, `services.stack_id`·`stack_unit_id`(스택·unit 부분 unique), `repository_analyses.stack_id`(스택·커밋 부분 unique), failure_code CHECK 에 DEPENDENCY_FAILED. revision `c4e2a7b81f30`; DDL 동기화.
 - 2026-10-04: `services.docker_target`(VARCHAR(128), nullable) 추가. Dockerfile 멀티 스테이지 `--target`. revision `a7d3c9e15b24`; DDL 동기화.
+- 2026-10-04: `onprem_servers.last_seen_at`(nullable, 하트비트) 추가. revision `1251511703f5`; DDL 동기화.

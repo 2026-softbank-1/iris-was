@@ -18,7 +18,9 @@ async def search_targets(
     user: CurrentUserDep, service: TargetServiceDep
 ) -> ApiResponse[list[TargetResponse]]:
     """공용 타깃(`aws`·`onprem`)과 내가 등록한 온프레미스 서버의 타깃. 서버 타깃은
-    `connectionStatus` 가 `CONNECTED` 일 때만 배포할 수 있다.
+    `connectionStatus` 가 `CONNECTED` 일 때만 배포할 수 있다(하트비트가 끊기면 `DISCONNECTED`).
     """
     targets = await service.search_targets(user.id)
-    return ApiResponse(data=[TargetResponse.from_model(t) for t in targets])
+    return ApiResponse(
+        data=[TargetResponse.from_model(t, service.connection_status(t)) for t in targets]
+    )

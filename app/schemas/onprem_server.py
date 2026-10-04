@@ -3,7 +3,11 @@ from typing import Annotated
 
 from pydantic import Field, StringConstraints
 
-from app.enums import OnpremServerFailureCode, OnpremServerStatus
+from app.enums import (
+    OnpremServerConnectionStatus,
+    OnpremServerFailureCode,
+    OnpremServerStatus,
+)
 from app.models.onprem_server import OnpremServer
 from app.schemas.response import ApiModel
 from app.services.onprem_server_service import (
@@ -41,9 +45,11 @@ class OnpremServerResponse(ApiModel):
         description="서버를 가리키는 8자 키. 타깃·도메인 이름의 기준이다(비밀 아님)",
         examples=["k3x9q2ma"],
     )
-    status: OnpremServerStatus = Field(
+    status: OnpremServerConnectionStatus = Field(
         description=(
             "PENDING 명령 실행 전 · REGISTERING 연결 확인 중 · CONNECTED 배포 가능 · "
+            "DISCONNECTED 연결됐던 서버의 하트비트가 끊김"
+            "(배포 불가, 서버가 다시 부르면 돌아온다) · "
             "FAILED 연결 실패(토큰 재발급 후 다시 실행)"
         )
     )
@@ -55,20 +61,27 @@ class OnpremServerResponse(ApiModel):
     )
     registration_expires_at: datetime = Field(description="등록 토큰 만료 시각")
     connected_at: datetime | None = None
+    last_seen_at: datetime | None = Field(
+        default=None, description="서버가 마지막으로 인증에 성공한 시각(하트비트, 1분마다)"
+    )
     created_at: datetime
 
     @classmethod
-    def from_model(cls, server: OnpremServer) -> "OnpremServerResponse":
+    def from_model(
+        cls, server: OnpremServer, status: OnpremServerConnectionStatus
+    ) -> "OnpremServerResponse":
+        """status 는 하트비트로 계산한 상태다(OnpremServerService.connection_status)."""
         return cls(
             id=server.id,
             name=server.name,
             server_key=server.server_key,
-            status=server.status,
+            status=status,
             target_id=server.target_id,
             tailnet_fqdn=server.tailnet_fqdn,
             failure_code=server.failure_code,
             registration_expires_at=server.registration_expires_at,
             connected_at=server.connected_at,
+            last_seen_at=server.last_seen_at,
             created_at=server.created_at,
         )
 
@@ -92,7 +105,11 @@ class OnpremServerRegistrationResponse(ApiModel):
         cls, registration: OnpremServerRegistration, install_command: str
     ) -> "OnpremServerRegistrationResponse":
         return cls(
-            server=OnpremServerResponse.from_model(registration.server),
+            # 등록·재발급한 서버는 CONNECTED 가 아니라 저장한 상태가 곧 API 상태다.
+            server=OnpremServerResponse.from_model(
+                registration.server,
+                OnpremServerConnectionStatus(registration.server.status.value),
+            ),
             registration_token=registration.registration_token,
             install_command=install_command,
         )
