@@ -1,8 +1,9 @@
 """Console Gateway 의 서비스 로직 — ticket 검증, Pod 목록, WebSocket 연결 한 번의 수명(ADR 0033).
 
 WebSocket 자체(Starlette)는 `ConsoleTransport` 로 가려 두고, 클러스터는 `KubernetesClient` 로
-가린다. 이 모듈은 둘 다 모른 채 프로토콜(auth → ready → input/output → exit·error)과 시간·동시
-연결 제한만 다룬다. 입출력 내용은 로그에 남기지 않는다.
+가린다(AWS 는 클러스터 API, on-prem 은 Argo CD 터미널, ADR 0035). 이 모듈은 둘 다 모른 채
+프로토콜(auth → ready → input/output → exit·error)과 시간·동시 연결 제한만 다룬다.
+입출력 내용은 로그에 남기지 않는다.
 """
 
 import asyncio
@@ -231,7 +232,7 @@ class ConsoleGatewayService:
         channel = await cluster.open_exec(
             claims.namespace, pod_name, APP_CONTAINER, shell, auth.cols, auth.rows
         )
-        log_fields = {"pod": pod_name, "target_id": claims.target_id}
+        log_fields = {"pod": pod_name, "target_id": claims.target_id, "cluster": claims.cluster}
         logger.info(
             "console session started", extra={"action": "console_session_started", **log_fields}
         )

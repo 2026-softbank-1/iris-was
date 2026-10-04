@@ -1,5 +1,7 @@
 """Prod 클러스터 API Client — Pod 조회와 `pods/exec`. Console Gateway 만 쓴다(ADR 0033).
 
+`KubernetesClient` Protocol 은 on-prem 의 Argo CD 터미널 Client(ADR 0035)도 구현한다.
+
 Pod 조회는 `httpx`, exec 는 `v4.channel.k8s.io` WebSocket 프로토콜을 `websockets` 로 직접 다룬다.
 메시지는 첫 바이트가 채널 번호다: 0 stdin · 1 stdout · 2 stderr · 3 상태(JSON) · 4 터미널 크기.
 클러스터 호출 실패는 모두 ClusterUnavailableError 로 바꾼다. 응답 타입(JSON·프레임)은 이 모듈
@@ -110,12 +112,13 @@ class KubernetesClient(Protocol):
 
     async def find_pod(self, namespace: str, name: str, container: str) -> PodInfo | None: ...
 
-    async def detect_shell(self, namespace: str, pod: str, container: str) -> Shell:
-        """컨테이너에서 쓸 셸. `/bin/sh` 가 없으면 ShellNotFoundError."""
+    async def detect_shell(self, namespace: str, pod: str, container: str) -> Shell | None:
+        """컨테이너에서 쓸 셸. `/bin/sh` 가 없으면 ShellNotFoundError. 셸을 클러스터(Argo CD)가
+        고르는 구현은 None 이다."""
         ...
 
     async def open_exec(
-        self, namespace: str, pod: str, container: str, shell: Shell, cols: int, rows: int
+        self, namespace: str, pod: str, container: str, shell: Shell | None, cols: int, rows: int
     ) -> ExecChannel: ...
 
 
@@ -186,9 +189,9 @@ class HttpKubernetesClient:
         raise ClusterUnavailableError("shell probe failed", pod=pod)
 
     async def open_exec(
-        self, namespace: str, pod: str, container: str, shell: Shell, cols: int, rows: int
+        self, namespace: str, pod: str, container: str, shell: Shell | None, cols: int, rows: int
     ) -> ExecChannel:
-        command = ["/bin/sh", "-c", f"TERM=xterm-256color exec {shell}"]
+        command = ["/bin/sh", "-c", f"TERM=xterm-256color exec {shell or 'sh'}"]
         channel = await self._open_exec(
             namespace, pod, container, command, is_tty=True, has_stdin=True
         )

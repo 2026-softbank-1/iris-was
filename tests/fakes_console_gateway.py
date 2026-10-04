@@ -13,6 +13,7 @@ from app.clients.kubernetes_client import (
 )
 from app.core.console_ticket import (
     CONSOLE_CLUSTER_AWS,
+    CONSOLE_CLUSTER_ONPREM,
     ConsoleTicketSigner,
     ConsoleTicketVerifier,
 )
@@ -89,7 +90,8 @@ class FakeKubernetes:
 
     def __init__(self, pods: list[PodInfo] | None = None) -> None:
         self.pods = pods if pods is not None else [make_pod()]
-        self.shell: Shell = "bash"
+        # None 은 셸을 클러스터(Argo CD)가 고르는 구현이다.
+        self.shell: Shell | None = "bash"
         self.shell_error: Exception | None = None
         self.channel = FakeExecChannel()
         self.calls: list[tuple[str, tuple[object, ...]]] = []
@@ -102,14 +104,14 @@ class FakeKubernetes:
         self.calls.append(("find_pod", (namespace, name, container)))
         return next((pod for pod in self.pods if pod.name == name), None)
 
-    async def detect_shell(self, namespace: str, pod: str, container: str) -> Shell:
+    async def detect_shell(self, namespace: str, pod: str, container: str) -> Shell | None:
         self.calls.append(("detect_shell", (namespace, pod, container)))
         if self.shell_error is not None:
             raise self.shell_error
         return self.shell
 
     async def open_exec(
-        self, namespace: str, pod: str, container: str, shell: Shell, cols: int, rows: int
+        self, namespace: str, pod: str, container: str, shell: Shell | None, cols: int, rows: int
     ) -> FakeExecChannel:
         self.calls.append(("open_exec", (namespace, pod, container, shell, cols, rows)))
         return self.channel
@@ -164,13 +166,18 @@ class Harness:
         max_duration: float = 3600,
         max_sessions: int = 3,
         cluster: FakeKubernetes | None = None,
+        onprem_cluster: FakeKubernetes | None = None,
     ) -> None:
         private_pem, public_pem = generate_ed25519_pem_pair()
         self.signer = ConsoleTicketSigner(private_pem)
         self.cluster = cluster or FakeKubernetes()
+        self.onprem_cluster = onprem_cluster
+        clusters: dict[str, FakeKubernetes] = {CONSOLE_CLUSTER_AWS: self.cluster}
+        if onprem_cluster is not None:
+            clusters[CONSOLE_CLUSTER_ONPREM] = onprem_cluster
         self.service = ConsoleGatewayService(
             ConsoleTicketVerifier(public_pem),
-            {CONSOLE_CLUSTER_AWS: self.cluster},
+            clusters,
             ConsoleSessionRegistry(max_sessions),
             ConsoleLimits(idle_timeout, max_duration, max_sessions),
         )
