@@ -281,6 +281,59 @@ class NoSucceededDeploymentError(ConflictError):
     code = "NO_SUCCEEDED_DEPLOYMENT"
 
 
+class NoRunningDeploymentError(ConflictError):
+    """그 타깃에 떠 있는(lastKnownGood) release 가 없어 콘솔을 열 수 없다."""
+
+    code = "NO_RUNNING_DEPLOYMENT"
+
+
+class ConsoleTargetNotSupportedError(ConflictError):
+    """콘솔을 지원하지 않는 타깃이다(온프레미스는 아직 지원하지 않는다, ADR 0033)."""
+
+    code = "CONSOLE_TARGET_NOT_SUPPORTED"
+
+
+class ConsoleTokenExpiredError(UnauthorizedError):
+    """콘솔 ticket 이 만료됐다. 새 ticket 을 받아 다시 연결한다."""
+
+    code = "TOKEN_EXPIRED"
+
+
+class ConsoleTokenReusedError(UnauthorizedError):
+    """이미 연결에 쓴 콘솔 ticket 이다. ticket 은 WebSocket 연결에 한 번만 쓴다."""
+
+    code = "TOKEN_REUSED"
+
+
+class PodNotFoundError(NotFoundError):
+    code = "POD_NOT_FOUND"
+
+
+class PodNotReadyError(ConflictError):
+    """Pod 가 Running 이 아니거나 app 컨테이너가 준비되지 않았다."""
+
+    code = "POD_NOT_READY"
+
+
+class ShellNotFoundError(ConflictError):
+    """이미지에 `/bin/sh` 가 없어(distroless 등) 콘솔을 열 수 없다."""
+
+    code = "SHELL_NOT_FOUND"
+
+
+class ConsoleSessionLimitExceededError(AppError):
+    """한 사용자의 동시 콘솔 연결 한도를 넘었다. 한도는 fields 의 limit 이다."""
+
+    code = "SESSION_LIMIT_EXCEEDED"
+    status_code = 429
+
+
+class ClusterUnavailableError(ExternalError):
+    """클러스터 API 에 닿지 못했거나 인증·권한이 거절됐다."""
+
+    code = "CLUSTER_UNAVAILABLE"
+
+
 class InvalidStatusTransitionError(ConflictError):
     """배포 요청 상태 전이 표에 없는 이동. 현재 상태와 요청한 상태를 fields 에 담는다."""
 

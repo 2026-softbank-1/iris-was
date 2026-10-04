@@ -30,13 +30,14 @@ Railway 처럼 무엇이든 간단히 배포해 주는 배포 서비스 **AnyDep
 
 ## 구조
 
-한 Python 패키지(`app/`)에서 세 컴포넌트를 **실행 명령만 달리해** 띄운다. 원문 §8 의 `apps/`·`packages/` 분리는 `app/` 레이어 분리로 대신한다. backend-conventions §3 대신 이 구조를 따른다.
+한 Python 패키지(`app/`)에서 네 컴포넌트를 **실행 명령만 달리해** 띄운다. 원문 §8 의 `apps/`·`packages/` 분리는 `app/` 레이어 분리로 대신한다. backend-conventions §3 대신 이 구조를 따른다.
 
 ```text
 app/
 ├─ main.py            # Control API 진입점 (FastAPI)
 ├─ routers/           # Control API 전용
 ├─ workers/           # Worker 진입점: build_worker.py, deploy_worker.py
+├─ console_gateway/   # Console Gateway 진입점·라우터(서비스 콘솔 셸 중계). DB 접속 정보 없음, routers/·workers/ 를 import 하지 않는다
 ├─ schemas/           # API 요청·응답, job payload 계약
 ├─ services/          # 상태 전이·멱등성·배포 정책 (API·Worker 공용)
 ├─ repositories/      # DB 접근. jobs 선점(claim)·lease 쿼리 포함
@@ -56,8 +57,9 @@ flowchart LR
   S --> C[clients]
 ```
 
-- `routers/` 와 `workers/` 는 서로 import 하지 않는다. 둘 다 `services/` 만 호출한다.
+- `routers/`·`workers/`·`console_gateway/` 는 서로 import 하지 않는다. 모두 `services/` 만 호출한다.
 - Control API 경로는 DB 기록·조회, 읽기 전용 Loki·Prometheus 관측 쿼리, 에러 진단 에이전트 서버 호출(`DiagnosisService`, 소스는 읽기 전용 S3 presigned URL 로만 넘긴다. 실패가 확정된 배포는 Control API 안의 `AutoDiagnosisRunner` 가 사용자 없이 시작한다. ADR 0020), 배포 상세 화면의 읽기 전용 CloudWatch Logs 빌드 로그 조회(`DeploymentLogService`, ADR 0021), `likelion up` 소스 업로드(`UploadService`, S3 `uploads/` 쓰기만. 아카이브 내용은 읽지 않고 Build Worker 가 검사한다. ADR 0023), 사용자 온프레미스 서버 등록·설치 API(`OnpremServerService`, 외부 호출은 서버용 ECR pull 자격증명 발급의 STS AssumeRole·ECR 토큰뿐이다. ADR 0029)를 처리한다. CodeBuild·Git·Argo CD Client 를 쓰는 서비스 로직은 Worker 에서만 호출한다(원문 §3 금지 권한). 등록한 서버의 GitOps 반영·연결 확인은 Deploy Worker 가 jobs 큐 대신 `onprem_servers` 행을 lease 로 선점해 한다(`OnpremServerSyncService`).
+- 서비스 콘솔(실행 중인 Pod 의 셸)은 Control API 가 클러스터를 부르지 않고(`ConsoleService`: 가능 여부 판정·60초 Ed25519 ticket 서명·`console_sessions` 발급 기록), Console Gateway(`ConsoleGatewayService`·`app/console_gateway/`)가 ticket 을 검증해 Prod 클러스터의 `pods/exec` 로 중계한다(`app/clients/kubernetes_client.py`). Gateway 는 `pods`(get·list)·`pods/exec`(create + get — WebSocket 업그레이드 인가용, 배포 후 검증에서 get 이 불필요하면 뺀다) 권한만 갖고 DB 접속 정보가 없으며 replica 1 이다. 셸 입출력은 어디에도 남기지 않는다. 계약은 [docs/console-api.md](docs/console-api.md), 결정은 [ADR 0033](docs/adr/0033-service-console-via-console-gateway.md).
 - AWS 자원(CodeBuild·S3·IAM)과 CodeBuild buildspec 은 iris-infra 레포(`terraform/environments/aws/dev/foundation/`)가 소유한다. buildspec 환경변수 이름은 `app/services/build_service.py` 와의 계약이다.
 - 코드 수정 후보는 `RepairService`가 특정 진단·고정 소스를 저장하고 에이전트에 한 번 접수한다. 결과·불확실 상태·검토용 artifact를 제공하며, 빌드 검증·원격 저장소 반영은 별도 역할이다([ADR 0024](docs/adr/0024-durable-code-repair-candidate-api.md)).
 - 레포 루트의 `deploy/helm/`, `deploy/argocd/`, `docker-compose.dev.yml` 은 원문 §8 위치대로 **필요해질 때** 만든다.
@@ -111,7 +113,7 @@ flowchart LR
 
 ## 도구
 
-- **패키지·실행**: `uv`. 명령은 `uv run <cmd>` — 린트 `uv run ruff check .` / 타입 `uv run mypy app` / 테스트 `uv run pytest` / Control API `uv run uvicorn app.main:app` / Worker `uv run python -m app.workers.build_worker`·`deploy_worker` / 마이그레이션 `uv run alembic upgrade head`.
+- **패키지·실행**: `uv`. 명령은 `uv run <cmd>` — 린트 `uv run ruff check .` / 타입 `uv run mypy app` / 테스트 `uv run pytest` / Control API `uv run uvicorn app.main:app` / Worker `uv run python -m app.workers.build_worker`·`deploy_worker` / Console Gateway `uv run uvicorn app.console_gateway.main:app --port 8080` / 마이그레이션 `uv run alembic upgrade head`.
 - **린트·포맷**: `ruff`. **타입체크**: `mypy`. 설정은 `pyproject.toml` 한곳.
 - **테스트**: `pytest` + `pytest-asyncio`. 함수명 `test_{대상}_{시나리오}_{기대}`.
 - **로컬 DB**: PostgreSQL `softbank_iris`. 접속 정보는 `.env` 의 `DATABASE_URL`(gitignore 대상, 커밋·출력 금지). `.env` 가 없으면 앱이 시작하지 않는다. `pytest` 는 DB 없이 돌고(`tests/conftest.py`), `TEST_DATABASE_URL`(`alembic upgrade head` 를 끝낸 전용 DB `softbank_iris_test`. 데이터 테이블을 비운다)을 주면 jobs 큐·BuildService·DeployService 통합 테스트도 돈다. Deploy Worker 로컬 E2E 는 `docs/deploy-worker-test-guide.md`.

@@ -1,7 +1,8 @@
-# 하나의 이미지로 세 컴포넌트를 띄운다. 기본 CMD 는 Control API 이고,
-# Worker 는 K8s Deployment 의 command 로 덮어쓴다.
+# 하나의 이미지로 네 컴포넌트를 띄운다. 기본 CMD 는 Control API 이고,
+# Worker·Console Gateway 는 K8s Deployment 의 command 로 덮어쓴다.
 #   Build Worker : ["python", "-m", "app.workers.build_worker"]
 #   Deploy Worker: ["python", "-m", "app.workers.deploy_worker"]
+#   Console Gateway: ["uvicorn", "app.console_gateway.main:app", "--host", "0.0.0.0", "--port", "8080"]
 #   Migration    : ["alembic", "upgrade", "head"]
 
 FROM python:3.13-slim AS base

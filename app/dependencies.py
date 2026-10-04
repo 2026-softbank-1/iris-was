@@ -32,6 +32,7 @@ from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.build_repository import BuildRepository
 from app.repositories.cli_login_session_repository import CliLoginSessionRepository
+from app.repositories.console_session_repository import ConsoleSessionRepository
 from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
 from app.repositories.deployment_repair_repository import DeploymentRepairRepository
@@ -57,6 +58,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.automatic_repair_service import AutomaticRepairOpener, AutomaticRepairService
 from app.services.cli_login_service import CliLoginService
+from app.services.console_service import ConsoleGatewayAddress, ConsoleService
 from app.services.database_service import DatabaseService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_log_service import DeploymentLogService
@@ -295,6 +297,35 @@ def get_domain_service(session: SessionDep) -> DomainService:
 
 
 DomainServiceDep = Annotated[DomainService, Depends(get_domain_service)]
+
+
+def get_console_service(session: SessionDep, settings: SettingsDep) -> ConsoleService:
+    gateway = (
+        ConsoleGatewayAddress(
+            http_url=str(settings.console_gateway_http_url).rstrip("/"),
+            ws_url=str(settings.console_gateway_ws_url).rstrip("/"),
+        )
+        if settings.console_gateway_http_url is not None
+        and settings.console_gateway_ws_url is not None
+        else None
+    )
+    private_key = (
+        settings.console_ticket_private_key.get_secret_value()
+        if settings.console_ticket_private_key is not None
+        else None
+    )
+    return ConsoleService(
+        session,
+        ServiceRepository(session),
+        TargetRepository(session),
+        ReleaseRepository(session),
+        ConsoleSessionRepository(session),
+        private_key,
+        gateway,
+    )
+
+
+ConsoleServiceDep = Annotated[ConsoleService, Depends(get_console_service)]
 
 
 @lru_cache

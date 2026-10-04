@@ -52,14 +52,16 @@ class Page[T](ApiModel):
 _ERROR_DESCRIPTIONS = {
     401: (
         "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 "
-        "올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+        "올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). "
+        "콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
     ),
     403: "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)",
     404: (
         "대상을 찾을 수 없다 "
         "(NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · "
         "VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · "
-        "REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+        "REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · "
+        "POD_NOT_FOUND)"
     ),
     409: (
         "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 "
@@ -67,7 +69,8 @@ _ERROR_DESCRIPTIONS = {
         "DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · "
         "DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · "
         "TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · "
-        "ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+        "ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · "
+        "NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
     ),
     413: "업로드가 크기 한도를 넘는다. 본문을 읽기 전에 거절한다 (UPLOAD_TOO_LARGE)",
     415: "업로드 본문이 gzip 이 아니다 (UPLOAD_NOT_GZIP)",
@@ -75,10 +78,13 @@ _ERROR_DESCRIPTIONS = {
         "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). "
         "배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
     ),
-    429: "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS)",
+    429: (
+        "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS). "
+        "콘솔은 동시 연결 한도를 넘으면 SESSION_LIMIT_EXCEEDED"
+    ),
     502: (
         "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 "
-        "(EXTERNAL_ERROR)"
+        "(EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
     ),
     503: "필요한 설정이 없다 (NOT_CONFIGURED)",
 }

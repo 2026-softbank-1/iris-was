@@ -72,10 +72,13 @@ sequenceDiagram
 | AWS CodeBuild | 요청별 일회성 환경 | 소스 checkout, 테스트, 이미지 빌드·스캔, ECR push | GitOps 변경, Prod 접근 |
 | Deploy Worker | Master EKS, 2 replicas | GitOps digest 변경, Argo CD 상태 수집, rollback commit | 소스 빌드, ECR push, Prod kubeconfig |
 | Argo CD | Master EKS | Git desired state를 Prod에 동기화 | 사용자 요청 인증, 소스 코드 빌드 |
+| Console Gateway | Master EKS, 1 replica | Control API 가 서명한 ticket 검증, 서비스 Pod 의 `pods/exec` 중계(서비스 콘솔) | DB 접속, GitOps 변경, Secret·Deployment 읽기, `pods`·`pods/exec` 외 Prod 권한 |
 
 `Control API`는 긴 작업을 기다리지 않는다. 요청 ID를 반환하고 상태 조회·webhook·SSE로 진행 상태를 제공한다.
 
 Control API 의 AWS 권한은 읽기 전용이다. 소스 스냅샷 버킷 `snapshots/*` 의 `s3:GetObject`(AI 진단, [ADR 0020](../../docs/adr/0020-ai-error-diagnosis-via-agent-server.md))와 CodeBuild 로그 그룹의 `logs:GetLogEvents`(배포 상세 화면의 빌드 로그, [ADR 0021](../../docs/adr/0021-deployment-detail-logs-api.md))뿐이고, CodeBuild·ECR 호출 권한은 없다.
+
+서비스 콘솔(실행 중인 Pod 의 셸)은 Control API 가 클러스터를 부르지 않고, Control API 가 서명한 60초짜리 ticket 을 Console Gateway 가 검증해 Prod 클러스터의 `pods/exec` 로 중계한다. Control API 에 더해지는 것은 ticket 서명용 개인키 하나뿐이다([ADR 0033](../../docs/adr/0033-service-console-via-console-gateway.md)).
 
 ## 4. 빌드 정책
 
@@ -208,6 +211,7 @@ flowchart LR
 - Argo CD 외부 클러스터 자격증명과 Git repository credential은 `argocd` namespace에만 보관하고 플랫폼 관리자만 접근한다.
 - Prod의 Argo CD ServiceAccount는 서비스 namespace의 앱 리소스만 수정한다. `ClusterRoleBinding`, `CRD`, `Node`, 다른 namespace 수정은 금지한다.
 - Build와 Deploy의 Secret·IAM Role은 공유하지 않는다.
+- Console Gateway 는 Prod 의 `pods`(get·list)·`pods/exec`(create + get — WebSocket 업그레이드 인가용, 배포 후 검증에서 get 이 불필요하면 뺀다)만 갖고 DB 접속 정보가 없다. ticket 서명키는 Control API 가 개인키, Gateway 가 공개키를 갖는다(ADR 0033).
 - Control API는 `likelion up` 소스 업로드를 받아 S3의 `uploads/` 접두어에만 쓴다(`s3:PutObject`·`s3:AbortMultipartUpload`). 빌드 입력인 `snapshots/`는 Build Worker만 쓰고, Build Worker는 `uploads/`를 읽기만 한다. 업로드는 사용자 입력이므로 Build Worker가 검사하며 스냅샷으로 다시 묶은 뒤에만 CodeBuild에 넘긴다(iris-was ADR 0023).
 
 ## 8. 모노레포 구조

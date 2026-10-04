@@ -2,7 +2,7 @@ import sys
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, HttpUrl, SecretStr
+from pydantic import Field, HttpUrl, SecretStr, WebsocketUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     onprem_argo_rollouts_version: str = "v1.10.0"
     onprem_sealed_secrets_version: str = "0.40.0"
 
+    # 서비스 콘솔(Pod 셸, ADR 0033). Control API 는 ticket 을 서명하고 Console Gateway 주소를
+    # 알려 줄 뿐이고 클러스터에는 닿지 않는다. 셋 중 하나라도 없으면 콘솔은 꺼진다(가능 여부
+    # 조회는 `NOT_CONFIGURED`, ticket 발급은 503). 개인키는 Ed25519 PEM 이고 Gateway 에는
+    # 공개키만 둔다.
+    console_ticket_private_key: SecretStr | None = None
+    console_gateway_http_url: HttpUrl | None = None
+    console_gateway_ws_url: WebsocketUrl | None = None
+
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -117,6 +125,45 @@ class Settings(BaseSettings):
     github_webhook_secret: SecretStr | None = None
     github_web_base_url: str = "https://github.com"
     github_api_base_url: str = "https://api.github.com"
+
+
+class ConsoleGatewaySettings(BaseSettings):
+    """Console Gateway 전용. DB 접속 정보와 Control API 의 서명 개인키를 갖지 않는다(ADR 0033)."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # ticket 검증용 Ed25519 공개키(PEM, 비밀이 아니다). Control API 의 개인키와 한 쌍이다.
+    console_ticket_public_key: str
+    # 접속할 Prod EKS. 토큰은 EKS Pod Identity 자격증명으로 만든 sts:GetCallerIdentity
+    # presigned URL 이다.
+    console_aws_cluster_name: str
+    console_aws_cluster_endpoint: HttpUrl
+    # 클러스터 API 서버 인증서의 CA(PEM 을 base64 로 인코딩한 값, EKS 가 주는 형식).
+    console_aws_cluster_ca: str
+    aws_region: str
+    # CORS·WebSocket 에 허용할 Origin(쉼표로 구분). 예: https://app.likelion.uk
+    console_allowed_origins: str
+    # 입력 없이 이 시간이 지나면 끊는다. ping·pong 은 입력이 아니다.
+    console_idle_timeout_seconds: float = Field(default=900, gt=0)
+    # 연결한 뒤 이 시간이 지나면 끊는다.
+    console_max_session_seconds: float = Field(default=3600, gt=0)
+    # 한 사용자의 동시 연결 한도. Gateway replica 안에서만 센다.
+    console_max_sessions_per_user: int = Field(default=3, ge=1)
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+
+    @field_validator("console_aws_cluster_endpoint")
+    @classmethod
+    def _require_https_endpoint(cls, value: HttpUrl) -> HttpUrl:
+        # bearer 토큰을 평문으로 보내지 않는다.
+        if value.scheme != "https":
+            raise ValueError("cluster endpoint must be https")
+        return value
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [
+            origin.strip() for origin in self.console_allowed_origins.split(",") if origin.strip()
+        ]
 
 
 class BuildWorkerSettings(BaseSettings):
@@ -197,3 +244,8 @@ def get_build_worker_settings() -> BuildWorkerSettings:
 @lru_cache
 def get_deploy_worker_settings() -> DeployWorkerSettings:
     return DeployWorkerSettings()
+
+
+@lru_cache
+def get_console_gateway_settings() -> ConsoleGatewaySettings:
+    return ConsoleGatewaySettings()

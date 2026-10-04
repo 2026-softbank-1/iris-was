@@ -270,6 +270,120 @@
         "title": "ApiResponse[CliLoginTokenResponse]",
         "type": "object"
       },
+      "ApiResponse_ConsoleAvailabilityResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsoleAvailabilityResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ConsoleAvailabilityResponse]",
+        "type": "object"
+      },
+      "ApiResponse_ConsoleSessionResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsoleSessionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ConsoleSessionResponse]",
+        "type": "object"
+      },
       "ApiResponse_DeploymentDetailResponse_": {
         "properties": {
           "code": {
@@ -3197,6 +3311,98 @@
         "title": "ConnectOnpremServerRequest",
         "type": "object"
       },
+      "ConsoleAvailabilityResponse": {
+        "properties": {
+          "available": {
+            "description": "지금 콘솔을 열 수 있는지",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsoleUnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "available=false 일 때의 사유. NO_RUNNING_DEPLOYMENT(떠 있는 배포 없음) · TARGET_NOT_SUPPORTED(온프레미스는 아직 지원하지 않음) · NOT_CONFIGURED(콘솔 설정 없음)"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "ConsoleAvailabilityResponse",
+        "type": "object"
+      },
+      "ConsoleGatewayResponse": {
+        "properties": {
+          "httpUrl": {
+            "description": "Console Gateway REST base. `{httpUrl}/v1/pods` 로 Pod 목록을 읽는다",
+            "examples": [
+              "https://api.likelion.uk"
+            ],
+            "title": "Httpurl",
+            "type": "string"
+          },
+          "wsUrl": {
+            "description": "Console Gateway WebSocket base. `{wsUrl}/v1/exec?pod={name}` 로 연결한다",
+            "examples": [
+              "wss://api.likelion.uk"
+            ],
+            "title": "Wsurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "httpUrl",
+          "wsUrl"
+        ],
+        "title": "ConsoleGatewayResponse",
+        "type": "object"
+      },
+      "ConsoleSessionResponse": {
+        "properties": {
+          "expiresAt": {
+            "description": "ticket 만료 시각(UTC)",
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "gateway": {
+            "$ref": "#/components/schemas/ConsoleGatewayResponse"
+          },
+          "sessionId": {
+            "description": "콘솔 세션 ID. ticket 의 jti 이자 감사 기록의 공개 ID",
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "token": {
+            "description": "Console Gateway 용 ticket(60초). Pod 목록은 `Authorization: Bearer`, 연결은 WebSocket 첫 프레임 `auth` 로 보낸다. 연결에는 한 번만 쓸 수 있어 매번 새로 받는다",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "token",
+          "expiresAt",
+          "gateway"
+        ],
+        "title": "ConsoleSessionResponse",
+        "type": "object"
+      },
+      "ConsoleUnavailableReason": {
+        "description": "서비스 콘솔을 열 수 없는 사유(API 응답 값, 저장하지 않는다). 판정 순서는 선언 순서와 다르다:\n타깃 종류 → 설정 → 떠 있는 release.",
+        "enum": [
+          "NO_RUNNING_DEPLOYMENT",
+          "TARGET_NOT_SUPPORTED",
+          "NOT_CONFIGURED"
+        ],
+        "title": "ConsoleUnavailableReason",
+        "type": "string"
+      },
       "CreateAutomaticRepairRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3214,6 +3420,21 @@
           }
         },
         "title": "CreateAutomaticRepairRequest",
+        "type": "object"
+      },
+      "CreateConsoleSessionRequest": {
+        "properties": {
+          "targetId": {
+            "description": "콘솔을 열 타깃. 서비스에 연결된 타깃이어야 한다",
+            "exclusiveMinimum": 0.0,
+            "title": "Targetid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "targetId"
+        ],
+        "title": "CreateConsoleSessionRequest",
         "type": "object"
       },
       "CreateDatabaseRequest": {
@@ -8394,7 +8615,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8467,7 +8688,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -8477,7 +8698,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8497,7 +8718,7 @@
                 }
               }
             },
-            "description": "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS)"
+            "description": "허용된 빈도보다 빠르게 요청했다. `Retry-After`(초) 뒤에 다시 보낸다 (TOO_MANY_REQUESTS). 콘솔은 동시 연결 한도를 넘으면 SESSION_LIMIT_EXCEEDED"
           },
           "503": {
             "content": {
@@ -8622,7 +8843,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -8632,7 +8853,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8652,7 +8873,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -8737,7 +8958,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "503": {
             "content": {
@@ -8844,7 +9065,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "422": {
             "content": {
@@ -8864,7 +9085,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -8927,7 +9148,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -8957,7 +9178,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -9026,7 +9247,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -9056,7 +9277,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -9105,7 +9326,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           }
         },
         "security": [
@@ -9145,7 +9366,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           }
         },
         "security": [
@@ -9193,7 +9414,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "409": {
             "content": {
@@ -9203,7 +9424,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9273,7 +9494,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "422": {
             "content": {
@@ -9335,7 +9556,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "422": {
             "content": {
@@ -9415,7 +9636,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "409": {
             "content": {
@@ -9425,7 +9646,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "502": {
             "content": {
@@ -9435,7 +9656,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -9486,7 +9707,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -9496,7 +9717,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9506,7 +9727,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9565,7 +9786,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -9575,7 +9796,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9636,7 +9857,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -9646,7 +9867,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9656,7 +9877,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9740,7 +9961,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "422": {
             "content": {
@@ -9797,7 +10018,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "409": {
             "content": {
@@ -9807,7 +10028,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9860,7 +10081,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -9870,7 +10091,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9880,7 +10101,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9938,7 +10159,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -9948,7 +10169,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10016,7 +10237,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -10026,7 +10247,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10036,7 +10257,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10106,7 +10327,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -10116,7 +10337,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10126,7 +10347,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10206,7 +10427,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -10226,7 +10447,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10246,7 +10467,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -10315,7 +10536,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -10325,7 +10546,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10414,7 +10635,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -10434,7 +10655,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10444,7 +10665,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10464,7 +10685,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -10524,7 +10745,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -10534,7 +10755,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10612,7 +10833,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -10632,7 +10853,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10642,7 +10863,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10662,7 +10883,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -10722,7 +10943,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -10732,7 +10953,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10801,7 +11022,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -10811,7 +11032,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10909,7 +11130,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -10919,7 +11140,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10929,7 +11150,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10949,7 +11170,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -11002,7 +11223,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11012,7 +11233,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11022,7 +11243,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11090,7 +11311,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11100,7 +11321,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11178,7 +11399,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11188,7 +11409,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11198,7 +11419,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11218,7 +11439,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -11242,6 +11463,188 @@
         "summary": "서비스 설정 수정",
         "tags": [
           "services"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/console": {
+      "get": {
+        "description": "실행 중인 레플리카의 셸을 열 수 있는지 알려 준다. 열 수 없으면 `available=false` 와 `reason` 을 돌려주며(200), ticket 을 만들지 않는다. 콘솔 화면의 빈 상태 판단에 쓴다.",
+        "operationId": "get_console_availability_api_v1_services__service_id__console_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "targetId",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "Targetid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ConsoleAvailabilityResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스 콘솔을 열 수 있는지 조회",
+        "tags": [
+          "console"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/console/sessions": {
+      "post": {
+        "description": "Console Gateway 에 붙는 60초짜리 ticket 을 발급한다. Pod 목록 조회용과 연결용으로 매번 새로 받는다(연결에는 한 번만 쓸 수 있다). 프로젝트 소유자만, 서비스에 연결된 타깃만 쓸 수 있다. Control API 는 클러스터에 접근하지 않는다.",
+        "operationId": "create_console_session_api_v1_services__service_id__console_sessions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConsoleSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ConsoleSessionResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "서비스 콘솔 연결 ticket 발급",
+        "tags": [
+          "console"
         ]
       }
     },
@@ -11303,7 +11706,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11313,7 +11716,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11400,7 +11803,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11410,7 +11813,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11420,7 +11823,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11440,7 +11843,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -11509,7 +11912,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11519,7 +11922,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11610,7 +12013,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -11630,7 +12033,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11640,7 +12043,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11660,7 +12063,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -11763,7 +12166,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11773,7 +12176,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11793,7 +12196,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -11947,7 +12350,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -11957,7 +12360,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11977,7 +12380,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -12069,7 +12472,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12079,7 +12482,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -12089,7 +12492,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12169,7 +12572,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12179,7 +12582,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12344,7 +12747,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12354,7 +12757,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12374,7 +12777,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -12463,7 +12866,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12473,7 +12876,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -12483,7 +12886,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12503,7 +12906,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -12604,7 +13007,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12614,7 +13017,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -12624,7 +13027,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12713,7 +13116,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12723,7 +13126,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12783,7 +13186,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12793,7 +13196,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12906,7 +13309,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -12916,7 +13319,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12936,7 +13339,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13052,7 +13455,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -13062,7 +13465,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -13082,7 +13485,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13200,7 +13603,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -13210,7 +13613,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -13230,7 +13633,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13290,7 +13693,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -13300,7 +13703,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -13320,7 +13723,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13405,7 +13808,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -13473,7 +13876,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13542,7 +13945,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -13552,7 +13955,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -13623,7 +14026,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -13633,7 +14036,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -13653,7 +14056,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13722,7 +14125,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -13742,7 +14145,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -13752,7 +14155,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -13772,7 +14175,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13841,7 +14244,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -13861,7 +14264,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -13871,7 +14274,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -13891,7 +14294,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -13960,7 +14363,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "403": {
             "content": {
@@ -13980,7 +14383,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -13990,7 +14393,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14010,7 +14413,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -14070,7 +14473,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14080,7 +14483,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14179,7 +14582,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14189,7 +14592,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -14199,7 +14602,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14312,7 +14715,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14322,7 +14725,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14342,7 +14745,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -14433,7 +14836,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14443,7 +14846,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "413": {
             "content": {
@@ -14483,7 +14886,7 @@
                 }
               }
             },
-            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR · CLUSTER_UNAVAILABLE)"
           },
           "503": {
             "content": {
@@ -14543,7 +14946,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14553,7 +14956,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14631,7 +15034,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14641,7 +15044,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -14651,7 +15054,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY · NO_RUNNING_DEPLOYMENT · CONSOLE_TARGET_NOT_SUPPORTED · POD_NOT_READY · SHELL_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14729,7 +15132,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14739,7 +15142,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14809,7 +15212,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14819,7 +15222,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14891,7 +15294,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14901,7 +15304,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -14988,7 +15391,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "404": {
             "content": {
@@ -14998,7 +15401,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND · POD_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -15058,7 +15461,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           }
         },
         "security": [
@@ -15151,7 +15554,7 @@
                 }
               }
             },
-            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN). 콘솔 ticket 은 만료·재사용이면 TOKEN_EXPIRED · TOKEN_REUSED"
           },
           "422": {
             "content": {
@@ -15221,6 +15624,10 @@
     {
       "description": "서비스 런타임 로그·메트릭·SSE",
       "name": "observability"
+    },
+    {
+      "description": "서비스 콘솔(실행 중인 레플리카의 셸). 열 수 있는지 조회하고 Console Gateway 용 ticket 을 발급한다. 연결 자체는 Console Gateway(REST·WebSocket)가 한다",
+      "name": "console"
     },
     {
       "description": "GitHub 로그인·로그아웃, CLI 로그인 세션(생성·승인·폴링)",

@@ -66,3 +66,4 @@
 | [0030](0030-repository-analysis-gate.md) | 서비스 생성 전 레포 구성 분석(Analysis Gate)은 Build Worker 가 실행하고, 단순 레포는 분석을 생략한다 | 제안됨 (분석기 wheel 고정·웹 연동 대기) |
 | [0031](0031-project-stacks-databases-and-variable-references.md) | 한 레포의 여러 이미지를 스택으로 묶어 의존 순서로 반복 배포하고, 개발용 DB·참조 변수·호스트 별칭을 붙인다 | 제안됨 (chart 0.9.0 pin 후 플래그 켬 대기) |
 | [0032](0032-database-init-scripts.md) | 관리형 DB 는 레포의 `/docker-entrypoint-initdb.d` 스크립트를 첫 기동에 한 번 실행하고, 이미 있는 DB 에는 다시 실행하지 않는다 | 제안됨 (chart 0.9.0 과 함께) |
+| [0033](0033-service-console-via-console-gateway.md) | 서비스 콘솔은 Console Gateway 가 `pods/exec` 를 중계하고, Control API 는 서명한 ticket 만 발급한다 | 제안됨 (iris-infra Gateway·Prod RBAC 적용·E2E 대기) |
