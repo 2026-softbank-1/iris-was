@@ -30,6 +30,7 @@ async def create_service(
         body.root_directory,
         body.is_auto_deploy,
         body.target_ids,
+        analysis_id=body.analysis_id,
     )
     return ApiResponse(data=ServiceResponse.from_detail(detail))
 

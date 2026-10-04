@@ -1,3 +1,4 @@
+import sys
 from functools import lru_cache
 from typing import Literal
 
@@ -56,6 +57,13 @@ class Settings(BaseSettings):
     # 카나리·블루그린 배포 방식. Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 두 방식을 저장할
     # 수 없고 새 배포 요청은 ROLLING 으로 적용한다. iris-service chart 0.7.0 이 배포된 뒤에 켠다.
     deployment_strategy_enabled: bool = False
+    # 관리형 DB·호스트 별칭·프로젝트 내부 통신(chart 0.9.0 의 workload·database·hostAliases·
+    # projectId). Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 DB 생성·별칭 저장이 422 이고
+    # apply 는 DB 를 만들지 않는다. AWS ApplicationSet 의 iris-service chart pin 이 0.9.0 이상이
+    # 된 뒤에 켠다. on-prem 타깃(공용·사용자 등록 서버)은 이 기능을 쓰지 않는다.
+    project_networking_enabled: bool = False
+    # 관리형 DB 의 고정 이미지(엔진 → `repo:tag@sha256:…`). 비우면 코드의 기본 digest 를 쓴다.
+    database_images: dict[str, str] = Field(default_factory=dict)
 
     # 사용자 온프레미스 서버 등록(ADR 0029).
     # 서버가 tailnet 에 가입할 때 쓰는 Tailscale 가입 키(reusable·pre-approved·tag:iris-onprem).
@@ -132,6 +140,14 @@ class BuildWorkerSettings(BaseSettings):
     upload_max_uncompressed_bytes: int = 2 * 1024 * 1024 * 1024
     upload_max_entries: int = 100_000
     poll_interval_seconds: float = 10.0
+    # 레포 구성 분석(Analysis Gate) 분석기 명령. JSON 배열(argv)로 적는다. 기본은 이미지에 설치된
+    # iris-analyzer wheel 이다. 셸을 거치지 않고, Worker 의 자격증명은 넘기지 않는다.
+    analysis_gate_command: list[str] = Field(
+        default_factory=lambda: [sys.executable, "-m", "iris_analyzer.gate.cli", "--request-stdin"]
+    )
+    analysis_gate_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    # 동시에 실행하는 분석 수. 빌드 슬롯(concurrency)과 따로 센다.
+    analysis_gate_concurrency: int = Field(default=2, ge=1)
 
 
 class DeployWorkerSettings(BaseSettings):
@@ -162,6 +178,10 @@ class DeployWorkerSettings(BaseSettings):
     # values 에 deploymentStrategy 를 쓴다. 이 키를 모르는 이전 chart(0.7.0 미만)의 schema 가
     # 거절하므로 chart 0.7.0 이 배포된 뒤에 켠다. Control API 와 같은 값으로 둔다.
     deployment_strategy_enabled: bool = False
+    # values 에 projectId·service.exposeContainerPort·hostAliases·workload·database 를 쓴다(AWS
+    # 타깃만). 이 키를 모르는 이전 chart(0.9.0 미만)의 schema 가 거절하므로 AWS chart pin 이
+    # 0.9.0 이 된 뒤에 켠다. Control API 와 같은 값으로 둔다.
+    project_networking_enabled: bool = False
 
 
 @lru_cache

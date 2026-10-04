@@ -51,7 +51,12 @@ erDiagram
   projects ||--o{ services : "포함"
   github_installations ||--o{ services : "소스 접근"
   services }o--o{ targets : "service_targets"
-  services ||--o{ service_variables : "환경변수"
+  services ||--o{ service_variables : "환경변수(값·참조)"
+  projects ||--o{ service_stacks : "스택"
+  service_stacks ||--o{ services : "앱·DB 묶음"
+  service_stacks ||--o{ stack_deployments : "의존 순서 배포"
+  stack_deployments ||--o{ stack_deployment_steps : "서비스별 단계"
+  stack_deployment_steps |o--|| deployment_requests : "배포 요청"
   services ||--o{ service_uploads : "CLI 업로드"
   service_uploads |o--o| deployment_requests : "소스로 쓰임 (한 번)"
   users ||--o{ onprem_servers : "등록"
@@ -89,9 +94,14 @@ erDiagram
 | `port`\*, `build_command`\*, `start_command`\* | 서비스 실행 설정 |
 | `builder` | `builder` Enum (§5). 코드 분석으로 확정하기 전까지 비어 있고, 비어 있으면 배포하지 않는다 |
 | `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
+| `docker_target` | `builder=dockerfile` 일 때 멀티 스테이지 빌드의 `--target` 스테이지 이름. 비면 마지막 스테이지 |
 | `platform` | 빌드 플랫폼 (`linux/amd64`) |
 | `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
 | `scaling_config`\* | 원하는 Pod 수(replicas 0~10)와 Pod 당 리소스(jsonb). 비어 있으면 replicas 1 이다 |
+| `kind`\* | `service_kind` Enum (§5). 기본 `APP`. `DATABASE` 는 빌드 없이 고정 공식 이미지로 띄우는 개발용 관리형 DB 다(단일 인스턴스, 백업 없음, 삭제 시 데이터 소실). DB 는 `github_installation_id` 가 없고 저장소 주소·브랜치가 빈 문자열이며 push 로 다시 배포하지 않는다 (ADR 0031) |
+| `database_engine`\*, `database_config`\* | DB 엔진(`database_engine` Enum, §5)과 설정(jsonb `{image, storageGi, port, user, database, initScripts?}`). 자격 증명은 여기 두지 않고 암호화한 서비스 변수(`POSTGRES_PASSWORD` 등)로 둔다. `initScripts`(`[{name, path, kind, sha256, size}]`)는 apply 가 분석에서 복사한 초기화 스크립트로, 내용은 `database_init_scripts`(§4.19)에 있고 데이터 디렉터리가 빈 첫 기동에만 실행된다 (ADR 0032) |
+| `host_aliases`\* | 서비스 namespace 의 호스트 별칭(jsonb `[{name, targetServiceId, port}]`). 코드가 compose 호스트명(`api`, `postgres`)을 그대로 쓰게 같은 프로젝트 서비스의 `app` Service 로 잇는다(chart 0.9.0 ExternalName) |
+| `stack_id`\*, `stack_unit_id`\* | 소속 스택(§4.17)과 그 안의 분석기 unit·dependency id. 스택 안에서 unit id 는 유일하다(증분 apply 의 매칭 기준) |
 | `deployment_strategy`\* | `deployment_strategy` Enum (§5). 기본 `ROLLING`. 저장만 하고 다음 배포부터 적용한다. `CANARY`·`BLUE_GREEN` 은 AWS 타깃이고 저장된 replicas 가 2 이상이고 기능 플래그(`DEPLOYMENT_STRATEGY_ENABLED`)가 켜져 있을 때만 저장할 수 있다 (ADR 0028) |
 
 ### 4.2 배포 요청 (DeploymentRequest) — `deployment_requests`
@@ -250,16 +260,17 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 |---|---|
 | `service_id`\* | 소속 서비스. `(service_id, key)` 는 유일하다 |
 | `key`\* | 변수 이름. 영문·숫자·밑줄이고 숫자로 시작하지 않으며 128자 이하다. `PORT` 와 `IRIS_` 로 시작하는 이름은 플랫폼이 쓰므로 만들 수 없다 |
-| `encrypted_value`\* | 값의 Fernet 암호문. 평문은 저장하지 않고 응답을 만들 때만 복호화한다 |
+| `encrypted_value`\* | 값의 Fernet 암호문. 평문은 저장하지 않고 응답을 만들 때만 복호화한다. 참조 변수는 비어 있다 |
+| `reference`\* | 참조 변수(jsonb `{serviceId, property}`). 값 대신 같은 프로젝트 다른 서비스의 연결 정보(`reference_property`, §5)를 가리킨다. 값과 참조 중 하나만 있다(CHECK). Deploy Worker 가 봉인 직전에 대상의 지금 값으로 푼다 (ADR 0031) |
 
 - 한 서비스에 최대 100개, 값은 최대 32KiB 다. 삭제는 소프트 삭제가 아니라 물리 삭제다(값을 남기지 않는다).
-- **배포 스냅샷**: 배포 요청을 만들 때 `deployment_requests.variables_snapshot` 에 `{key: encrypted_value}` 를 복사한다. `ROLLBACK` 요청은 원본 요청의 스냅샷을, 그 밖의 요청(`MANUAL`·`PUSH`·`REDEPLOY`·`RESTART`)은 그 시점의 서비스 변수를 담는다. 그래서 변수를 고친 뒤 재배포하면 고친 값이 반영된다.
+- **배포 스냅샷**: 배포 요청을 만들 때 `deployment_requests.variables_snapshot` 에 `{key: encrypted_value}` 를 복사한다(참조 변수는 `{key: {"reference": {serviceId, property}}}`). `ROLLBACK` 요청은 원본 요청의 스냅샷을, 그 밖의 요청(`MANUAL`·`PUSH`·`REDEPLOY`·`RESTART`)은 그 시점의 서비스 변수를 담는다. 그래서 변수를 고친 뒤 재배포하면 고친 값이 반영된다.
 - **앱 전달**: Deploy Worker 가 스냅샷을 풀어 Sealed Secrets controller 공개 인증서로 다시 봉인한다(namespace `svc-{service_id}`, Secret 이름 `vars-r{release_id}`). (`SEALED_SECRETS_CERT` 를 설정해 이 기능을 켠 Worker 만. chart 0.6.0 이상이 필요하다.) 결과를 `values.yaml` 의 `variables.name`·`variables.encryptedData` 로 커밋하고, iris-service chart 가 SealedSecret 과 `envFrom` 을 만든다. 평문은 메모리에만 있고 Git 에 남지 않는다 (ADR 0017).
 - **자동 주입 변수**(system variables): 플랫폼이 배포할 때 앱에 넣는다. 사용자 변수보다 우선해 덮어쓸 수 없다. 저장하지 않고 `build_system_variables`(`app/services/variable_service.py`)가 이름·설명을 만든다.
 
 | 이름 | 값 | 주입 |
 |---|---|---|
-| `PORT` | `APP_PORT`(8080) | chart |
+| `PORT` | `APP_PORT`(8080). `PROJECT_NETWORKING_ENABLED` 를 켠 AWS 타깃의 스택 앱은 분석한 포트(`services.port`) | chart (values `containerPort`) |
 | `IRIS_SERVICE_NAME` | 서비스 이름 | chart 0.6.0 (values `iris.serviceName`) |
 | `IRIS_TARGET_NAME` | 배포되는 타깃 이름 | chart 0.6.0 (values `iris.targetName`) |
 | `IRIS_DEPLOYMENT_ID` | 앱을 띄운 배포 요청 id | chart 0.6.0 (values `iris.deploymentId`) |
@@ -340,6 +351,60 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 - bootstrap·connect 는 `PENDING`·`REGISTERING`·`FAILED` 에서 받는다(설치 재실행). bootstrap 은 상태를 바꾸지 않고, connect 는 `REGISTERING` 으로 만든다.
 - 서버 타깃은 `kind=ONPREM` 이라 공용 `onprem` 처럼 롤링만 쓴다(`CANARY`·`BLUE_GREEN` 저장 거절, 적용 방식 `ROLLING`, values 에 `deploymentStrategy` 없음. ADR 0028).
 - 서버 타깃 서비스의 values 에는 `imagePullSecrets: [{name: iris-ecr-pull}]`(서버 CronJob 이 `svc-{id}` 에 만드는 ECR pull Secret)를 더한다.
+
+### 4.16 레포 구성 분석 (RepositoryAnalysis) — `repository_analyses`\*
+
+서비스를 만들기 전에 레포가 단순(이미지 1개)한지 복합(이미지 여러 개)한지 정적 분석기(`iris_analyzer.gate`)로 판정한 1건이다. 화면·설계 용어는 Analysis Gate 다. Build Worker 가 선점해 실행한다 (ADR 0030).
+
+| 필드 | 설명 |
+|---|---|
+| `project_id`\*, `user_id`\* | 분석을 요청한 프로젝트·사용자 |
+| `source_repository_url`\*, `github_installation_id`\*, `source_branch`\* | 분석할 저장소·접근 설치·브랜치 |
+| `source_sha`\* | 접수 때 고정한 브랜치 최신 커밋. apply 의 배포 요청도 이 커밋이다 |
+| `root_directory`\* | 저장소 안의 분석 위치. 비어 있으면 루트 |
+| `mode`\* | `analysis_gate_mode` Enum (§5) |
+| `status`\* | `repository_analysis_status` Enum (§5) |
+| `decision`\*, `complexity`\* | 분석 결과(§5). SUCCEEDED 뒤에만 있다 |
+| `result`\* | 분석기 응답(`iris.analysis-gate.v1`) 원문(jsonb) |
+| `error_code`\*, `error_message`\* | FAILED 사유 (`analysis_error_code`, §5) |
+| `applied_service_ids`\* | apply 로 만든 서비스 id 목록(jsonb). 다시 apply 하면 이 서비스를 돌려준다 |
+| `attempts`, `locked_by`, `locked_until` | 선점 횟수·lease. 만료된 RUNNING 은 다른 Worker 가 다시 가져간다 |
+
+- 분석으로 만든 서비스는 `services.analysis_plan.gate`(`analysisId`·`decision`·`complexity`·`unitId`·`sourceSha`)에 근거를 남기고, unit 으로 만들었으면 `analysis_plan.unit` 에 분석기 unit 원문을 둔다. API 응답의 `analysisGate` 다.
+
+### 4.17 스택 (ServiceStack) — `service_stacks`\*
+
+같은 레포(저장소·브랜치·위치) 분석에서 만든 서비스(앱 + 관리형 DB) 묶음이다. 배포 순서와 재분석 기준이다 (ADR 0031).
+
+| 필드 | 설명 |
+|---|---|
+| `project_id`\*, `source_repository_url`\*, `source_branch`\*, `root_directory`\*, `github_installation_id`\* | 소속 프로젝트와 분석한 저장소·브랜치·위치 |
+| `analysis_id`\* | 기준 분석(마지막으로 apply 한 분석) |
+| `pending_changes`\*, `pending_analysis_id`\* | push 재분석 결과가 기준과 다를 때의 변경(jsonb `{analysisId, sourceSha, detectedAt, changes: [{type, unitId, field?, from?, to?}]}`, type: `UNIT_ADDED`·`UNIT_REMOVED`·`UNIT_CHANGED`·`DEPENDENCY_ADDED`·`DEPENDENCY_REMOVED`·`DEPENDENCY_CHANGED`(초기화 스크립트가 바뀜, `reason: init_scripts_changed`. 이미 있는 DB 에는 다시 실행하지 않는다)). 그 분석을 apply 하면 지워진다 |
+
+- **의존 그래프**: 호스트 별칭 대상 ∪ 참조 변수 대상 ∪ 분석기 `dependsOn`. 순서(order)는 깊이 + 1 이다(DB 1 → DB 를 쓰는 앱 2 → 그 앱을 쓰는 앱 3).
+- push 는 스택 레포면 같은 커밋으로 force 모드 재분석을 접수한다(`repository_analyses.stack_id`, 스택·커밋마다 한 번).
+
+### 4.18 스택 배포 (StackDeployment) — `stack_deployments`\*, `stack_deployment_steps`\*
+
+스택 서비스를 의존 순서대로 배포하는 1회다. 서비스마다 기존 경로로 배포 요청을 하나씩 만들고(`stack_deployment_steps.deployment_request_id`), 앞 단계가 없는 요청만 바로 첫 job 을 만든다.
+
+| 필드 | 설명 |
+|---|---|
+| `trigger_type`\*, `idempotency_key`\*, `requested_by`\* | 시작 방식(`MANUAL`·`PUSH`)·중복 차단 키·요청자 |
+| `step_order`\* | 순서(1 = DB …) |
+| `depends_on_deployment_request_ids`\* | 이 요청이 시작하기 전에 SUCCEEDED 여야 하는 같은 스택 배포의 요청 id |
+| `status`\* | `stack_deployment_step_status` Enum (§5) |
+| `held_by_deployment_request_id`\* | HELD 일 때 막은 앞 단계 요청 |
+
+### 4.19 DB 초기화 스크립트 (DatabaseInitScript) — `database_init_scripts`\*
+
+관리형 DB 의 `/docker-entrypoint-initdb.d` 스크립트 내용 1건이다. sha256 으로 찾고 같은 내용은 한 번만 둔다. Build Worker 가 분석할 때 풀어 둔 소스에서 읽어 해시·크기를 다시 확인한 뒤 넣는다. 분석 결과(`dependencies[].initScripts`)와 DB 서비스(`database_config.initScripts`)가 sha256 으로 가리키고, Deploy Worker 만 values(`database.initScripts`)로 옮긴다. 응답에 내용을 내지 않는다 (ADR 0032).
+
+| 필드 | 설명 |
+|---|---|
+| `sha256`\* | 내용의 sha256(hex). 기본 키 |
+| `size_bytes`\*, `content`\* | 바이트 수(1 MiB 이하)와 원본 바이트(bytea, `.sql.gz` 도 그대로) |
 
 ---
 
@@ -463,6 +528,35 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
 | `DEPLOY_TIMED_OUT`\* | Argo CD 가 `deadline_at` 까지 정상화하지 못했다 |
 | `DEPLOY_INFRA_ERROR`\* | 배포 인프라 오류로 재시도를 소진했다 |
+| `VARIABLES_INVALID`\* | 배포 전 환경변수 검증 error. push 자동 배포만 이 코드로 요청을 남긴다(빌드 안 함). 자동 진단하지 않는다 |
+| `DEPENDENCY_FAILED`\* | 스택 배포에서 기다리던 앞 단계(DB·의존 앱) 배포가 실패해 시작하지 않았다(보류). 자동 진단하지 않는다 |
+
+### 레포 구성 분석 (`repository_analysis_status`·`analysis_gate_mode`·`decision`·`complexity`·`analysis_error_code`)\* — `repository_analyses`
+
+- 상태: `QUEUED` → `RUNNING` → `SUCCEEDED` / `FAILED`. `SUCCEEDED`·`analyze` 를 apply 하면 `APPLIED`.
+- 모드(분석기 표기, 소문자): `auto`(단순하면 분석 생략) · `force`(단순해도 배포 단위 분석)
+- 결정: `skip`(기존 단일 서비스 생성) · `analyze`(unit 마다 서비스). 복잡도: `simple` · `complex` · `unsupported`
+- 실패 코드: `SOURCE_NOT_ACCESSIBLE` · `SOURCE_REF_NOT_FOUND` · `SOURCE_TOO_LARGE` · `SOURCE_INVALID` · `ANALYZER_UNAVAILABLE` · `ANALYZER_TIMED_OUT` · `ANALYZER_FAILED` · `ANALYSIS_INTERRUPTED`(처리 중 Worker 가 3번 넘게 죽음)
+
+### 서비스 종류 (`service_kind`)\* — `services.kind`
+
+`APP`(소스를 빌드하는 앱, 기본) · `DATABASE`(고정 공식 이미지의 개발용 관리형 DB)
+
+### DB 엔진 (`database_engine`)\* — `services.database_engine`
+
+분석기·chart 표기 그대로 소문자: `postgres` · `mysql` · `mongodb` · `redis`. 자격 증명 변수: postgres `POSTGRES_USER`·`POSTGRES_PASSWORD`·`POSTGRES_DB`, mysql `MYSQL_USER`·`MYSQL_PASSWORD`·`MYSQL_DATABASE`·`MYSQL_ROOT_PASSWORD`, mongodb `MONGO_INITDB_ROOT_USERNAME`·`MONGO_INITDB_ROOT_PASSWORD`·`MONGO_INITDB_DATABASE`, redis `REDIS_PASSWORD`(사용자는 `default`).
+
+### 참조 속성 (`reference_property`)\* — `service_variables.reference.property`
+
+`url` · `host` · `port` · `user` · `password` · `database`. 앱 대상은 `url`(`http://app.svc-{id}.svc.cluster.local:{port}`)·`host`·`port` 만, redis 는 `database` 가 없다.
+
+### 환경변수 검증 (`variable_issue_code`·`severity`)\*
+
+`REQUIRED_MISSING`(error, 분석으로 만든 서비스만) · `LOCALHOST_ADDRESS`(error, `*_URL`·`*_URI`·`*_HOST`·`*_ADDR` 키) · `UNRESOLVABLE_HOST`(error, 점 없는 호스트가 별칭이 아님) · `SCHEME_MISMATCH`(warning) · `REFERENCE_BROKEN`(error). error 가 있으면 배포 요청은 `422 VARIABLES_INVALID`.
+
+### 스택 배포 단계 (`stack_deployment_step_status`)\* — `stack_deployment_steps.status`
+
+`WAITING`(앞 단계 성공을 기다림, 요청은 QUEUED·job 없음) → `STARTED`(첫 job 을 만듦) / `HELD`(앞 단계 실패로 시작 안 함, 요청은 `FAILED`·`DEPENDENCY_FAILED`)
 
 ### Argo CD 상태 (외부 값, 원본 표기 그대로 저장)
 

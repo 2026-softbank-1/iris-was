@@ -198,6 +198,8 @@ class BuildService:
             "SERVICE_ID": str(service.id),
             **plan.railpack_env,
         }
+        if plan.docker_target:
+            env["DOCKER_TARGET"] = plan.docker_target
         # ponytail: StartBuild 직후 ID 기록 전에 죽고 토큰(5분)도 만료되면 빌드가 중복 실행된다.
         #   두 번째 빌드는 불변 태그 push 에서 실패한다. 겪으면 ListBuildsForProject 로 찾는다.
         codebuild_build_id = await self._codebuild.start_build(
@@ -224,6 +226,9 @@ class BuildService:
         return build
 
     async def _prepare_github_source(self, service: Service) -> _GithubSource:
+        if service.github_installation_id is None:
+            # 관리형 DB 처럼 소스가 없는 서비스는 빌드하지 않는다.
+            raise BuildFailedError(FailureCode.SOURCE_NOT_ACCESSIBLE, "service has no source")
         owner, repository_name = parse_repository_url(service.source_repository_url)
         async with self._session_factory() as session:
             installation = await GithubInstallationRepository(session).get_by_id(

@@ -6,11 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     DeploymentInProgressError,
+    FieldIssue,
     InvalidInputError,
     NoSucceededDeploymentError,
     ServiceNotFoundError,
 )
-from app.enums import ACTIVE_DEPLOYMENT_STATUSES, BuildStatus, DeploymentTrigger
+from app.enums import ACTIVE_DEPLOYMENT_STATUSES, BuildStatus, DeploymentTrigger, ServiceKind
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.service_repository import ServiceRepository
@@ -63,6 +64,14 @@ class ServiceScalingService:
         )
         if service is None:
             raise ServiceNotFoundError("service not found", service_id=service_id)
+        if service.kind == ServiceKind.DATABASE and config.replicas > 1:
+            # 관리형 DB 는 단일 인스턴스다. 0 은 정지, 1 은 실행이다.
+            raise InvalidInputError(
+                "database services run a single instance",
+                issues=[FieldIssue("replicas", "database_single_instance")],
+                field="replicas",
+                service_id=service.id,
+            )
         key = f"scaling:{service.id}:{idempotency_key or uuid4()}"
         if idempotency_key is not None:
             replayed = await self._deployment_request_repository.find_by_idempotency_key(key)

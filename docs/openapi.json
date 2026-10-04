@@ -1,6 +1,104 @@
 {
   "components": {
     "schemas": {
+      "AnalysisErrorCode": {
+        "description": "분석이 실패한 이유. 웹은 이 값과 상관없이 \"분석 없이 단일 서비스로 생성\" 을 제공한다.",
+        "enum": [
+          "SOURCE_NOT_ACCESSIBLE",
+          "SOURCE_REF_NOT_FOUND",
+          "SOURCE_TOO_LARGE",
+          "SOURCE_INVALID",
+          "ANALYZER_UNAVAILABLE",
+          "ANALYZER_TIMED_OUT",
+          "ANALYZER_FAILED",
+          "ANALYSIS_INTERRUPTED"
+        ],
+        "title": "AnalysisErrorCode",
+        "type": "string"
+      },
+      "AnalysisGateComplexity": {
+        "enum": [
+          "simple",
+          "complex",
+          "unsupported"
+        ],
+        "title": "AnalysisGateComplexity",
+        "type": "string"
+      },
+      "AnalysisGateDecision": {
+        "enum": [
+          "skip",
+          "analyze"
+        ],
+        "title": "AnalysisGateDecision",
+        "type": "string"
+      },
+      "AnalysisGateMode": {
+        "description": "auto 는 단순 레포면 분석을 생략하고, force 는 단순해도 배포 단위를 분석한다.",
+        "enum": [
+          "auto",
+          "force"
+        ],
+        "title": "AnalysisGateMode",
+        "type": "string"
+      },
+      "ApiResponse_ApplyRepositoryAnalysisResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApplyRepositoryAnalysisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ApplyRepositoryAnalysisResponse]",
+        "type": "object"
+      },
       "ApiResponse_BuildLogsResponse_": {
         "properties": {
           "code": {
@@ -1249,6 +1347,63 @@
         "title": "ApiResponse[RepairResponse]",
         "type": "object"
       },
+      "ApiResponse_RepositoryAnalysisResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RepositoryAnalysisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[RepositoryAnalysisResponse]",
+        "type": "object"
+      },
       "ApiResponse_RepositoryResponse_": {
         "properties": {
           "code": {
@@ -1477,6 +1632,63 @@
         "title": "ApiResponse[ServiceVariablesResponse]",
         "type": "object"
       },
+      "ApiResponse_StackResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StackResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[StackResponse]",
+        "type": "object"
+      },
       "ApiResponse_TrafficMetricsResponse_": {
         "properties": {
           "code": {
@@ -1703,6 +1915,63 @@
           }
         },
         "title": "ApiResponse[VariableResponse]",
+        "type": "object"
+      },
+      "ApiResponse_VariablesValidationResponse_": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariablesValidationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[VariablesValidationResponse]",
         "type": "object"
       },
       "ApiResponse_WebhookReceiptResponse_": {
@@ -2187,6 +2456,67 @@
         "title": "ApiResponse[list[ServiceResponse]]",
         "type": "object"
       },
+      "ApiResponse_list_StackResponse__": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StackResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[StackResponse]]",
+        "type": "object"
+      },
       "ApiResponse_list_TargetResponse__": {
         "properties": {
           "code": {
@@ -2246,6 +2576,332 @@
           }
         },
         "title": "ApiResponse[list[TargetResponse]]",
+        "type": "object"
+      },
+      "ApplyRepositoryAnalysisDependencyRequest": {
+        "description": "분석된 의존성(`result.dependencies[]`)을 플랫폼이 개발용 DB 로 만들지.",
+        "properties": {
+          "dependencyId": {
+            "description": "`result.dependencies[].id`",
+            "examples": [
+              "postgres"
+            ],
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Dependencyid",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DB 서비스 이름. 생략하면 dependency id 를 slug 로 쓴다.",
+            "title": "Name"
+          },
+          "provision": {
+            "default": true,
+            "description": "false 면 만들지 않는다",
+            "title": "Provision",
+            "type": "boolean"
+          },
+          "storageGi": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "기본 5",
+            "title": "Storagegi"
+          }
+        },
+        "required": [
+          "dependencyId"
+        ],
+        "title": "ApplyRepositoryAnalysisDependencyRequest",
+        "type": "object"
+      },
+      "ApplyRepositoryAnalysisRequest": {
+        "properties": {
+          "dependencies": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ApplyRepositoryAnalysisDependencyRequest"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "생략하면 지원 엔진(postgres·mysql·mongodb·redis) 의존성을 모두 만든다(기능이 켜진 AWS 타깃일 때). 기능이 꺼졌거나 on-prem 이면 기본은 만들지 않고, provision=true 를 보내면 422.",
+            "title": "Dependencies"
+          },
+          "deploy": {
+            "default": true,
+            "description": "true 면 만든 서비스마다 분석한 커밋으로 배포 요청(MANUAL)을 만든다.",
+            "title": "Deploy",
+            "type": "boolean"
+          },
+          "isAutoDeploy": {
+            "default": true,
+            "description": "만드는 모든 서비스의 push 자동 배포 여부. 서비스 생성의 기본값과 같다.",
+            "title": "Isautodeploy",
+            "type": "boolean"
+          },
+          "skipVariableValidation": {
+            "default": false,
+            "description": "true 면 환경변수 error 가 있어도 배포를 접수한다",
+            "title": "Skipvariablevalidation",
+            "type": "boolean"
+          },
+          "targetIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "배포 타깃 id. 정확히 1개다. 생략하면 `aws` 타깃이다.",
+            "title": "Targetids"
+          },
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyRepositoryAnalysisUnitRequest"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Units",
+            "type": "array"
+          }
+        },
+        "required": [
+          "units"
+        ],
+        "title": "ApplyRepositoryAnalysisRequest",
+        "type": "object"
+      },
+      "ApplyRepositoryAnalysisResponse": {
+        "properties": {
+          "analysisId": {
+            "title": "Analysisid",
+            "type": "integer"
+          },
+          "changes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StackChangeResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "증분 apply 에서 이미 있는 DB 의 초기화 스크립트가 분석과 달라졌으면 DEPENDENCY_CHANGED(reason init_scripts_changed). 이미 초기화된 DB 에는 다시 실행하지 않는다.",
+            "title": "Changes"
+          },
+          "databases": {
+            "description": "이 분석으로 만들었거나 이어 쓰는 관리형 DB 서비스",
+            "items": {
+              "$ref": "#/components/schemas/ServiceResponse"
+            },
+            "title": "Databases",
+            "type": "array"
+          },
+          "services": {
+            "description": "앱 서비스(unit)",
+            "items": {
+              "$ref": "#/components/schemas/ServiceResponse"
+            },
+            "title": "Services",
+            "type": "array"
+          },
+          "stackDeploymentId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "의존 순서 배포를 접수했으면 그 스택 배포 id",
+            "title": "Stackdeploymentid"
+          },
+          "stackId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stackid"
+          },
+          "variableIssues": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ServiceVariablesValidationResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "환경변수 error 로 배포를 접수하지 않았으면 서비스별 검증 결과. 서비스는 만들어져 있으니 고친 뒤 스택 재배포(또는 같은 apply 재전송)를 한다.",
+            "title": "Variableissues"
+          }
+        },
+        "required": [
+          "analysisId",
+          "services"
+        ],
+        "title": "ApplyRepositoryAnalysisResponse",
+        "type": "object"
+      },
+      "ApplyRepositoryAnalysisUnitRequest": {
+        "description": "만들 배포 단위. 생략한 값은 분석 결과(`result.units[]`)의 값을 쓴다.",
+        "properties": {
+          "buildCommand": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buildcommand"
+          },
+          "builder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Builder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dockerTarget": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dockerfile `--target` 스테이지. 생략하면 분석의 `buildTarget` 을 쓴다.",
+            "title": "Dockertarget"
+          },
+          "dockerfilePath": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "unit 루트 기준.",
+            "title": "Dockerfilepath"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "서비스 이름. 생략하면 unit 이름을 slug 로 바꿔 쓴다.",
+            "title": "Name"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "maximum": 65535.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "저장소 루트 기준.",
+            "title": "Rootdirectory"
+          },
+          "startCommand": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startcommand"
+          },
+          "unitId": {
+            "description": "`result.units[].id`",
+            "examples": [
+              "api"
+            ],
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Unitid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unitId"
+        ],
+        "title": "ApplyRepositoryAnalysisUnitRequest",
         "type": "object"
       },
       "BootstrapOnpremServerRequest": {
@@ -2545,9 +3201,74 @@
         "title": "CreateAutomaticRepairRequest",
         "type": "object"
       },
+      "CreateDatabaseRequest": {
+        "description": "개발·데모용 관리형 DB(단일 인스턴스, 백업 없음). 서비스를 지우면 데이터도 지워진다.",
+        "properties": {
+          "engine": {
+            "$ref": "#/components/schemas/DatabaseEngine",
+            "examples": [
+              "postgres"
+            ]
+          },
+          "name": {
+            "description": "서비스 이름(DNS 레이블)",
+            "examples": [
+              "postgres"
+            ],
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "storageGi": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "디스크 GiB. 기본 5. 만든 뒤에는 바꿀 수 없다.",
+            "examples": [
+              5
+            ],
+            "title": "Storagegi"
+          },
+          "targetIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "배포 타깃 id. 정확히 1개다. 생략하면 `aws` 다(on-prem 은 422).",
+            "title": "Targetids"
+          }
+        },
+        "required": [
+          "name",
+          "engine"
+        ],
+        "title": "CreateDatabaseRequest",
+        "type": "object"
+      },
       "CreateDeploymentRequest": {
         "description": "배포 요청을 직접 만든다. 푸시 웹훅이 못 하는 첫 배포·CLI 업로드·재배포·롤백·재시작·삭제.",
         "properties": {
+          "skipVariableValidation": {
+            "default": false,
+            "description": "MANUAL·CLI·REDEPLOY·RESTART 는 만들기 전에 환경변수를 검증해 error 가 있으면 `422 VARIABLES_INVALID`(`data.issues`)다. true 면 검증을 건너뛴다(오탐 우회).",
+            "title": "Skipvariablevalidation",
+            "type": "boolean"
+          },
           "sourceDeploymentId": {
             "anyOf": [
               {
@@ -2664,6 +3385,252 @@
           "planIds"
         ],
         "title": "CreateRepairRequest",
+        "type": "object"
+      },
+      "CreateRepositoryAnalysisRequest": {
+        "description": "서비스를 만들기 전에 레포 구성을 확인한다. 브랜치 최신 커밋을 접수 시점에 고정한다.",
+        "properties": {
+          "githubInstallationId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "저장소에 접근하는 GitHub App 설치 id(`GET /api/v1/github/repos` 의 installationId). 생략하면 저장소 소유 계정의 설치를 쓴다. 다른 설치면 422.",
+            "title": "Githubinstallationid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AnalysisGateMode",
+            "default": "auto",
+            "description": "auto: 단순 레포면 분석 생략(skip). force: 단순해도 배포 단위를 분석한다."
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "저장소 안의 분석 위치. 생략하면 루트다.",
+            "examples": [
+              "."
+            ],
+            "title": "Rootdirectory"
+          },
+          "sourceBranch": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "생략하면 저장소 기본 브랜치다.",
+            "examples": [
+              "main"
+            ],
+            "title": "Sourcebranch"
+          },
+          "sourceRepositoryUrl": {
+            "examples": [
+              "https://github.com/iris-org/shop"
+            ],
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Sourcerepositoryurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceRepositoryUrl"
+        ],
+        "title": "CreateRepositoryAnalysisRequest",
+        "type": "object"
+      },
+      "CreateStackDeploymentRequest": {
+        "properties": {
+          "serviceIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "다시 배포할 서비스. 생략하면 스택 전체(이미 떠 있는 DB 는 다시 띄우지 않는다). 의존 순서(DB → 앱 → 나머지)로 앞 단계가 성공한 뒤 다음 단계가 시작한다.",
+            "title": "Serviceids"
+          },
+          "skipVariableValidation": {
+            "default": false,
+            "description": "true 면 환경변수 검증 error 가 있어도 배포한다(오탐 우회). 기본은 422.",
+            "title": "Skipvariablevalidation",
+            "type": "boolean"
+          }
+        },
+        "title": "CreateStackDeploymentRequest",
+        "type": "object"
+      },
+      "DatabaseConnectionResponse": {
+        "description": "관리형 DB 연결 정보. 비밀번호는 `****` 로 가린다. 앱은 참조 변수로 실제 값을 받는다.",
+        "properties": {
+          "properties": {
+            "description": "참조 변수로 쓸 수 있는 속성",
+            "items": {
+              "$ref": "#/components/schemas/ReferenceProperty"
+            },
+            "title": "Properties",
+            "type": "array"
+          },
+          "urlTemplate": {
+            "examples": [
+              "postgresql://app:****@app.svc-12.svc.cluster.local:5432/app"
+            ],
+            "title": "Urltemplate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "urlTemplate",
+          "properties"
+        ],
+        "title": "DatabaseConnectionResponse",
+        "type": "object"
+      },
+      "DatabaseEngine": {
+        "description": "관리형 DB 엔진. 분석기(`dependencies[].engine`)·chart(`database.engine`) 표기 그대로\n소문자다.",
+        "enum": [
+          "postgres",
+          "mysql",
+          "mongodb",
+          "redis"
+        ],
+        "title": "DatabaseEngine",
+        "type": "string"
+      },
+      "DatabaseInitScriptResponse": {
+        "description": "DB 를 처음 만들 때 한 번 실행하는 초기화 스크립트. 내용은 내지 않는다.",
+        "properties": {
+          "name": {
+            "description": "`/docker-entrypoint-initdb.d` 의 파일 이름(실행 순서)",
+            "examples": [
+              "00-schema.sql"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "레포 안 원본 경로",
+            "examples": [
+              "db/schema.sql"
+            ],
+            "title": "Path"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "바이트 수",
+            "examples": [
+              1827
+            ],
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "sha256",
+          "size"
+        ],
+        "title": "DatabaseInitScriptResponse",
+        "type": "object"
+      },
+      "DatabaseSettingsResponse": {
+        "properties": {
+          "database": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Database"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "initScripts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DatabaseInitScriptResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "레포 분석에서 옮긴 초기화 스크립트(apply 로 만든 DB 만). 데이터가 빈 첫 기동에만 이름순으로 한 번 실행되고, 이미 초기화된 DB 에는 다시 실행되지 않는다.",
+            "title": "Initscripts"
+          },
+          "storageGi": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "만든 뒤에는 바꿀 수 없다",
+            "title": "Storagegi"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          }
+        },
+        "title": "DatabaseSettingsResponse",
         "type": "object"
       },
       "DeploymentBuildConfigurationResponse": {
@@ -3876,10 +4843,86 @@
           "BUILD_INFRA_ERROR",
           "DEPLOY_FAILED",
           "DEPLOY_TIMED_OUT",
-          "DEPLOY_INFRA_ERROR"
+          "DEPLOY_INFRA_ERROR",
+          "VARIABLES_INVALID",
+          "DEPENDENCY_FAILED"
         ],
         "title": "FailureCode",
         "type": "string"
+      },
+      "HostAliasRequest": {
+        "properties": {
+          "name": {
+            "description": "DNS-1035 레이블(`app` 제외). 이 서비스 안에서 이 이름이 대상 서비스로 풀린다.",
+            "examples": [
+              "api"
+            ],
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "maximum": 65535.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "코드가 쓰는 포트(표시용)",
+            "examples": [
+              3000
+            ],
+            "title": "Port"
+          },
+          "targetServiceId": {
+            "description": "같은 프로젝트의 다른 서비스 id",
+            "examples": [
+              42
+            ],
+            "title": "Targetserviceid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "targetServiceId"
+        ],
+        "title": "HostAliasRequest",
+        "type": "object"
+      },
+      "HostAliasResponse": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "targetServiceId": {
+            "title": "Targetserviceid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "targetServiceId"
+        ],
+        "title": "HostAliasResponse",
+        "type": "object"
       },
       "InstallationResponse": {
         "properties": {
@@ -4650,6 +5693,19 @@
         "title": "ProjectUpdateRequest",
         "type": "object"
       },
+      "ReferenceProperty": {
+        "description": "참조 변수가 가리키는 다른 서비스의 연결 정보. 앱은 url·host·port 만 있다.",
+        "enum": [
+          "url",
+          "host",
+          "port",
+          "user",
+          "password",
+          "database"
+        ],
+        "title": "ReferenceProperty",
+        "type": "string"
+      },
       "RegistryCredentialsResponse": {
         "properties": {
           "expiresAt": {
@@ -5125,6 +6181,162 @@
         "title": "RepairResponse",
         "type": "object"
       },
+      "RepositoryAnalysisResponse": {
+        "properties": {
+          "appliedServiceIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "apply 로 만든 서비스 id. APPLIED 일 때만 있다.",
+            "title": "Appliedserviceids"
+          },
+          "complexity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateComplexity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateDecision"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SUCCEEDED 뒤에만 있다. skip 이면 기존 단일 서비스 생성 경로."
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisErrorCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FAILED 일 때 사유."
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errormessage"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AnalysisGateMode"
+          },
+          "projectId": {
+            "title": "Projectid",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "분석기 응답(`iris.analysis-gate.v1`) 원문. reasons·signals·simpleBuild·units·dependencies·questions 를 담는다.",
+            "title": "Result"
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "없으면 저장소 루트다.",
+            "title": "Rootdirectory"
+          },
+          "sourceBranch": {
+            "title": "Sourcebranch",
+            "type": "string"
+          },
+          "sourceRepositoryUrl": {
+            "title": "Sourcerepositoryurl",
+            "type": "string"
+          },
+          "sourceSha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "분석한(배포할) 고정 커밋.",
+            "title": "Sourcesha"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RepositoryAnalysisStatus",
+            "description": "QUEUED → RUNNING → SUCCEEDED | FAILED. apply 뒤에는 APPLIED."
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "status",
+          "sourceRepositoryUrl",
+          "sourceBranch",
+          "mode",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "RepositoryAnalysisResponse",
+        "type": "object"
+      },
+      "RepositoryAnalysisStatus": {
+        "description": "레포 구성 분석(Analysis Gate) 상태. APPLIED 는 분석 결과로 서비스를 만든 뒤다.",
+        "enum": [
+          "QUEUED",
+          "RUNNING",
+          "SUCCEEDED",
+          "FAILED",
+          "APPLIED"
+        ],
+        "title": "RepositoryAnalysisStatus",
+        "type": "string"
+      },
       "RepositoryResponse": {
         "properties": {
           "defaultBranch": {
@@ -5198,9 +6410,66 @@
         "title": "ResourceRequirements",
         "type": "object"
       },
+      "ServiceAnalysisGateResponse": {
+        "description": "서비스를 만들 때 쓴 레포 구성 분석. unitId 가 있으면 분석 결과의 배포 단위로 만들었다.",
+        "properties": {
+          "analysisId": {
+            "title": "Analysisid",
+            "type": "integer"
+          },
+          "complexity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateComplexity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisGateDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unitid"
+          }
+        },
+        "required": [
+          "analysisId"
+        ],
+        "title": "ServiceAnalysisGateResponse",
+        "type": "object"
+      },
       "ServiceCreateRequest": {
         "description": "저장소를 연결해 서비스를 만든다. 이름·브랜치를 생략하면 저장소 이름·기본 브랜치를 쓴다.",
         "properties": {
+          "analysisId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "같은 저장소·rootDirectory 를 분석해 끝난(SUCCEEDED) 레포 구성 분석 id. 결정을 `analysisGate` 로 남기고, 분석 생략(skip)이면 분석기가 고른 빌더·Dockerfile 경로를 기본값으로 쓴다. 다른 저장소·위치의 분석이면 422, 끝나지 않았으면 409.",
+            "title": "Analysisid"
+          },
           "branch": {
             "anyOf": [
               {
@@ -5339,8 +6608,28 @@
         "title": "ServiceDomainResponse",
         "type": "object"
       },
+      "ServiceKind": {
+        "description": "APP 은 소스를 빌드해 띄우는 앱, DATABASE 는 빌드 없이 고정 공식 이미지로 띄우는 관리형 DB.",
+        "enum": [
+          "APP",
+          "DATABASE"
+        ],
+        "title": "ServiceKind",
+        "type": "string"
+      },
       "ServiceResponse": {
         "properties": {
+          "analysisGate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAnalysisGateResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "레포 구성 분석으로 만든 서비스면 그 분석. 분석 없이 만들었으면 없다."
+          },
           "buildCommand": {
             "anyOf": [
               {
@@ -5362,10 +6651,42 @@
               }
             ]
           },
+          "connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatabaseConnectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "kind=DATABASE 일 때만 있다"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
             "type": "string"
+          },
+          "database": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatabaseSettingsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "관리형 DB 설정. 데모용 단일 인스턴스, 백업 없음, 삭제 시 데이터 소실"
+          },
+          "databaseEngine": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatabaseEngine"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "deploymentStrategy": {
             "$ref": "#/components/schemas/DeploymentStrategy",
@@ -5373,6 +6694,18 @@
             "examples": [
               "ROLLING"
             ]
+          },
+          "dockerTarget": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dockerfile `--target` 스테이지. 없으면 마지막 스테이지다.",
+            "title": "Dockertarget"
           },
           "dockerfilePath": {
             "anyOf": [
@@ -5385,13 +6718,47 @@
             ],
             "title": "Dockerfilepath"
           },
+          "hostAliases": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HostAliasResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hostaliases"
+          },
           "id": {
             "title": "Id",
+            "type": "integer"
+          },
+          "internalHost": {
+            "description": "같은 프로젝트 다른 서비스가 부르는 클러스터 내부 주소",
+            "examples": [
+              "app.svc-12.svc.cluster.local"
+            ],
+            "title": "Internalhost",
+            "type": "string"
+          },
+          "internalPort": {
+            "description": "내부 주소의 포트",
+            "examples": [
+              5432
+            ],
+            "title": "Internalport",
             "type": "integer"
           },
           "isAutoDeploy": {
             "title": "Isautodeploy",
             "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ServiceKind",
+            "description": "APP(소스를 빌드하는 앱) · DATABASE(고정 공식 이미지의 개발용 DB)"
           },
           "latestDeployment": {
             "anyOf": [
@@ -5427,6 +6794,14 @@
             "title": "Projectid",
             "type": "integer"
           },
+          "referenceProperties": {
+            "description": "다른 서비스의 참조 변수가 이 서비스에서 가리킬 수 있는 속성",
+            "items": {
+              "$ref": "#/components/schemas/ReferenceProperty"
+            },
+            "title": "Referenceproperties",
+            "type": "array"
+          },
           "rootDirectory": {
             "anyOf": [
               {
@@ -5445,6 +6820,17 @@
           "sourceRepositoryUrl": {
             "title": "Sourcerepositoryurl",
             "type": "string"
+          },
+          "stack": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceStackResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "같은 레포 분석에서 함께 만든 스택. 단일 서비스는 없다."
           },
           "startCommand": {
             "anyOf": [
@@ -5480,6 +6866,10 @@
           "platform",
           "targetIds",
           "deploymentStrategy",
+          "kind",
+          "internalHost",
+          "internalPort",
+          "referenceProperties",
           "createdAt",
           "updatedAt"
         ],
@@ -5517,6 +6907,31 @@
           "resources"
         ],
         "title": "ServiceScalingResponse",
+        "type": "object"
+      },
+      "ServiceStackResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "unitId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "분석기 unit·dependency id",
+            "title": "Unitid"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ServiceStackResponse",
         "type": "object"
       },
       "ServiceUpdateRequest": {
@@ -5559,6 +6974,22 @@
               "CANARY"
             ]
           },
+          "dockerTarget": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dockerfile 멀티 스테이지 빌드의 `--target` 스테이지 이름 (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`). dockerfile 빌더에서만 쓰고 railpack 은 무시한다. null 이면 마지막 스테이지다. 레포의 iris.json `build.dockerTarget` 이 있으면 그 값이 우선한다.",
+            "examples": [
+              "api"
+            ],
+            "title": "Dockertarget"
+          },
           "dockerfilePath": {
             "anyOf": [
               {
@@ -5570,6 +7001,21 @@
               }
             ],
             "title": "Dockerfilepath"
+          },
+          "hostAliases": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HostAliasRequest"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "호스트 별칭 전체(교체). null·빈 배열이면 모두 지운다. compose 호스트명(`api`)을 같은 프로젝트 서비스로 잇는다. 기능이 꺼져 있거나 on-prem 타깃이면 `422 INVALID_INPUT`(reason `project_networking_disabled`·`networking_unsupported_target`).",
+            "title": "Hostaliases"
           },
           "isAutoDeploy": {
             "anyOf": [
@@ -5696,6 +7142,33 @@
         "title": "ServiceVariablesResponse",
         "type": "object"
       },
+      "ServiceVariablesValidationResponse": {
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/VariableIssueResponse"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "ok": {
+            "description": "error 가 없으면 true (warning 은 있어도 된다)",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "serviceId": {
+            "title": "Serviceid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "issues",
+          "serviceId"
+        ],
+        "title": "ServiceVariablesValidationResponse",
+        "type": "object"
+      },
       "SourceAnalysis": {
         "description": "소스 코드까지 본 결과. 소스가 없거나 읽지 못해도 로그 진단은 유지된다.",
         "properties": {
@@ -5820,6 +7293,310 @@
           "hypothesisIds"
         ],
         "title": "SourceFinding",
+        "type": "object"
+      },
+      "StackChangeResponse": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "initScripts"
+            ],
+            "title": "Field"
+          },
+          "from": {
+            "description": "이전 값. initScripts 면 [{path, sha256}] (실행될 스크립트만, 순서대로)",
+            "title": "From"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "사용자 안내. 초기화 스크립트는 DB 를 처음 만들 때만 실행되고 이미 있는 DB 에는 다시 실행되지 않는다.",
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DEPENDENCY_CHANGED 의 사유. init_scripts_changed = 초기화 스크립트가 바뀜",
+            "examples": [
+              "init_scripts_changed"
+            ],
+            "title": "Reason"
+          },
+          "serviceId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "apply 응답에서 바뀐 의존성의 기존 DB 서비스 id",
+            "title": "Serviceid"
+          },
+          "to": {
+            "title": "To"
+          },
+          "type": {
+            "description": "UNIT_ADDED·UNIT_REMOVED·UNIT_CHANGED·DEPENDENCY_ADDED·DEPENDENCY_REMOVED·DEPENDENCY_CHANGED",
+            "title": "Type",
+            "type": "string"
+          },
+          "unitId": {
+            "title": "Unitid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "unitId"
+        ],
+        "title": "StackChangeResponse",
+        "type": "object"
+      },
+      "StackPendingChangesResponse": {
+        "properties": {
+          "analysisId": {
+            "description": "이 분석을 apply 하면 증분 적용된다",
+            "title": "Analysisid",
+            "type": "integer"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/StackChangeResponse"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "detectedAt": {
+            "format": "date-time",
+            "title": "Detectedat",
+            "type": "string"
+          },
+          "sourceSha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcesha"
+          }
+        },
+        "required": [
+          "analysisId",
+          "detectedAt",
+          "changes"
+        ],
+        "title": "StackPendingChangesResponse",
+        "type": "object"
+      },
+      "StackResponse": {
+        "properties": {
+          "analysisId": {
+            "description": "스택의 기준(마지막으로 apply 한) 분석",
+            "title": "Analysisid",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "isDeploying": {
+            "title": "Isdeploying",
+            "type": "boolean"
+          },
+          "latestStackDeploymentId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lateststackdeploymentid"
+          },
+          "pendingChanges": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StackPendingChangesResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "푸시 재분석이 기준과 다르면 있다. 그 분석을 apply 하면 지워진다."
+          },
+          "projectId": {
+            "title": "Projectid",
+            "type": "integer"
+          },
+          "repositoryUrl": {
+            "title": "Repositoryurl",
+            "type": "string"
+          },
+          "rootDirectory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rootdirectory"
+          },
+          "services": {
+            "description": "배포 순서(order)대로",
+            "items": {
+              "$ref": "#/components/schemas/StackServiceResponse"
+            },
+            "title": "Services",
+            "type": "array"
+          },
+          "sourceBranch": {
+            "title": "Sourcebranch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "repositoryUrl",
+          "sourceBranch",
+          "analysisId",
+          "services",
+          "isDeploying"
+        ],
+        "title": "StackResponse",
+        "type": "object"
+      },
+      "StackServiceResponse": {
+        "properties": {
+          "dependsOn": {
+            "description": "이 서비스가 쓰는 같은 스택의 unitId",
+            "items": {
+              "type": "string"
+            },
+            "title": "Dependson",
+            "type": "array"
+          },
+          "deploymentId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deploymentid"
+          },
+          "failureCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "heldBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "HELD 일 때 막은 앞 단계 unitId",
+            "title": "Heldby"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ServiceKind"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "order": {
+            "description": "배포 순서. 1 = DB, 2 = DB 를 쓰는 앱, 3 = 그 앱을 쓰는 앱 …",
+            "title": "Order",
+            "type": "integer"
+          },
+          "serviceId": {
+            "title": "Serviceid",
+            "type": "integer"
+          },
+          "status": {
+            "description": "배포 상태(deployment_status) 또는 HELD(앞 단계 실패로 시작 안 함)·NOT_DEPLOYED. 앞 단계를 기다리는 동안은 QUEUED 이고 waitingFor 가 있다.",
+            "examples": [
+              "SUCCEEDED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unitId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unitid"
+          },
+          "waitingFor": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "QUEUED 로 기다리는 앞 단계 unitId",
+            "title": "Waitingfor"
+          }
+        },
+        "required": [
+          "serviceId",
+          "name",
+          "kind",
+          "order",
+          "dependsOn",
+          "status"
+        ],
+        "title": "StackServiceResponse",
         "type": "object"
       },
       "SystemVariableResponse": {
@@ -6077,7 +7854,7 @@
         "type": "object"
       },
       "VariableCreateRequest": {
-        "description": "변수 하나를 만든다. 키는 영문·숫자·밑줄이고 숫자로 시작하지 않는다.",
+        "description": "변수 하나를 만든다. 키는 영문·숫자·밑줄이고 숫자로 시작하지 않는다. 값과 참조 중 하나다.",
         "properties": {
           "key": {
             "examples": [
@@ -6088,21 +7865,152 @@
             "title": "Key",
             "type": "string"
           },
+          "reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariableReferenceSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "값 대신 다른 서비스의 연결 정보를 가리킨다. 같은 프로젝트의 다른 서비스여야 하고 기능이 켜진 AWS 타깃에서만 쓴다(아니면 422)."
+          },
           "value": {
-            "description": "빈 문자열도 허용한다.",
+            "anyOf": [
+              {
+                "maxLength": 32768,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "빈 문자열도 허용한다. reference 와 함께 보내지 않는다.",
             "examples": [
               "postgres://..."
             ],
-            "maxLength": 32768,
-            "title": "Value",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "VariableCreateRequest",
+        "type": "object"
+      },
+      "VariableIssueCode": {
+        "enum": [
+          "REQUIRED_MISSING",
+          "LOCALHOST_ADDRESS",
+          "UNRESOLVABLE_HOST",
+          "SCHEME_MISMATCH",
+          "REFERENCE_BROKEN"
+        ],
+        "title": "VariableIssueCode",
+        "type": "string"
+      },
+      "VariableIssueResponse": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/VariableIssueCode"
+          },
+          "key": {
+            "title": "Key",
             "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/VariableIssueSeverity",
+            "description": "error 는 배포 요청을 막는다(422)"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariableSuggestionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "같은 프로젝트에 맞는 서비스가 있으면 그 참조로 바꾸자는 제안"
           }
         },
         "required": [
           "key",
-          "value"
+          "severity",
+          "code",
+          "message"
         ],
-        "title": "VariableCreateRequest",
+        "title": "VariableIssueResponse",
+        "type": "object"
+      },
+      "VariableIssueSeverity": {
+        "description": "error 는 배포 요청을 막고(422 VARIABLES_INVALID), warning 은 알리기만 한다.",
+        "enum": [
+          "error",
+          "warning"
+        ],
+        "title": "VariableIssueSeverity",
+        "type": "string"
+      },
+      "VariableReferenceSchema": {
+        "description": "같은 프로젝트 다른 서비스의 연결 정보. 배포 직전에 그 서비스의 지금 값으로 풀린다.",
+        "properties": {
+          "property": {
+            "$ref": "#/components/schemas/ReferenceProperty",
+            "description": "DB: url·host·port·user·password·database(redis 는 database 없음). 앱: url·host·port",
+            "examples": [
+              "url"
+            ]
+          },
+          "scheme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "property=url 일 때 URL 스킴(`^[a-z][a-z0-9+.-]*$`, 예: `postgres+asyncpg`). 생략하면 앱은 `http`, DB 는 엔진 기본 스킴이다.",
+            "examples": [
+              "http"
+            ],
+            "title": "Scheme"
+          },
+          "serviceId": {
+            "examples": [
+              12
+            ],
+            "exclusiveMinimum": 0.0,
+            "title": "Serviceid",
+            "type": "integer"
+          },
+          "suffix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "property=url 일 때 호스트·포트 뒤에 그대로 붙는 경로+쿼리+프래그먼트. `/`·`?`·`#` 로 시작하고 공백·제어 문자 없이 2048자 이하다. DB 는 자격 증명을 플랫폼 값으로 두고, suffix 에 경로가 있으면 기본 데이터베이스 경로 대신 쓴다.",
+            "examples": [
+              "/api/v1?tenant=demo"
+            ],
+            "title": "Suffix"
+          }
+        },
+        "required": [
+          "serviceId",
+          "property"
+        ],
+        "title": "VariableReferenceSchema",
         "type": "object"
       },
       "VariableResponse": {
@@ -6111,33 +8019,93 @@
             "title": "Key",
             "type": "string"
           },
+          "reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariableReferenceSchema"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "참조 변수가 배포 때 들어갈 값의 미리보기. 비밀번호는 `****` 로 가린다. 대상이 없어졌으면 없다.",
+            "examples": [
+              "postgresql://app:****@app.svc-12.svc.cluster.local:5432/app"
+            ],
+            "title": "Resolved"
+          },
           "value": {
-            "title": "Value",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "값 변수의 평문(소유자에게만). 참조 변수는 없다.",
+            "title": "Value"
           }
         },
         "required": [
-          "key",
-          "value"
+          "key"
         ],
         "title": "VariableResponse",
         "type": "object"
       },
-      "VariableUpdateRequest": {
+      "VariableSuggestionResponse": {
         "properties": {
-          "value": {
-            "description": "빈 문자열도 허용한다.",
-            "examples": [
-              "postgres://..."
-            ],
-            "maxLength": 32768,
-            "title": "Value",
-            "type": "string"
+          "reference": {
+            "$ref": "#/components/schemas/VariableReferenceSchema"
           }
         },
         "required": [
-          "value"
+          "reference"
         ],
+        "title": "VariableSuggestionResponse",
+        "type": "object"
+      },
+      "VariableUpdateRequest": {
+        "description": "값 변수를 참조로, 참조를 값으로 바꿀 수도 있다.",
+        "properties": {
+          "reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariableReferenceSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "값 대신 다른 서비스의 연결 정보를 가리킨다. 같은 프로젝트의 다른 서비스여야 하고 기능이 켜진 AWS 타깃에서만 쓴다(아니면 422)."
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 32768,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "빈 문자열도 허용한다. reference 와 함께 보내지 않는다.",
+            "examples": [
+              "postgres://..."
+            ],
+            "title": "Value"
+          }
+        },
         "title": "VariableUpdateRequest",
         "type": "object"
       },
@@ -6158,6 +8126,28 @@
           "raw"
         ],
         "title": "VariablesRawRequest",
+        "type": "object"
+      },
+      "VariablesValidationResponse": {
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/VariableIssueResponse"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "ok": {
+            "description": "error 가 없으면 true (warning 은 있어도 된다)",
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "issues"
+        ],
+        "title": "VariablesValidationResponse",
         "type": "object"
       },
       "WebhookReceiptResponse": {
@@ -6182,6 +8172,19 @@
             ],
             "title": "Ishandled",
             "type": "boolean"
+          },
+          "repositoryAnalysisIds": {
+            "description": "스택 레포 push 로 같은 커밋에 다시 접수한 레포 구성 분석 ID",
+            "examples": [
+              [
+                7
+              ]
+            ],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Repositoryanalysisids",
+            "type": "array"
           }
         },
         "required": [
@@ -6280,7 +8283,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6290,7 +8293,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -6363,7 +8366,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6373,7 +8376,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "429": {
             "content": {
@@ -6518,7 +8521,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -6528,7 +8531,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -6740,7 +8743,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -6833,7 +8836,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -6932,7 +8935,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -7089,7 +9092,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7099,7 +9102,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -7169,7 +9172,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -7231,7 +9234,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -7311,7 +9314,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "502": {
             "content": {
@@ -7382,7 +9385,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7392,7 +9395,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7402,7 +9405,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -7461,7 +9464,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7471,7 +9474,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -7532,7 +9535,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7542,7 +9545,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7552,7 +9555,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -7636,7 +9639,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -7693,7 +9696,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7703,7 +9706,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -7756,7 +9759,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7766,7 +9769,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7776,7 +9779,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -7834,7 +9837,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -7844,7 +9847,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -7912,7 +9915,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -7922,7 +9925,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -7932,7 +9935,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -7946,6 +9949,434 @@
         "summary": "프로젝트 수정",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/databases": {
+      "post": {
+        "operationId": "create_database_api_v1_projects__project_id__databases_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatabaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ServiceResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "관리형 DB 서비스 생성 (개발용 단일 인스턴스, 자동 배포 접수)",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/repository-analyses": {
+      "post": {
+        "operationId": "create_repository_analysis_api_v1_projects__project_id__repository_analyses_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRepositoryAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepositoryAnalysisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "레포 구성 분석 접수 (Build Worker 가 실행, GET 으로 폴링)",
+        "tags": [
+          "repository-analyses"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/repository-analyses/{analysis_id}": {
+      "get": {
+        "operationId": "get_repository_analysis_api_v1_projects__project_id__repository_analyses__analysis_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "analysis_id",
+            "required": true,
+            "schema": {
+              "title": "Analysis Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RepositoryAnalysisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "레포 구성 분석 조회",
+        "tags": [
+          "repository-analyses"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/repository-analyses/{analysis_id}/apply": {
+      "post": {
+        "operationId": "apply_repository_analysis_api_v1_projects__project_id__repository_analyses__analysis_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "analysis_id",
+            "required": true,
+            "schema": {
+              "title": "Analysis Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRepositoryAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ApplyRepositoryAnalysisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "권한이 없다 (FORBIDDEN · REPOSITORY_NOT_ACCESSIBLE)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "레포 구성 분석의 배포 단위마다 서비스 생성 (멱등)",
+        "tags": [
+          "repository-analyses"
         ]
       }
     },
@@ -7992,7 +10423,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8002,7 +10433,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -8090,7 +10521,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8100,7 +10531,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -8110,7 +10541,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -8144,6 +10575,293 @@
         "summary": "서비스 생성 (저장소 연결)",
         "tags": [
           "services"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stacks": {
+      "get": {
+        "operationId": "search_stacks_api_v1_projects__project_id__stacks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_StackResponse__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "스택 목록 (서비스·배포 순서·의존 그래프·최근 상태·변경 감지)",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stacks/{stack_id}": {
+      "get": {
+        "operationId": "get_stack_api_v1_projects__project_id__stacks__stack_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack_id",
+            "required": true,
+            "schema": {
+              "title": "Stack Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_StackResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "스택 조회",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stacks/{stack_id}/deployments": {
+      "post": {
+        "operationId": "create_stack_deployment_api_v1_projects__project_id__stacks__stack_id__deployments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack_id",
+            "required": true,
+            "schema": {
+              "title": "Stack Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "같은 값으로 다시 보내면 새로 만들지 않고 지금 스택 상태를 돌려준다.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "같은 값으로 다시 보내면 새로 만들지 않고 지금 스택 상태를 돌려준다.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStackDeploymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_StackResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "외부 시스템(GitHub·Loki·Prometheus·진단 에이전트·S3·STS·ECR) 호출에 실패했다 (EXTERNAL_ERROR)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "스택 재배포 (DB → 의존 앱 → 나머지 순서)",
+        "tags": [
+          "stacks"
         ]
       }
     },
@@ -8183,7 +10901,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8193,7 +10911,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -8203,7 +10921,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -8271,7 +10989,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8281,7 +10999,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -8359,7 +11077,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8369,7 +11087,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -8379,7 +11097,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -8484,7 +11202,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8494,7 +11212,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -8581,7 +11299,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8591,7 +11309,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -8601,7 +11319,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -8690,7 +11408,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8700,7 +11418,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -8801,7 +11519,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -8811,7 +11529,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -8821,7 +11539,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -8944,7 +11662,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -8954,7 +11672,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -9128,7 +11846,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9138,7 +11856,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -9250,7 +11968,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9260,7 +11978,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -9270,7 +11988,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -9350,7 +12068,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9360,7 +12078,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -9525,7 +12243,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9535,7 +12253,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -9644,7 +12362,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9654,7 +12372,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -9664,7 +12382,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -9785,7 +12503,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -9795,7 +12513,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -9805,7 +12523,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -9894,7 +12612,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9904,7 +12622,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -9964,7 +12682,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -9974,7 +12692,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -10087,7 +12805,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10097,7 +12815,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -10233,7 +12951,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10243,7 +12961,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -10381,7 +13099,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10391,7 +13109,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -10471,7 +13189,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10481,7 +13199,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -10634,7 +13352,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -10723,7 +13441,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10733,7 +13451,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           }
         },
         "security": [
@@ -10804,7 +13522,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -10814,7 +13532,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -10913,7 +13631,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -10923,7 +13641,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -10933,7 +13651,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -11032,7 +13750,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11042,7 +13760,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -11052,7 +13770,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -11151,7 +13869,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11161,7 +13879,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -11171,7 +13889,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -11251,7 +13969,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11261,7 +13979,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -11360,7 +14078,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11370,7 +14088,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -11380,7 +14098,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -11493,7 +14211,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11503,7 +14221,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -11614,7 +14332,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "413": {
             "content": {
@@ -11644,7 +14362,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "502": {
             "content": {
@@ -11724,7 +14442,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11734,7 +14452,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -11812,7 +14530,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "409": {
             "content": {
@@ -11822,7 +14540,7 @@
                 }
               }
             },
-            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED)"
+            "description": "현재 상태와 충돌한다. 이미 있는 이름이거나 진행 중인 배포가 있다 (CONFLICT · PROJECT_NAME_CONFLICT · SERVICE_NAME_CONFLICT · VARIABLE_CONFLICT · DEPLOYMENT_IN_PROGRESS · DEPLOYMENT_NOT_FAILED · DIAGNOSIS_IN_PROGRESS · DIAGNOSIS_LOGS_UNAVAILABLE · UPLOAD_UNAVAILABLE · INVALID_STATUS_TRANSITION · TARGET_NOT_CONNECTED · ONPREM_SERVER_NAME_CONFLICT · ONPREM_SERVER_LIMIT_EXCEEDED · ONPREM_SERVER_IN_USE · ONPREM_SERVER_NOT_CONNECTED · REPOSITORY_ANALYSIS_NOT_READY)"
           },
           "422": {
             "content": {
@@ -11832,7 +14550,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -11853,7 +14571,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "환경변수 추가",
+        "summary": "환경변수 추가 (값 또는 다른 서비스 연결 정보 참조)",
         "tags": [
           "variables"
         ]
@@ -11910,7 +14628,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -11920,7 +14638,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -11942,6 +14660,86 @@
           }
         ],
         "summary": "환경변수 Raw(.env) 일괄 저장 (전체 교체)",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
+    "/api/v1/services/{service_id}/variables/validation": {
+      "get": {
+        "operationId": "validate_variables_api_v1_services__service_id__variables_validation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "title": "Service Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_VariablesValidationResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "로그인이 필요하다. 웹훅은 서명이, 온프레미스 서버 API 는 등록 토큰·서버 비밀이 올바르지 않을 때 (UNAUTHORIZED · INVALID_REGISTRATION_TOKEN)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "필요한 설정이 없다 (NOT_CONFIGURED)"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "배포 전 환경변수 검증 (필수 키·localhost·호스트·스킴·참조)",
         "tags": [
           "variables"
         ]
@@ -11992,7 +14790,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12002,7 +14800,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -12089,7 +14887,7 @@
                 }
               }
             },
-            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
+            "description": "대상을 찾을 수 없다 (NOT_FOUND · PROJECT_NOT_FOUND · SERVICE_NOT_FOUND · DEPLOYMENT_REQUEST_NOT_FOUND · VARIABLE_NOT_FOUND · DIAGNOSIS_NOT_FOUND · UPLOAD_NOT_FOUND · REPOSITORY_ANALYSIS_NOT_FOUND · STACK_NOT_FOUND · ONPREM_SERVER_NOT_FOUND)"
           },
           "422": {
             "content": {
@@ -12099,7 +14897,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -12120,7 +14918,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "환경변수 값 수정",
+        "summary": "환경변수 값·참조 수정",
         "tags": [
           "variables"
         ]
@@ -12252,7 +15050,7 @@
                 }
               }
             },
-            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT)"
+            "description": "입력이 올바르지 않다 (VALIDATION_ERROR · INVALID_INPUT · VARIABLE_REFERENCE_INVALID). 배포 요청은 환경변수 검증 error 가 있으면 VARIABLES_INVALID(`data.issues`)"
           },
           "503": {
             "content": {
@@ -12332,6 +15130,14 @@
     {
       "description": "저장소와 연결된 서비스(사용자 앱)",
       "name": "services"
+    },
+    {
+      "description": "서비스 생성 전 레포 구성 분석(Analysis Gate). 단순 레포는 분석을 생략하고, 복합 레포는 배포 단위마다 서비스를 만든다",
+      "name": "repository-analyses"
+    },
+    {
+      "description": "한 레포 분석에서 만든 서비스 묶음(앱 + 관리형 DB): DB 생성, 의존 순서(DB → 앱 → 나머지) 재배포, 구성·상태·푸시 재분석 변경 감지 조회",
+      "name": "stacks"
     },
     {
       "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)",

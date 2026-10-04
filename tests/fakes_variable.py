@@ -1,6 +1,8 @@
 """서비스 환경변수 테스트용 인메모리 Repository."""
 
+from collections.abc import Collection
 from itertools import count
+from typing import Any
 
 from cryptography.fernet import Fernet
 
@@ -30,11 +32,17 @@ class FakeServiceVariableRepository:
         )
 
     async def add_if_absent(
-        self, service_id: int, key: str, encrypted_value: str
+        self,
+        service_id: int,
+        key: str,
+        encrypted_value: str | None,
+        reference: dict[str, Any] | None = None,
     ) -> ServiceVariable | None:
         if await self.find_by_service_id_and_key(service_id, key) is not None:
             return None
-        variable = ServiceVariable(service_id=service_id, key=key, encrypted_value=encrypted_value)
+        variable = ServiceVariable(
+            service_id=service_id, key=key, encrypted_value=encrypted_value, reference=reference
+        )
         variable.id = next(self._ids)
         variable.created_at = variable.updated_at = now_utc()
         self.variables.append(variable)
@@ -43,9 +51,16 @@ class FakeServiceVariableRepository:
     async def delete(self, variable: ServiceVariable) -> None:
         self.variables.remove(variable)
 
-    async def replace_all(self, service_id: int, encrypted_values: dict[str, str]) -> None:
+    async def replace_all(
+        self,
+        service_id: int,
+        encrypted_values: dict[str, str],
+        keep_keys: Collection[str] = (),
+    ) -> None:
         self.variables = [
-            v for v in self.variables if v.service_id != service_id or v.key in encrypted_values
+            v
+            for v in self.variables
+            if v.service_id != service_id or v.key in encrypted_values or v.key in keep_keys
         ]
         for key, value in encrypted_values.items():
             existing = await self.find_by_service_id_and_key(service_id, key)
@@ -53,6 +68,7 @@ class FakeServiceVariableRepository:
                 await self.add_if_absent(service_id, key, value)
             else:
                 existing.encrypted_value = value
+                existing.reference = None
 
 
 OWNER = 1

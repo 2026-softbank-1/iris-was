@@ -9,6 +9,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -23,13 +24,16 @@ from app.core.config import DeployWorkerSettings
 from app.core.crypto import VariableCipher
 from app.core.exceptions import (
     ConflictError,
+    DatabaseInitScriptsInvalidError,
     ExternalError,
     NotConfiguredError,
     NotFoundError,
+    VariableReferenceBrokenError,
 )
 from app.enums import (
     APP_PORT,
     Builder,
+    DatabaseEngine,
     DeploymentStatus,
     DeploymentStrategy,
     Environment,
@@ -40,15 +44,27 @@ from app.enums import (
 from app.models import Job, Release
 from app.models.target import AWS_TARGET_NAME, Target
 from app.repositories.build_repository import BuildRepository
+from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.release_repository import ReleaseRepository
+from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.services.builder_detection import DeployConfig
+from app.services.database_engines import DEFAULT_STORAGE_GI, get_engine_spec
+from app.services.database_init_scripts import render_init_scripts
+from app.services.deployment_request_service import SNAPSHOT_REFERENCE_KEY
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.deployment_strategy import PROGRESSIVE_TARGET_KINDS, strategy_extra_wait
 from app.services.domain_service import service_host_label, target_server_key
 from app.services.gitops_writer import GitOpsWriter
 from app.services.scaling_config import ScalingConfig
+from app.services.service_networking import (
+    container_port,
+    internal_host,
+    is_networking_available,
+)
+from app.services.variable_references import ReferenceResolver, VariableReference
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +135,7 @@ def render_service_values(
     variables: Mapping[str, Any] | None = None,
     scaling: ScalingConfig | None = None,
     deployment_strategy: DeploymentStrategy | None = None,
+    networking: "NetworkingValues | None" = None,
     image_pull_secrets: list[str] | None = None,
 ) -> str:
     """services/{service_id}/{타깃 디렉터리}/values.yaml 내용. iris-service chart 의 values 다.
@@ -129,6 +146,8 @@ def render_service_values(
     `iris`(서비스·타깃 이름, 배포 요청 id)와 `variables`(봉인한 사용자 변수 `name`·`encryptedData`,
     평문은 받지 않는다)는 chart 0.6.0 부터 받는다. 없으면 쓰지 않아 이전 chart 도 렌더링된다.
     `deployment_strategy` 는 chart 0.7.0 부터 받는다. 없으면 chart 가 ROLLING 으로 렌더링한다.
+    `networking`(projectId·service.exposeContainerPort·hostAliases, 스택 앱의 containerPort)은 chart
+    0.9.0 부터 받는다. 없으면 쓰지 않아 이전 values 와 바이트까지 같다.
     `image_pull_secrets` 는 chart 0.8.0 부터 받는다. 사용자가 등록한 서버 타깃에만 쓴다.
     """
     health: dict[str, Any] = {"timeoutSeconds": deploy.healthcheck_timeout}
@@ -144,7 +163,7 @@ def render_service_values(
     values: dict[str, Any] = {
         "image": {"repository": image_repository, "digest": image_digest},
         "release": release,
-        "containerPort": APP_PORT,
+        "containerPort": networking.container_port if networking is not None else APP_PORT,
         "health": health,
         "route": {"host": f"{host_label}.{base_domain}"},
     }
@@ -157,12 +176,68 @@ def render_service_values(
         values.update(scaling.model_dump(mode="json"))
     if deployment_strategy is not None:
         values["deploymentStrategy"] = deployment_strategy.value
+    if networking is not None:
+        values["projectId"] = networking.project_id
+        values["service"] = {"exposeContainerPort": True}
+        if networking.host_aliases:
+            values["hostAliases"] = list(networking.host_aliases)
     if image_pull_secrets:
         values["imagePullSecrets"] = [{"name": name} for name in image_pull_secrets]
     # Railpack 은 빌드 때 start command 를 이미지에 넣는다. Dockerfile 은 ENTRYPOINT·CMD 를
     # exec form 으로 덮어쓴다(셸을 거치지 않아 $VAR 가 풀리지 않는다. 필요하면 sh -c 로 감싼다).
     if builder == Builder.DOCKERFILE and deploy.start_command_args:
         values["command"] = deploy.start_command_args
+    return json.dumps(values, indent=2, sort_keys=True) + "\n"
+
+
+@dataclass(frozen=True)
+class NetworkingValues:
+    """chart 0.9.0 의 프로젝트 내부 통신 값. projectId 는 라벨이라 문자열로 쓴다."""
+
+    project_id: str
+    container_port: int = APP_PORT
+    # [{name, target}] (target = app.svc-{id}.svc.cluster.local)
+    host_aliases: tuple[dict[str, str], ...] = ()
+
+
+def render_database_values(
+    *,
+    release_id: int,
+    project_id: str,
+    engine: DatabaseEngine,
+    image: str,
+    storage_gi: int,
+    port: int,
+    iris: Mapping[str, Any] | None = None,
+    variables: Mapping[str, Any] | None = None,
+    replicas: int = 1,
+    init_scripts: list[dict[str, str]] | None = None,
+) -> str:
+    """관리형 DB 의 values.yaml(chart 0.9.0 `workload.kind: database`). 빌드 이미지·command 는 없다.
+
+    자격 증명은 봉인한 variables 로만 들어간다. storageClassName·resources 는 chart·타깃 기본값이다.
+    replicas 는 0(정지) 또는 1 이다. init_scripts(`[{name, content|binaryContent}]`)는 chart 가
+    ConfigMap `app-initdb` 로 `/docker-entrypoint-initdb.d` 에 넣어 데이터 디렉터리가 빈 첫 기동에만
+    실행된다. 없으면 키를 쓰지 않는다.
+    """
+    values: dict[str, Any] = {
+        "workload": {"kind": "database"},
+        "projectId": project_id,
+        "release": {"id": release_id},
+        "replicas": min(1, max(0, replicas)),
+        "database": {
+            "engine": engine.value,
+            "image": image,
+            "storage": f"{storage_gi}Gi",
+            "port": port,
+        },
+    }
+    if init_scripts:
+        values["database"]["initScripts"] = [dict(script) for script in init_scripts]
+    if iris is not None:
+        values["iris"] = dict(iris)
+    if variables is not None:
+        values["variables"] = dict(variables)
     return json.dumps(values, indent=2, sort_keys=True) + "\n"
 
 
@@ -257,7 +332,13 @@ class DeployService:
                 await JobRepository(session).mark_succeeded(job.id)
             return
         if release.deadline_at is None:
-            await self._push_deploy_commit(job, release)
+            try:
+                await self._push_deploy_commit(job, release)
+            except (VariableReferenceBrokenError, DatabaseInitScriptsInvalidError) as exc:
+                # 참조 대상이 지워졌거나 초기화 스크립트를 values 로 옮길 수 없다. 다시 해도 같으니
+                # 재시도하지 않는다(배포 전 검증·분석 한도가 보통 막는다).
+                await self._give_up(job, _describe(exc))
+                return
         deploy = DeployConfig.model_validate(release.build.deploy_config or {})
         async with self._session_factory.begin() as session:
             release = await ReleaseRepository(session).get_by_id(release.id, for_update=True)
@@ -317,39 +398,11 @@ class DeployService:
 
     async def _push_deploy_commit(self, job: Job, release: Release) -> None:
         target = release.target
-        if target.domain_suffix is None:
+        service = release.deployment_request.service
+        if target.domain_suffix is None and not service.is_database:
             raise NotConfiguredError("target has no domain suffix", target=target.name)
         token = await self._gitops_token()
-        service = release.deployment_request.service
-        build = release.build
-        assert build.image_repository is not None and build.source_sha is not None
-        assert build.builder is not None
-        variables = await self._seal_variables(release)
-        files = {
-            VALUES_FILE_NAME: render_service_values(
-                host_label=service_host_label(service.name, service.id, target_server_key(target)),
-                release_id=release.id,
-                image_repository=build.image_repository,
-                image_digest=release.image_digest,
-                source_sha=build.source_sha,
-                builder=build.builder,
-                deploy=DeployConfig.model_validate(build.deploy_config or {}),
-                base_domain=target.domain_suffix,
-                iris=self._identity(release),
-                variables=variables,
-                scaling=(
-                    ScalingConfig.model_validate(release.deployment_request.scaling_snapshot)
-                    if release.deployment_request.scaling_snapshot is not None
-                    else None
-                ),
-                deployment_strategy=self._deployment_strategy(release),
-                # default SA 패치는 그 뒤의 Pod 에만 먹고 첫 Pod 가 먼저 뜰 수 있어
-                # Pod spec 에 둔다.
-                image_pull_secrets=(
-                    [ONPREM_ECR_PULL_SECRET] if target.onprem_server is not None else None
-                ),
-            )
-        }
+        files = {VALUES_FILE_NAME: await self._render_values(release)}
 
         async def create(head_sha: str) -> str:
             tree_sha = await self._github.create_tree(token, self._repository, files)
@@ -366,6 +419,105 @@ class DeployService:
             await self._record_commit(job, release.id, commit_sha, is_revert=False)
 
         await self._push(token, release.gitops_commit_sha, create, record)
+
+    async def _render_values(self, release: Release) -> str:
+        service = release.deployment_request.service
+        build = release.build
+        variables = await self._seal_variables(release)
+        scaling = (
+            ScalingConfig.model_validate(release.deployment_request.scaling_snapshot)
+            if release.deployment_request.scaling_snapshot is not None
+            else None
+        )
+        is_networking = self._is_networking(release)
+        if service.is_database:
+            if not is_networking:
+                raise NotConfiguredError(
+                    "database services need project networking",
+                    setting="PROJECT_NETWORKING_ENABLED",
+                    service_id=service.id,
+                )
+            assert service.database_engine is not None and build.image_repository is not None
+            config = service.database_config or {}
+            spec = get_engine_spec(service.database_engine)
+            return render_database_values(
+                release_id=release.id,
+                project_id=str(service.project_id),
+                engine=DatabaseEngine(service.database_engine),
+                image=f"{build.image_repository}:{build.image_tag}@{release.image_digest}",
+                storage_gi=int(config.get("storageGi") or DEFAULT_STORAGE_GI),
+                port=spec.port,
+                iris=self._identity(release),
+                variables=variables,
+                replicas=scaling.replicas if scaling is not None else 1,
+                init_scripts=await self._init_scripts(config.get("initScripts")),
+            )
+        assert build.image_repository is not None and build.source_sha is not None
+        assert build.builder is not None
+        target = release.target
+        assert target.domain_suffix is not None
+        return render_service_values(
+            host_label=service_host_label(service.name, service.id, target_server_key(target)),
+            release_id=release.id,
+            image_repository=build.image_repository,
+            image_digest=release.image_digest,
+            source_sha=build.source_sha,
+            builder=build.builder,
+            deploy=DeployConfig.model_validate(build.deploy_config or {}),
+            base_domain=target.domain_suffix,
+            iris=self._identity(release),
+            variables=variables,
+            scaling=scaling,
+            deployment_strategy=self._deployment_strategy(release),
+            networking=await self._networking_values(release) if is_networking else None,
+            # default SA 패치는 그 뒤의 Pod 에만 먹고 첫 Pod 가 먼저 뜰 수 있어 Pod spec 에 둔다.
+            image_pull_secrets=(
+                [ONPREM_ECR_PULL_SECRET] if target.onprem_server is not None else None
+            ),
+        )
+
+    async def _init_scripts(self, scripts: object) -> list[dict[str, str]] | None:
+        """DB 서비스의 초기화 스크립트를 내용과 함께 values 로. ConfigMap 한도를 미리 본다."""
+        if not isinstance(scripts, list) or not scripts:
+            return None
+        async with self._session_factory() as session:
+            rows = await DatabaseInitScriptRepository(session).search_by_sha256s(
+                [str(script.get("sha256")) for script in scripts]
+            )
+        return render_init_scripts(scripts, {row.sha256: row.content for row in rows})
+
+    def _is_networking(self, release: Release) -> bool:
+        """chart 0.9.0 키를 쓸지. 기능을 켠 Worker 가 AWS 타깃 release 에만 쓴다. on-prem 타깃
+        (공용 `onprem`·사용자가 등록한 서버)은 0.9.0 키를 받지 않는다."""
+        return is_networking_available(
+            self._settings.project_networking_enabled, release.target.kind
+        )
+
+    async def _networking_values(self, release: Release) -> NetworkingValues:
+        """projectId·스택 앱 포트·호스트 별칭. 지워졌거나 다른 프로젝트인 대상의 별칭은 뺀다."""
+        service = release.deployment_request.service
+        aliases: list[dict[str, str]] = []
+        async with self._session_factory() as session:
+            repository = ServiceRepository(session)
+            for alias in service.host_aliases or []:
+                target_id = alias.get("targetServiceId")
+                target = (
+                    await repository.find_active_by_id(target_id)
+                    if isinstance(target_id, int)
+                    else None
+                )
+                if target is None or target.project_id != service.project_id:
+                    logger.warning(
+                        "host alias target missing, skipped",
+                        extra={"action": "deploy", "service_id": service.id},
+                    )
+                    continue
+                aliases.append({"name": str(alias["name"]), "target": internal_host(target.id)})
+        return NetworkingValues(
+            project_id=str(service.project_id),
+            container_port=container_port(service, is_networking=True),
+            host_aliases=tuple(aliases),
+        )
 
     def _identity(self, release: Release) -> dict[str, Any] | None:
         """앱에 알릴 서비스·타깃 이름과 배포 요청 id. 사용자 변수 기능이 켜졌을 때만 쓴다.
@@ -415,9 +567,36 @@ class DeployService:
             )
         # release 마다 새 이름이라 새 Secret 이 먼저 생기고, 롤백은 이전 이름이 돌아온다.
         name = f"vars-r{release.id}"
-        plaintexts = {key: self._cipher.decrypt(token) for key, token in snapshot.items()}
+        plaintexts = await self._resolve_snapshot(release, snapshot)
         encrypted = await sealer.seal(service_namespace(release.service_id), name, plaintexts)
         return {"name": name, "encryptedData": encrypted}
+
+    async def _resolve_snapshot(
+        self, release: Release, snapshot: Mapping[str, Any]
+    ) -> dict[str, str]:
+        """스냅샷의 암호문은 풀고 참조 변수는 대상 서비스의 지금 값으로 푼다(평문은 메모리에만)."""
+        assert self._cipher is not None
+        plaintexts: dict[str, str] = {}
+        references: dict[str, VariableReference] = {}
+        for key, stored in snapshot.items():
+            if isinstance(stored, Mapping):
+                references[key] = VariableReference.from_json(stored[SNAPSHOT_REFERENCE_KEY])
+            else:
+                plaintexts[key] = self._cipher.decrypt(stored)
+        if references:
+            async with self._session_factory() as session:
+                resolver = ReferenceResolver(
+                    ServiceRepository(session),
+                    ServiceVariableRepository(session),
+                    is_networking_enabled=self._settings.project_networking_enabled,
+                    cipher=self._cipher,
+                )
+                owner = release.deployment_request.service
+                for key, reference in references.items():
+                    resolved = await resolver.resolve(owner, reference, masked=False)
+                    plaintexts[key] = resolved.value
+        # 빈 값은 chart schema(minLength 1)가 받지 않아 Secret 에 넣지 않는다.
+        return {key: value for key, value in plaintexts.items() if value != ""}
 
     def _target_sealer(self, target: Target) -> SecretSealer | None:
         server = target.onprem_server
@@ -485,7 +664,10 @@ class DeployService:
         return status, sync_contained, operation_contained
 
     async def _succeed(self, job: Job, release: Release) -> None:
-        if release.status == ReleaseStatus.PENDING:
+        if (
+            release.status == ReleaseStatus.PENDING
+            and not release.build.deploy_config_is_fixed_image
+        ):
             # 배포된 이미지가 ECR lifecycle 에 지워지지 않게 r-* 태그로 지킨다.
             # 태그는 보호장치일 뿐이라 실패해도 배포 성공을 막지 않는다.
             # ponytail: 실패한 태그는 다시 붙이지 않는다. 같은 서비스에 b-* 빌드가 10개 넘게

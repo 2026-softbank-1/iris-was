@@ -383,12 +383,15 @@ async def test_deploy_to_server_target_uses_server_host_and_server_sealing_key(
     session_factory: Any,
 ) -> None:
     global_key, global_cert = make_controller_key()
-    # 플래그를 켠 Worker 라도 서버 타깃(ONPREM)에는 deploymentStrategy 를 쓰지 않는다.
+    # 플래그를 켠 Worker 라도 서버 타깃(ONPREM)에는 deploymentStrategy·프로젝트 통신 키를
+    # 쓰지 않는다.
     h = Harness(
         session_factory,
         cipher=CIPHER,
         sealer=SecretSealer(global_cert),
-        settings=SETTINGS.model_copy(update={"deployment_strategy_enabled": True}),
+        settings=SETTINGS.model_copy(
+            update={"deployment_strategy_enabled": True, "project_networking_enabled": True}
+        ),
     )
     await h.request_deploy(variables_snapshot={"DATABASE_URL": CIPHER.encrypt("postgres://x")})
     async with session_factory() as session:
@@ -414,6 +417,8 @@ async def test_deploy_to_server_target_uses_server_host_and_server_sealing_key(
     assert values["iris"]["targetName"] == f"onprem-{key}"
     assert values["imagePullSecrets"] == [{"name": "iris-ecr-pull"}]
     assert "deploymentStrategy" not in values
+    # 프로젝트 통신(chart 0.9.0) 키도 서버 타깃에는 쓰지 않는다.
+    assert not {"projectId", "service", "hostAliases", "workload", "database"} & set(values)
     variables = values["variables"]
     sealed = variables["encryptedData"]["DATABASE_URL"]
     namespace = f"svc-{h.service_id}"

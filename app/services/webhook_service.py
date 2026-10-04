@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import InvalidInputError, TargetNotConnectedError, UnauthorizedError
 from app.core.security import verify_github_signature
-from app.enums import DeploymentTrigger
+from app.enums import DeploymentTrigger, FailureCode
 from app.models.service import Service
 from app.models.user import GithubInstallation
 from app.repositories.github_installation_repository import GithubInstallationRepository
@@ -19,6 +19,10 @@ from app.schemas.webhook import (
     WebhookReceiptResponse,
 )
 from app.services.deployment_request_service import DeploymentRequestService
+from app.services.deployment_status_service import DeploymentStatusService
+from app.services.stack_progress import fail_before_start
+from app.services.stack_push_service import StackPushService
+from app.services.variable_validation import VariableValidationService
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +43,13 @@ class WebhookService:
         installation_repository: GithubInstallationRepository,
         deployment_request_service: DeploymentRequestService,
         webhook_secret: str,
+        *,
+        stack_push_service: StackPushService | None = None,
+        variable_validation_service: VariableValidationService | None = None,
     ) -> None:
+        # 스택 레포 push(스택 순서 배포·재분석)와 배포 전 환경변수 검증. 없으면 이전 동작이다.
+        self._stack_push_service = stack_push_service
+        self._variable_validation_service = variable_validation_service
         self._session = session
         self._service_repository = service_repository
         self._installation_repository = installation_repository
@@ -80,9 +90,20 @@ class WebhookService:
         changed_paths = _collect_changed_paths(push.commits)
 
         deployment_request_ids: list[int] = []
-        for service in services:
-            if not _is_service_changed(service, changed_paths, len(push.commits)):
+        analysis_ids: list[int] = []
+        changed = [
+            service
+            for service in services
+            if _is_service_changed(service, changed_paths, len(push.commits))
+        ]
+        stack_push = self._stack_push_service
+        for service in changed:
+            if stack_push is not None and service.stack_id is not None:
                 continue
+            is_blocked = (
+                self._variable_validation_service is not None
+                and not (await self._variable_validation_service.validate(service)).ok
+            )
             try:
                 request = await self._deployment_request_service.create_deployment_request(
                     service,
@@ -91,6 +112,7 @@ class WebhookService:
                     trigger_type=DeploymentTrigger.PUSH,
                     # 같은 delivery 가 다시 와도(GitHub 재전송) 같은 서비스에 중복되지 않는다.
                     idempotency_key=f"github-push:{delivery_id}:{service.id}",
+                    is_started=not is_blocked,
                 )
             except TargetNotConnectedError:
                 # 연결되지 않은 서버로는 배포하지 않는다. 다른 서비스의 배포는 그대로 만든다.
@@ -99,8 +121,29 @@ class WebhookService:
                     extra={"action": "handle_push", "service_id": service.id},
                 )
                 continue
-            if request is not None:
-                deployment_request_ids.append(request.id)
+            if request is None:
+                continue
+            if is_blocked:
+                # 자동 배포는 사용자에게 422 를 줄 수 없어 실패한 요청으로 남긴다(빌드하지 않는다).
+                await fail_before_start(
+                    self._session,
+                    DeploymentStatusService.create(self._session),
+                    request.id,
+                    FailureCode.VARIABLES_INVALID,
+                )
+                continue
+            deployment_request_ids.append(request.id)
+        if stack_push is not None:
+            stacked = await stack_push.handle_push(
+                delivery_id=delivery_id,
+                repository_url=push.repository.html_url,
+                branch=branch,
+                source_sha=push.after,
+                commit_message=message,
+                changed_services=[s for s in changed if s.stack_id is not None],
+            )
+            deployment_request_ids.extend(stacked.deployment_request_ids)
+            analysis_ids.extend(stacked.repository_analysis_ids)
 
         await self._session.commit()
         for deployment_request_id in deployment_request_ids:
@@ -113,7 +156,9 @@ class WebhookService:
                 },
             )
         return WebhookReceiptResponse(
-            is_handled=bool(deployment_request_ids), deployment_request_ids=deployment_request_ids
+            is_handled=bool(deployment_request_ids or analysis_ids),
+            deployment_request_ids=deployment_request_ids,
+            repository_analysis_ids=analysis_ids,
         )
 
     async def _handle_installation(self, event: GithubInstallationEvent) -> WebhookReceiptResponse:
