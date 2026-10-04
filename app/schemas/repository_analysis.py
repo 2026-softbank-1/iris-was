@@ -14,7 +14,9 @@ from app.enums import (
 from app.models.repository_analysis import RepositoryAnalysis
 from app.schemas.response import ApiModel
 from app.schemas.service import Branch, Command, PathText, Port, ServiceName, ServiceResponse
+from app.schemas.variable import VariablesValidationResponse
 from app.services.repository_analysis_service import AppliedAnalysis, UnitSelection
+from app.services.stack_apply_service import DependencySelection
 
 UnitId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
@@ -123,8 +125,39 @@ class ApplyRepositoryAnalysisUnitRequest(ApiModel):
         )
 
 
+class ApplyRepositoryAnalysisDependencyRequest(ApiModel):
+    """분석된 의존성(`result.dependencies[]`)을 플랫폼이 개발용 DB 로 만들지."""
+
+    dependency_id: UnitId = Field(description="`result.dependencies[].id`", examples=["postgres"])
+    provision: bool = Field(default=True, description="false 면 만들지 않는다")
+    name: ServiceName | None = Field(
+        default=None, description="DB 서비스 이름. 생략하면 dependency id 를 slug 로 쓴다."
+    )
+    storage_gi: int | None = Field(default=None, ge=1, le=20, description="기본 5")
+
+    def to_selection(self) -> DependencySelection:
+        return DependencySelection(
+            dependency_id=self.dependency_id,
+            is_provisioned=self.provision,
+            name=self.name,
+            storage_gi=self.storage_gi,
+        )
+
+
 class ApplyRepositoryAnalysisRequest(ApiModel):
     units: list[ApplyRepositoryAnalysisUnitRequest] = Field(min_length=1, max_length=20)
+    dependencies: list[ApplyRepositoryAnalysisDependencyRequest] | None = Field(
+        default=None,
+        max_length=20,
+        description=(
+            "생략하면 지원 엔진(postgres·mysql·mongodb·redis) 의존성을 모두 만든다(기능이 켜진 AWS"
+            " 타깃일 때). 기능이 꺼졌거나 on-prem 이면 기본은 만들지 않고,"
+            " provision=true 를 보내면 422."
+        ),
+    )
+    skip_variable_validation: bool = Field(
+        default=False, description="true 면 환경변수 error 가 있어도 배포를 접수한다"
+    )
     deploy: bool = Field(
         default=True,
         description="true 면 만든 서비스마다 분석한 커밋으로 배포 요청(MANUAL)을 만든다.",
@@ -138,13 +171,44 @@ class ApplyRepositoryAnalysisRequest(ApiModel):
     )
 
 
+class ServiceVariablesValidationResponse(VariablesValidationResponse):
+    service_id: int
+
+
 class ApplyRepositoryAnalysisResponse(ApiModel):
     analysis_id: int
-    services: list[ServiceResponse]
+    services: list[ServiceResponse] = Field(description="앱 서비스(unit)")
+    databases: list[ServiceResponse] = Field(
+        default_factory=list, description="이 분석으로 만들었거나 이어 쓰는 관리형 DB 서비스"
+    )
+    stack_id: int | None = None
+    stack_deployment_id: int | None = Field(
+        default=None, description="의존 순서 배포를 접수했으면 그 스택 배포 id"
+    )
+    variable_issues: list[ServiceVariablesValidationResponse] | None = Field(
+        default=None,
+        description=(
+            "환경변수 error 로 배포를 접수하지 않았으면 서비스별 검증 결과. 서비스는 만들어져"
+            " 있으니 고친 뒤 스택 재배포(또는 같은 apply 재전송)를 한다."
+        ),
+    )
 
     @classmethod
     def from_applied(cls, applied: AppliedAnalysis) -> "ApplyRepositoryAnalysisResponse":
         return cls(
             analysis_id=applied.analysis_id,
             services=[ServiceResponse.from_detail(detail) for detail in applied.services],
+            databases=[ServiceResponse.from_detail(detail) for detail in applied.databases],
+            stack_id=applied.stack_id,
+            stack_deployment_id=applied.stack_deployment_id,
+            variable_issues=(
+                [
+                    ServiceVariablesValidationResponse(
+                        service_id=v.service_id,
+                        **VariablesValidationResponse.from_validation(v).model_dump(),
+                    )
+                    for v in applied.variable_validations
+                ]
+                or None
+            ),
         )

@@ -78,5 +78,9 @@ async def apply_repository_analysis(
         should_deploy=body.deploy,
         target_ids=body.target_ids,
         is_auto_deploy=body.is_auto_deploy,
+        dependencies=(
+            [d.to_selection() for d in body.dependencies] if body.dependencies is not None else None
+        ),
+        skip_variable_validation=body.skip_variable_validation,
     )
     return ApiResponse(data=ApplyRepositoryAnalysisResponse.from_applied(applied))

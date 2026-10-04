@@ -170,6 +170,10 @@ class RepositoryAnalysisNotReadyError(ConflictError):
     code = "REPOSITORY_ANALYSIS_NOT_READY"
 
 
+class StackNotFoundError(NotFoundError):
+    code = "STACK_NOT_FOUND"
+
+
 class DiagnosisNotFoundError(NotFoundError):
     code = "DIAGNOSIS_NOT_FOUND"
 
@@ -221,6 +225,34 @@ class ServiceNameConflictError(ConflictError):
 
 class VariableConflictError(ConflictError):
     code = "VARIABLE_CONFLICT"
+
+
+class VariableReferenceBrokenError(InvalidInputError):
+    """참조 변수가 가리키는 서비스가 없거나(삭제·다른 프로젝트) 그 속성이 없다."""
+
+    code = "VARIABLE_REFERENCE_INVALID"
+
+    def __init__(self, message: str | None = None, **fields: object) -> None:
+        super().__init__(message, issues=[FieldIssue("reference", "reference_broken")], **fields)
+
+
+class VariablesInvalidError(InvalidInputError):
+    """배포 전 환경변수 검증에서 error 가 나왔다. 응답 `details` 는 `{field: 키, reason: 코드}`,
+    `data` 는 검증 API 와 같은 `{ok, issues}` 다(값은 담지 않는다).
+    """
+
+    code = "VARIABLES_INVALID"
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        issues: Sequence[FieldIssue] = (),
+        data: object = None,
+        **fields: object,
+    ) -> None:
+        super().__init__(message, issues=issues, **fields)
+        self.data = data
 
 
 class VariableDecryptionError(AppError):

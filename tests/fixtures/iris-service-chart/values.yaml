@@ -1,0 +1,53 @@
+# 공통 기본값입니다. 배포마다 달라지는 값(image, release, command, health.path, route.host)은
+# Deploy Worker 가 GitOps 저장소의 services/{service_id}/prod/values.yaml 로 넘깁니다.
+# 실제 Secret 값은 기록하지 않습니다.
+# app: Rollout·Ingress(기본). database: 빌드 없는 고정 공식 이미지 StatefulSet·PVC(아래 database). 0.8.0 부터.
+workload:
+  kind: app
+replicas: 1
+# ROLLING · CANARY · BLUE_GREEN. 단계·대기 시간은 chart 가 정합니다. replicas 가 2 미만이면 ROLLING 으로 렌더링합니다.
+deploymentStrategy: ROLLING
+containerPort: 8080
+health:
+  timeoutSeconds: 300
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+service:
+  port: 80
+  # true 면 app Service 에 containerPort 와 같은 포트(name container)를 더 엽니다. 같은 프로젝트 다른 서비스가
+  # compose 처럼 {별칭}:{containerPort} 로 부를 수 있게 합니다. containerPort 가 port 와 같으면 더하지 않습니다.
+  exposeContainerPort: false
+route:
+  className: alb
+  # 같은 group 의 Ingress 는 ALB 하나와 listener 규칙을 공유합니다.
+  groupName: iris-service-external
+networkPolicy:
+  # ALB(target-type ip)는 Pod IP 로 직접 보냅니다. ALB 서브넷 CIDR 을 넣으면 그 외 ingress 를 막습니다.
+  # 비어 있으면 NetworkPolicy 를 만들지 않습니다. VPC 구현 후 타겟 값으로 채웁니다.
+  allowedCidrs: []
+  # egress 차단 대상: dev 공유 VPC 와 link-local(IMDS·Pod Identity Agent). 비어 있으면 egress 정책을 만들지 않습니다.
+  egressDeniedCidrs: ["10.40.0.0/16", "169.254.0.0/16"]
+  # 위에서 막은 VPC 안에서 예외로 열 대상(예: 사용자 DB {cidr, port}). 사용자 DB 설계 때 채웁니다.
+  egressAllowed: []
+# 0.8.0 부터 Deploy Worker 가 넣는 값입니다(기본 없음).
+# projectId: Pod 라벨 iris.io/project-id. 같은 값의 Pod 끼리 namespace 를 넘어 통신합니다(allow-project-*).
+# hostAliases: [{name, target}] → 이 namespace 의 ExternalName Service {name} → target(app.svc-{id}.svc.cluster.local).
+hostAliases: []
+# workload.kind 가 database 일 때만 씁니다. engine·image 는 Deploy Worker 가 넣습니다.
+database:
+  # 1Gi~20Gi. 만든 뒤에는 바꿀 수 없습니다(StatefulSet volumeClaimTemplates).
+  storage: 5Gi
+  # 타깃 기본값입니다(AWS: cluster-baseline 의 암호화 gp3). Deploy Worker 는 넣지 않습니다.
+  storageClassName: gp3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

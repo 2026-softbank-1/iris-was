@@ -21,6 +21,7 @@ from app.enums import (
     Builder,
     DeploymentStrategy,
     RepositoryAnalysisStatus,
+    ServiceKind,
     TargetKind,
 )
 from app.models.deployment_request import DeploymentRequest
@@ -41,6 +42,11 @@ from app.services.deployment_strategy import (
     PROGRESSIVE_TARGET_KINDS,
 )
 from app.services.scaling_config import ScalingConfig
+from app.services.service_networking import (
+    is_networking_available,
+    networking_unavailable_reason,
+    validate_host_aliases,
+)
 from app.services.service_teardown_service import ServiceTeardownService
 from app.services.source_repository_service import RepositoryCandidate, SourceRepositoryService
 
@@ -55,6 +61,23 @@ _NULLABLE_FIELDS = frozenset(
 _NON_NULL_FIELDS = frozenset(
     {"name", "source_branch", "is_auto_deploy", "target_ids", "deployment_strategy"}
 )
+# null 이면 별칭을 모두 지운다.
+_NETWORKING_FIELDS = frozenset({"host_aliases"})
+# 관리형 DB 는 소스·빌드가 없어 이 필드를 바꿀 수 없다.
+_SOURCE_FIELDS = frozenset(
+    {
+        "source_branch",
+        "root_directory",
+        "is_auto_deploy",
+        "builder",
+        "dockerfile_path",
+        "port",
+        "build_command",
+        "start_command",
+        "deployment_strategy",
+        "target_ids",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -62,6 +85,8 @@ class ServiceDetail:
     service: Service
     target_ids: list[int]
     latest_deployment: DeploymentRequest | None = None
+    # 프로젝트 내부 통신(chart 0.8.0)을 쓰는 서비스인지. 내부 포트 계산에 쓴다.
+    is_networking: bool = False
 
 
 @dataclass(frozen=True)
@@ -76,6 +101,8 @@ class AnalyzedServicePlan:
     start_command: str | None
     build_command: str | None
     analysis_plan: dict[str, Any]
+    # 스택에 넣을 때의 분석기 unit id.
+    stack_unit_id: str | None = None
 
 
 def slugify_service_name(value: str, max_length: int = 63) -> str:
@@ -111,8 +138,10 @@ class ServiceRegistryService:
         *,
         deployment_strategy_enabled: bool = False,
         repository_analysis_repository: RepositoryAnalysisRepository | None = None,
+        is_networking_enabled: bool = False,
     ) -> None:
         self._session = session
+        self._is_networking_enabled = is_networking_enabled
         self._repository_analysis_repository = repository_analysis_repository
         self._project_repository = project_repository
         self._service_repository = service_repository
@@ -191,6 +220,8 @@ class ServiceRegistryService:
         target_ids: list[int] | None,
         *,
         is_auto_deploy: bool = True,
+        stack_id: int | None = None,
+        existing_names: set[str] | None = None,
     ) -> list[Service]:
         """레포 구성 분석의 배포 단위마다 서비스를 만든다. 이름·브랜치·타깃 규칙은 create_service 와
         같다.
@@ -203,7 +234,7 @@ class ServiceRegistryService:
             owner_id, repository_url
         )
         await self._ensure_branch_exists(owner_id, repository.full_name, branch)
-        names: set[str] = set()
+        names: set[str] = set(existing_names or ())
         for plan in plans:
             if plan.name in names:
                 raise ServiceNameConflictError(
@@ -231,6 +262,8 @@ class ServiceRegistryService:
                     start_command=plan.start_command,
                     build_command=plan.build_command,
                     analysis_plan=plan.analysis_plan,
+                    stack_id=stack_id,
+                    stack_unit_id=plan.stack_unit_id if stack_id is not None else None,
                 )
             )
             await self._service_repository.replace_targets(service.id, set(resolved_target_ids))
@@ -271,8 +304,10 @@ class ServiceRegistryService:
             owner_id, service_id, for_update="deployment_strategy" in changes
         )
         for field in changes:
-            if field not in _NULLABLE_FIELDS | _NON_NULL_FIELDS:
+            if field not in _NULLABLE_FIELDS | _NON_NULL_FIELDS | _NETWORKING_FIELDS:
                 raise InvalidInputError("field cannot be updated", field=field)
+            if service.kind == ServiceKind.DATABASE and field in _SOURCE_FIELDS:
+                raise InvalidInputError("database services have no source settings", field=field)
             if field in _NON_NULL_FIELDS and changes[field] is None:
                 raise InvalidInputError("field cannot be null", field=field)
 
@@ -286,8 +321,12 @@ class ServiceRegistryService:
             if strategy != service.deployment_strategy:
                 await self._check_deployment_strategy(service, strategy, changes.get("target_ids"))
 
+        if "host_aliases" in changes:
+            service.host_aliases = await self._check_host_aliases(
+                service, changes["host_aliases"] or []
+            )
         for field, value in changes.items():
-            if field == "target_ids":
+            if field in ("target_ids", "host_aliases"):
                 continue
             if field == "root_directory":
                 value = normalize_root_directory(value)
@@ -311,6 +350,18 @@ class ServiceRegistryService:
         service.mark_as_deleted()
         await self._session.commit()
         logger.info("service deleted", extra={"action": "delete_service", "service_id": service_id})
+
+    async def get_project(self, owner_id: int, project_id: int) -> Project:
+        return await self._get_project(owner_id, project_id)
+
+    async def ensure_name_available(self, project_id: int, name: str) -> None:
+        await self._ensure_name_available(project_id, name)
+
+    async def resolve_targets(self, target_ids: list[int] | None) -> tuple[list[int], TargetKind]:
+        """서비스가 배포될 타깃 id(1개)와 그 종류."""
+        resolved = await self._resolve_target_ids(target_ids)
+        targets = await self._target_repository.search_by_ids(resolved)
+        return resolved, targets[0].kind if targets else TargetKind.AWS
 
     async def _get_project(self, owner_id: int, project_id: int) -> Project:
         project = await self._project_repository.find_by_id_and_owner_id(project_id, owner_id)
@@ -449,6 +500,30 @@ class ServiceRegistryService:
         if await self._deployment_request_repository.count_by_service_id(service_id):
             raise ConflictError("target cannot change after deployment", field="targetIds")
 
+    async def _check_host_aliases(
+        self, service: Service, aliases: list[dict[str, Any]]
+    ) -> list[dict[str, Any]] | None:
+        """별칭은 같은 프로젝트의 다른 서비스로만, 서비스 사이 통신이 되는 타깃에서만 둔다."""
+        if not aliases:
+            return None
+        if not is_networking_available(
+            self._is_networking_enabled, await self._find_target_kind(service.id, None)
+        ):
+            raise InvalidInputError(
+                "host aliases are not available for this target",
+                issues=[
+                    FieldIssue(
+                        "hostAliases", networking_unavailable_reason(self._is_networking_enabled)
+                    )
+                ],
+                field="hostAliases",
+                service_id=service.id,
+            )
+        project_services = {
+            s.id: s for s in await self._service_repository.search_by_project_id(service.project_id)
+        }
+        return validate_host_aliases(service, aliases, project_services)
+
     async def _detail(self, services: list[Service]) -> list[ServiceDetail]:
         target_ids = await self._service_repository.search_target_ids_by_service_ids(
             [s.id for s in services]
@@ -456,7 +531,25 @@ class ServiceRegistryService:
         latest = await self._deployment_request_repository.search_latest_by_service_ids(
             [s.id for s in services]
         )
-        return [ServiceDetail(s, target_ids.get(s.id, []), latest.get(s.id)) for s in services]
+        kinds: dict[int, TargetKind] = {}
+        if self._is_networking_enabled:
+            all_target_ids = sorted({t for ids in target_ids.values() for t in ids})
+            kinds = {
+                t.id: t.kind for t in await self._target_repository.search_by_ids(all_target_ids)
+            }
+        details = []
+        for s in services:
+            ids = target_ids.get(s.id, [])
+            kind = kinds.get(ids[0]) if ids else TargetKind.AWS
+            details.append(
+                ServiceDetail(
+                    s,
+                    ids,
+                    latest.get(s.id),
+                    is_networking=is_networking_available(self._is_networking_enabled, kind),
+                )
+            )
+        return details
 
 
 def _apply_gate_defaults(service: Service, analysis: RepositoryAnalysis) -> None:

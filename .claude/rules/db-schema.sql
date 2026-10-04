@@ -67,7 +67,7 @@ CREATE TABLE services (
     project_id BIGINT NOT NULL,
     name VARCHAR(100) NOT NULL,
     source_repository_url VARCHAR(500) NOT NULL,
-    github_installation_id BIGINT NOT NULL,
+    github_installation_id BIGINT,
     source_branch VARCHAR(255) NOT NULL,
     root_directory VARCHAR(255),
     is_auto_deploy BOOLEAN DEFAULT true NOT NULL,
@@ -81,6 +81,15 @@ CREATE TABLE services (
     start_command TEXT,
     scaling_config JSONB,
     deployment_strategy VARCHAR(32) DEFAULT 'ROLLING' NOT NULL,
+    -- APP(소스 빌드) · DATABASE(고정 공식 이미지 관리형 DB). DATABASE 는 github_installation_id 가 없고
+    -- 저장소 주소·브랜치가 빈 문자열이다. database_config = {image, storageGi, port, user, database}.
+    kind VARCHAR(32) DEFAULT 'APP' NOT NULL,
+    database_engine VARCHAR(32),
+    database_config JSONB,
+    -- [{name, targetServiceId, port}] 서비스 namespace 의 ExternalName 별칭.
+    host_aliases JSONB,
+    stack_id BIGINT,
+    stack_unit_id VARCHAR(200),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     is_deleted BOOLEAN DEFAULT false NOT NULL,
@@ -88,6 +97,8 @@ CREATE TABLE services (
     CONSTRAINT pk_services PRIMARY KEY (id),
     CONSTRAINT ck_services_builder CHECK (builder IN ('dockerfile', 'railpack')),
     CONSTRAINT ck_services_deployment_strategy CHECK (deployment_strategy IN ('ROLLING', 'CANARY', 'BLUE_GREEN')),
+    CONSTRAINT ck_services_service_kind CHECK (kind IN ('APP', 'DATABASE')),
+    CONSTRAINT ck_services_database_engine CHECK (database_engine IN ('postgres', 'mysql', 'mongodb', 'redis')),
     CONSTRAINT fk_services_github_installation_id_github_installations FOREIGN KEY(github_installation_id) REFERENCES github_installations (id),
     CONSTRAINT fk_services_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)
 );
@@ -97,6 +108,10 @@ CREATE INDEX ix_services_github_installation_id ON services (github_installation
 CREATE INDEX ix_services_project_id ON services (project_id);
 
 CREATE UNIQUE INDEX uq_services_project_id_name ON services (project_id, name) WHERE NOT is_deleted;
+
+CREATE INDEX ix_services_stack_id ON services (stack_id);
+
+CREATE UNIQUE INDEX uq_services_stack_id_stack_unit_id ON services (stack_id, stack_unit_id) WHERE stack_id IS NOT NULL AND NOT is_deleted;
 
 CREATE TABLE service_targets (
     service_id BIGINT NOT NULL,
@@ -150,7 +165,7 @@ CREATE TABLE deployment_requests (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_deployment_requests PRIMARY KEY (id),
     CONSTRAINT ck_deployment_requests_environment CHECK (environment IN ('prod')),
-    CONSTRAINT ck_deployment_requests_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR')),
+    CONSTRAINT ck_deployment_requests_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR', 'VARIABLES_INVALID', 'DEPENDENCY_FAILED')),
     CONSTRAINT ck_deployment_requests_deployment_status CHECK (status IN ('QUEUED', 'BUILDING', 'DEPLOYING', 'SUCCEEDED', 'FAILED', 'ROLLED_BACK', 'MANUAL_INTERVENTION', 'SUPERSEDED')),
     CONSTRAINT ck_deployment_requests_requested_deployment_strategy CHECK (requested_deployment_strategy IN ('ROLLING', 'CANARY', 'BLUE_GREEN')),
     CONSTRAINT ck_deployment_requests_deployment_strategy CHECK (deployment_strategy IN ('ROLLING', 'CANARY', 'BLUE_GREEN')),
@@ -189,7 +204,7 @@ CREATE TABLE builds (
     CONSTRAINT pk_builds PRIMARY KEY (id),
     CONSTRAINT ck_builds_build_status CHECK (status IN ('PENDING', 'SNAPSHOTTING', 'BUILDING', 'SUCCEEDED', 'FAILED', 'CANCELLED')),
     CONSTRAINT ck_builds_builder CHECK (builder IN ('dockerfile', 'railpack')),
-    CONSTRAINT ck_builds_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR')),
+    CONSTRAINT ck_builds_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR', 'VARIABLES_INVALID', 'DEPENDENCY_FAILED')),
     CONSTRAINT fk_builds_deployment_request_id_deployment_requests FOREIGN KEY(deployment_request_id) REFERENCES deployment_requests (id),
     CONSTRAINT uq_builds_codebuild_build_id UNIQUE (codebuild_build_id),
     CONSTRAINT uq_builds_deployment_request_id UNIQUE (deployment_request_id)
@@ -257,7 +272,7 @@ CREATE TABLE releases (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_releases PRIMARY KEY (id),
     CONSTRAINT ck_releases_environment CHECK (environment IN ('prod')),
-    CONSTRAINT ck_releases_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR')),
+    CONSTRAINT ck_releases_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR', 'VARIABLES_INVALID', 'DEPENDENCY_FAILED')),
     CONSTRAINT ck_releases_release_status CHECK (status IN ('PENDING', 'SUCCEEDED', 'FAILED', 'ROLLING_BACK', 'ROLLED_BACK')),
     CONSTRAINT fk_releases_build_id_builds FOREIGN KEY(build_id) REFERENCES builds (id),
     CONSTRAINT fk_releases_deployment_request_id_deployment_requests FOREIGN KEY(deployment_request_id) REFERENCES deployment_requests (id),
@@ -280,7 +295,7 @@ CREATE TABLE deployment_status_histories (
     failure_code VARCHAR(32),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_deployment_status_histories PRIMARY KEY (id),
-    CONSTRAINT ck_deployment_status_histories_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR')),
+    CONSTRAINT ck_deployment_status_histories_failure_code CHECK (failure_code IN ('SOURCE_NOT_ACCESSIBLE', 'SOURCE_REF_NOT_FOUND', 'SOURCE_TOO_LARGE', 'SOURCE_INVALID', 'BUILD_CONFIG_REQUIRED', 'BUILD_FAILED', 'BUILD_TIMED_OUT', 'BUILD_INFRA_ERROR', 'DEPLOY_FAILED', 'DEPLOY_TIMED_OUT', 'DEPLOY_INFRA_ERROR', 'VARIABLES_INVALID', 'DEPENDENCY_FAILED')),
     CONSTRAINT ck_deployment_status_histories_from_status CHECK (from_status IN ('QUEUED', 'BUILDING', 'DEPLOYING', 'SUCCEEDED', 'FAILED', 'ROLLED_BACK', 'MANUAL_INTERVENTION', 'SUPERSEDED')),
     CONSTRAINT ck_deployment_status_histories_to_status CHECK (to_status IN ('QUEUED', 'BUILDING', 'DEPLOYING', 'SUCCEEDED', 'FAILED', 'ROLLED_BACK', 'MANUAL_INTERVENTION', 'SUPERSEDED')),
     CONSTRAINT fk_deployment_status_histories_deployment_request_id_deployment_requests FOREIGN KEY(deployment_request_id) REFERENCES deployment_requests (id)
@@ -292,10 +307,13 @@ CREATE TABLE service_variables (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY,
     service_id BIGINT NOT NULL,
     key VARCHAR(128) NOT NULL,
-    encrypted_value TEXT NOT NULL,
+    encrypted_value TEXT,
+    -- 참조 변수 {serviceId, property}. 값과 참조 중 하나만 있다.
+    reference JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_service_variables PRIMARY KEY (id),
+    CONSTRAINT ck_service_variables_value_or_reference CHECK ((encrypted_value IS NULL) <> (reference IS NULL)),
     CONSTRAINT fk_service_variables_service_id_services FOREIGN KEY(service_id) REFERENCES services (id)
 );
 
@@ -397,6 +415,8 @@ CREATE TABLE repository_analyses (
     attempts INTEGER DEFAULT 0 NOT NULL,
     locked_by VARCHAR(255),
     locked_until TIMESTAMP WITH TIME ZONE,
+    -- 푸시로 다시 접수한 스택 재분석의 스택. 외래 키는 service_stacks 를 만든 뒤 단다.
+    stack_id BIGINT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_repository_analyses PRIMARY KEY (id),
@@ -416,6 +436,8 @@ CREATE INDEX ix_repository_analyses_project_id ON repository_analyses (project_i
 
 CREATE INDEX ix_repository_analyses_user_id ON repository_analyses (user_id);
 
+CREATE UNIQUE INDEX uq_repository_analyses_stack_id_source_sha ON repository_analyses (stack_id, source_sha) WHERE stack_id IS NOT NULL;
+
 -- Worker 깨우기: 분석 접수, 종료 신호로 반납(RUNNING → QUEUED) 때 commit 시점에 NOTIFY jobs, REPOSITORY_ANALYSIS.
 CREATE FUNCTION notify_repository_analysis_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -429,3 +451,75 @@ CREATE TRIGGER trg_repository_analyses_notify_insert AFTER INSERT ON repository_
 CREATE TRIGGER trg_repository_analyses_notify_release AFTER UPDATE OF status ON repository_analyses
     FOR EACH ROW WHEN (OLD.status = 'RUNNING' AND NEW.status = 'QUEUED')
     EXECUTE FUNCTION notify_repository_analysis_change();
+
+-- 같은 레포(저장소·브랜치·위치) 분석에서 만든 서비스(앱 + 관리형 DB) 묶음. analysis_id 는 기준 분석.
+CREATE TABLE service_stacks (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY,
+    project_id BIGINT NOT NULL,
+    source_repository_url VARCHAR(500) NOT NULL,
+    source_branch VARCHAR(255) NOT NULL,
+    root_directory VARCHAR(255),
+    github_installation_id BIGINT,
+    analysis_id BIGINT NOT NULL,
+    -- {analysisId, sourceSha, detectedAt, changes: [{type, unitId, field?, from?, to?}]}
+    pending_changes JSONB,
+    pending_analysis_id BIGINT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    CONSTRAINT pk_service_stacks PRIMARY KEY (id),
+    CONSTRAINT fk_service_stacks_analysis_id_repository_analyses FOREIGN KEY(analysis_id) REFERENCES repository_analyses (id),
+    CONSTRAINT fk_service_stacks_github_installation_id_github_installations FOREIGN KEY(github_installation_id) REFERENCES github_installations (id),
+    CONSTRAINT fk_service_stacks_pending_analysis_id_repository_analyses FOREIGN KEY(pending_analysis_id) REFERENCES repository_analyses (id),
+    CONSTRAINT fk_service_stacks_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (id)
+);
+
+CREATE INDEX ix_service_stacks_project_id ON service_stacks (project_id);
+
+CREATE INDEX ix_service_stacks_repository ON service_stacks (source_repository_url, source_branch);
+
+ALTER TABLE services ADD CONSTRAINT fk_services_stack_id_service_stacks FOREIGN KEY(stack_id) REFERENCES service_stacks (id);
+
+ALTER TABLE repository_analyses ADD CONSTRAINT fk_repository_analyses_stack_id_service_stacks FOREIGN KEY(stack_id) REFERENCES service_stacks (id);
+
+-- 스택 서비스를 의존 순서대로 배포하는 1회. 서비스마다 배포 요청을 하나씩 만든다.
+CREATE TABLE stack_deployments (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY,
+    stack_id BIGINT NOT NULL,
+    trigger_type VARCHAR(32) NOT NULL,
+    idempotency_key VARCHAR(128) NOT NULL,
+    requested_by BIGINT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    CONSTRAINT pk_stack_deployments PRIMARY KEY (id),
+    CONSTRAINT ck_stack_deployments_deployment_trigger CHECK (trigger_type IN ('MANUAL', 'PUSH', 'CLI', 'REDEPLOY', 'ROLLBACK', 'RESTART', 'REMOVE')),
+    CONSTRAINT fk_stack_deployments_requested_by_users FOREIGN KEY(requested_by) REFERENCES users (id),
+    CONSTRAINT fk_stack_deployments_stack_id_service_stacks FOREIGN KEY(stack_id) REFERENCES service_stacks (id),
+    CONSTRAINT uq_stack_deployments_idempotency_key UNIQUE (idempotency_key)
+);
+
+CREATE INDEX ix_stack_deployments_stack_id ON stack_deployments (stack_id);
+
+-- 스택 배포의 서비스 한 단계. WAITING 은 앞 단계(depends_on_deployment_request_ids)가 모두 SUCCEEDED 가
+-- 되면 첫 job 을 만들어 STARTED, 앞 단계가 실패하면 HELD(요청은 FAILED · DEPENDENCY_FAILED).
+CREATE TABLE stack_deployment_steps (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY,
+    stack_deployment_id BIGINT NOT NULL,
+    service_id BIGINT NOT NULL,
+    deployment_request_id BIGINT NOT NULL,
+    step_order INTEGER NOT NULL,
+    depends_on_deployment_request_ids JSONB DEFAULT '[]'::jsonb NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    held_by_deployment_request_id BIGINT,
+    started_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    CONSTRAINT pk_stack_deployment_steps PRIMARY KEY (id),
+    CONSTRAINT ck_stack_deployment_steps_stack_deployment_step_status CHECK (status IN ('WAITING', 'STARTED', 'HELD')),
+    CONSTRAINT fk_stack_deployment_steps_deployment_request_id_deploym_18c1 FOREIGN KEY(deployment_request_id) REFERENCES deployment_requests (id),
+    CONSTRAINT fk_stack_deployment_steps_held_by_deployment_request_id_6215 FOREIGN KEY(held_by_deployment_request_id) REFERENCES deployment_requests (id),
+    CONSTRAINT fk_stack_deployment_steps_service_id_services FOREIGN KEY(service_id) REFERENCES services (id),
+    CONSTRAINT fk_stack_deployment_steps_stack_deployment_id_stack_deployments FOREIGN KEY(stack_deployment_id) REFERENCES stack_deployments (id),
+    CONSTRAINT uq_stack_deployment_steps_deployment_request_id UNIQUE (deployment_request_id)
+);
+
+CREATE INDEX ix_stack_deployment_steps_stack_deployment_id ON stack_deployment_steps (stack_deployment_id);

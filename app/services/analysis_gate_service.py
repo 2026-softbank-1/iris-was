@@ -36,9 +36,11 @@ from app.enums import AnalysisErrorCode, RepositoryAnalysisStatus
 from app.models.repository_analysis import RepositoryAnalysis
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
+from app.repositories.service_stack_repository import ServiceStackRepository
 from app.schemas.analysis_gate import AnalysisGateRequest
 from app.services.repository_url import parse_repository_url
 from app.services.source_archive import ArchiveLimits
+from app.services.stack_changes import compute_stack_changes
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +208,8 @@ class AnalysisGateService:
             if not self._is_still_owned(analysis):
                 return
             analysis.succeed(response.result.decision, response.result.complexity, response.raw)
+            if analysis.stack_id is not None:
+                await self._record_stack_changes(session, analysis)
         logger.info(
             "repository analysis succeeded",
             extra={
@@ -213,6 +217,26 @@ class AnalysisGateService:
                 "decision": response.result.decision,
                 "complexity": response.result.complexity,
                 "unit_count": len(response.result.units),
+            },
+        )
+
+    async def _record_stack_changes(
+        self, session: AsyncSession, analysis: RepositoryAnalysis
+    ) -> None:
+        """스택 재분석이면 기준 분석과 비교해 스택에 pendingChanges 를 남긴다(같은 트랜잭션)."""
+        assert analysis.stack_id is not None and analysis.result is not None
+        stack = await ServiceStackRepository(session).get_by_id(analysis.stack_id, for_update=True)
+        if analysis.id <= stack.analysis_id:
+            return
+        baseline = await RepositoryAnalysisRepository(session).get_by_id(stack.analysis_id)
+        changes = compute_stack_changes(baseline.result, analysis.result)
+        stack.record_pending_changes(analysis.id, analysis.source_sha, changes)
+        logger.info(
+            "stack changes recorded",
+            extra={
+                "action": "run_analysis",
+                "stack_id": stack.id,
+                "change_count": len(changes),
             },
         )
 

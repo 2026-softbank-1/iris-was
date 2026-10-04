@@ -29,6 +29,14 @@ class RepositoryAnalysis(TimestampMixin, Base):
             "created_at",
             postgresql_where=text("status IN ('QUEUED', 'RUNNING')"),
         ),
+        # 푸시가 다시 접수하는 스택 재분석은 스택·커밋마다 한 번이다(웹훅 재전송 중복 방지).
+        Index(
+            "uq_repository_analyses_stack_id_source_sha",
+            "stack_id",
+            "source_sha",
+            unique=True,
+            postgresql_where=text("stack_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[BigIntPk]
@@ -62,6 +70,9 @@ class RepositoryAnalysis(TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     # apply 로 만든 서비스 id 목록. 같은 apply 를 다시 보내면 이 서비스들을 돌려준다.
     applied_service_ids: Mapped[list[int] | None] = mapped_column(JSONB)
+    # 푸시로 다시 접수한 스택 재분석이면 그 스택. 결과가 스택과 다르면 스택에 pendingChanges 를
+    # 남긴다.
+    stack_id: Mapped[int | None] = mapped_column(ForeignKey("service_stacks.id", use_alter=True))
     # Worker 선점. lease 가 만료된 RUNNING 은 다른 Worker 가 다시 가져간다.
     attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"), default=0)
     locked_by: Mapped[str | None] = mapped_column(String(255))

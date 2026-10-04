@@ -24,8 +24,10 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 requires_database = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
 
 _DATA_TABLES = (
+    "stack_deployment_steps, stack_deployments, service_variables, "
     "jobs, releases, builds, deployment_status_histories, deployment_requests, service_uploads, "
-    "service_targets, services, repository_analyses, projects, user_github_installations, "
+    "service_targets, services, repository_analyses, service_stacks, projects, "
+    "user_github_installations, "
     "github_installations, users"
 )
 

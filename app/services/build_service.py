@@ -224,6 +224,9 @@ class BuildService:
         return build
 
     async def _prepare_github_source(self, service: Service) -> _GithubSource:
+        if service.github_installation_id is None:
+            # 관리형 DB 처럼 소스가 없는 서비스는 빌드하지 않는다.
+            raise BuildFailedError(FailureCode.SOURCE_NOT_ACCESSIBLE, "service has no source")
         owner, repository_name = parse_repository_url(service.source_repository_url)
         async with self._session_factory() as session:
             installation = await GithubInstallationRepository(session).get_by_id(

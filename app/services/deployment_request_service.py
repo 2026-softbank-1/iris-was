@@ -1,6 +1,8 @@
 import logging
+from typing import Any
 
 from app.enums import (
+    BuildStatus,
     DeploymentStatus,
     DeploymentStrategy,
     DeploymentTrigger,
@@ -12,6 +14,7 @@ from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
 from app.models.service import Service
+from app.models.service_variable import ServiceVariable
 from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
@@ -21,11 +24,32 @@ from app.repositories.job_repository import JobRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.schemas.job import BuildJobPayload
+from app.services.database_engines import ImageRef
 from app.services.deployment_status_service import DeploymentStatusService
 from app.services.deployment_strategy import resolve_deployment_strategy
 from app.services.scaling_config import ScalingConfig
 
 logger = logging.getLogger(__name__)
+
+
+# 스냅샷에서 참조 변수는 암호문 대신 이 키를 가진 객체다. Deploy Worker 가 봉인 직전에 푼다.
+SNAPSHOT_REFERENCE_KEY = "reference"
+
+
+def build_variables_snapshot(variables: list[ServiceVariable]) -> dict[str, Any]:
+    """`{key: 암호문}`. 참조 변수는 `{key: {"reference": {serviceId, property}}}` 다."""
+    snapshot: dict[str, Any] = {}
+    for variable in variables:
+        if variable.reference is not None:
+            snapshot[variable.key] = {SNAPSHOT_REFERENCE_KEY: dict(variable.reference)}
+        else:
+            snapshot[variable.key] = variable.encrypted_value
+    return snapshot
+
+
+def database_source_sha(image_digest: str) -> str:
+    """관리형 DB 요청의 source_sha. Git SHA·업로드(`upload-`)와 겹치지 않는다."""
+    return f"image-{image_digest.removeprefix('sha256:')[:12]}"
 
 
 class DeploymentRequestService:
@@ -74,8 +98,12 @@ class DeploymentRequestService:
         requested_by: int | None = None,
         source_deployment_request: DeploymentRequest | None = None,
         service_upload_id: int | None = None,
+        is_started: bool = True,
     ) -> DeploymentRequest | None:
         """멱등성 키가 겹치거나 이 서비스에 진행 중인 배포가 있으면 만들지 않고 None 이다.
+
+        `is_started=False` 면 BUILD job 을 만들지 않고 QUEUED 로 둔다(스택 배포가 앞 단계 성공을
+        기다리는 요청). 시작은 `start_deployment_request` 로 한다.
 
         `source_deployment_request` 는 같은 소스로 다시 배포하는 요청(REDEPLOY)의 원본이고,
         `service_upload_id` 는 GitHub 대신 소스로 쓰는 업로드(CLI)다. 업로드를 가져가는 일은
@@ -95,14 +123,67 @@ class DeploymentRequestService:
         if request is None:
             return None
         build = await self._build_repository.add(Build(deployment_request_id=request.id))
+        if is_started:
+            await self._add_build_job(request.id, build.id)
+        return request
+
+    async def create_database_deployment_request(
+        self,
+        service: Service,
+        *,
+        image: ImageRef,
+        trigger_type: DeploymentTrigger,
+        idempotency_key: str,
+        requested_by: int | None = None,
+        is_started: bool = True,
+    ) -> DeploymentRequest | None:
+        """관리형 DB 의 배포 요청. 빌드하지 않고 고정 공식 이미지를 가리키는 성공한 빌드를 붙인다.
+
+        소스 커밋이 없어 `source_sha` 는 `image-` + digest 앞 12자다. 시작하면 QUEUED 에서 곧바로
+        DEPLOYING 이 되고 DEPLOY job 으로 간다. 진행 중인 배포가 있으면 None 이다.
+        """
+        request = await self._add_request(
+            service,
+            source_sha=database_source_sha(image.digest),
+            source_commit_message=None,
+            trigger_type=trigger_type,
+            idempotency_key=idempotency_key,
+            requested_by=requested_by,
+            source_deployment_request=None,
+            variables_snapshot=None,
+            service_upload_id=None,
+        )
+        if request is None:
+            return None
+        await self._build_repository.add(Build.for_image(request.id, image, request.source_sha))
+        if is_started:
+            await self.start_deployment_request(request)
+        return request
+
+    async def start_deployment_request(self, request: DeploymentRequest) -> None:
+        """QUEUED 로 기다리던 요청의 첫 job 을 만든다. 이미지가 정해진 요청은 빌드를 건너뛴다."""
+        build = await self._build_repository.find_by_deployment_request_id(request.id)
+        assert build is not None
+        if build.status == BuildStatus.SUCCEEDED:
+            await self._start_deploying(request)
+            await self._job_repository.save(
+                Job(
+                    deployment_request_id=request.id,
+                    kind=JobKind.DEPLOY,
+                    payload={"build_id": build.id},
+                )
+            )
+            return
+        await self._add_build_job(request.id, build.id)
+
+    async def _add_build_job(self, deployment_request_id: int, build_id: int) -> None:
         await self._job_repository.save(
             Job(
-                deployment_request_id=request.id,
+                deployment_request_id=deployment_request_id,
                 kind=JobKind.BUILD,
-                payload=BuildJobPayload(build_id=build.id).model_dump(mode="json"),
+                payload=BuildJobPayload(build_id=build_id).model_dump(mode="json"),
             )
         )
-        return request
 
     async def create_deployment_request_reusing_image(
         self,
@@ -196,13 +277,13 @@ class DeploymentRequestService:
         idempotency_key: str,
         requested_by: int | None,
         source_deployment_request: DeploymentRequest | None,
-        variables_snapshot: dict[str, str] | None,
+        variables_snapshot: dict[str, Any] | None,
         service_upload_id: int | None,
     ) -> DeploymentRequest | None:
         """`variables_snapshot` 가 None 이면 지금 서비스 변수를 스냅샷으로 저장한다."""
         if variables_snapshot is None:
             variables = await self._service_variable_repository.search_by_service_id(service.id)
-            variables_snapshot = {v.key: v.encrypted_value for v in variables}
+            variables_snapshot = build_variables_snapshot(variables)
         desired = await self._service_repository.get_deployment_settings_for_update(service.id)
         scaling = ScalingConfig.model_validate(
             desired.scaling_config or ScalingConfig.defaults().model_dump(mode="json")

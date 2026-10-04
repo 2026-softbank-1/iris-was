@@ -139,6 +139,7 @@ GitHub Actions **Deploy platform**(`workflow_dispatch`, main 전용)으로만 �
 ## 현재 상태 / 한계
 
 - 서비스는 타깃(aws·onprem) 하나에만 배포한다([ADR 0027](docs/adr/0027-single-deploy-target-per-service.md)). 카나리·블루그린은 AWS 타깃에서 `DEPLOYMENT_STRATEGY_ENABLED` 를 켠 경우만 쓰고, on-prem 은 롤링만 한다([ADR 0028](docs/adr/0028-deployment-strategy-selection.md)).
+- 한 레포 분석에서 만든 서비스(앱 + 개발용 관리형 DB)는 스택으로 묶여 DB → 앱 → 나머지 순서로 배포되고, push 는 바뀐 앱만 같은 순서로 다시 빌드하며 레포를 다시 분석해 구성 변경을 알린다. 앱 변수는 DB 연결 정보를 참조 변수로 받고, compose 호스트명은 호스트 별칭으로 풀린다. 배포 전 환경변수 검증이 확실히 실패할 설정을 `422 VARIABLES_INVALID` 로 막는다. DB·별칭·참조는 `PROJECT_NETWORKING_ENABLED`(chart 0.8.0) 를 켠 AWS 타깃에서만 쓴다([ADR 0030](docs/adr/0030-project-stacks-databases-and-variable-references.md)).
 - 사용자 환경변수는 Deploy Worker 에 `SEALED_SECRETS_CERT` 가 있어야 SealedSecret 으로 앱 컨테이너에 전달된다([ADR 0017](docs/adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md)).
 - 원클릭 수정은 코드만 고친다. 환경변수 문제는 개발자가 직접 값을 넣고 재배포해야 한다.
 - 서비스 이름·도메인 변경은 MVP 범위가 아니다([ADR 0014](docs/adr/0014-service-domain-lookup.md)).

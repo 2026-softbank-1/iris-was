@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     # 카나리·블루그린 배포 방식. Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 두 방식을 저장할
     # 수 없고 새 배포 요청은 ROLLING 으로 적용한다. iris-service chart 0.7.0 이 배포된 뒤에 켠다.
     deployment_strategy_enabled: bool = False
+    # 관리형 DB·호스트 별칭·프로젝트 내부 통신(chart 0.8.0 의
+    # workload·database·hostAliases·projectId).
+    # Deploy Worker 와 같은 값으로 둔다. 꺼져 있으면 DB 생성·별칭 저장이 422 이고 apply 는 DB 를
+    # 만들지
+    # 않는다. AWS ApplicationSet 의 iris-service chart pin 이 0.8.0 이상이 된 뒤에 켠다.
+    project_networking_enabled: bool = False
+    # 관리형 DB 의 고정 이미지(엔진 → `repo:tag@sha256:…`). 비우면 코드의 기본 digest 를 쓴다.
+    database_images: dict[str, str] = Field(default_factory=dict)
 
     database_url: str
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -147,6 +155,11 @@ class DeployWorkerSettings(BaseSettings):
     # values 에 deploymentStrategy 를 쓴다. 이 키를 모르는 이전 chart(0.7.0 미만)의 schema 가
     # 거절하므로 chart 0.7.0 이 배포된 뒤에 켠다. Control API 와 같은 값으로 둔다.
     deployment_strategy_enabled: bool = False
+    # values 에 projectId·service.exposeContainerPort·hostAliases·workload·database 를 쓴다(AWS
+    # 타깃만).
+    # 이 키를 모르는 이전 chart(0.8.0 미만)의 schema 가 거절하므로 AWS chart pin 이 0.8.0 이 된 뒤에
+    # 켠다. Control API 와 같은 값으로 둔다.
+    project_networking_enabled: bool = False
 
 
 @lru_cache

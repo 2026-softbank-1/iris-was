@@ -1,9 +1,10 @@
 from datetime import timedelta
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import RepositoryAnalysisStatus
+from app.enums import AnalysisGateMode, RepositoryAnalysisStatus
 from app.models.project import Project
 from app.models.repository_analysis import RepositoryAnalysis
 
@@ -16,6 +17,44 @@ class RepositoryAnalysisRepository:
         self._session.add(analysis)
         await self._session.flush()
         return analysis
+
+    async def add_stack_analysis_if_absent(
+        self,
+        *,
+        stack_id: int,
+        project_id: int,
+        user_id: int,
+        source_repository_url: str,
+        github_installation_id: int | None,
+        source_branch: str,
+        source_sha: str,
+        root_directory: str | None,
+    ) -> RepositoryAnalysis | None:
+        """스택 재분석을 접수한다. 같은 스택·커밋이 이미 있으면(웹훅 재전송) None 이다.
+
+        재분석은 레포가 단순해져도 단위를 비교할 수 있게 force 모드다.
+        """
+        stmt = (
+            insert(RepositoryAnalysis)
+            .values(
+                project_id=project_id,
+                user_id=user_id,
+                source_repository_url=source_repository_url,
+                github_installation_id=github_installation_id,
+                source_branch=source_branch,
+                source_sha=source_sha,
+                root_directory=root_directory,
+                mode=AnalysisGateMode.FORCE,
+                status=RepositoryAnalysisStatus.QUEUED,
+                stack_id=stack_id,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["stack_id", "source_sha"],
+                index_where=text("stack_id IS NOT NULL"),
+            )
+            .returning(RepositoryAnalysis)
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
 
     async def find_by_id_and_project_id(
         self, analysis_id: int, project_id: int, *, for_update: bool = False

@@ -6,7 +6,7 @@
 
 import logging
 import posixpath
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,8 +24,10 @@ from app.enums import (
     Builder,
     DeploymentTrigger,
     RepositoryAnalysisStatus,
+    ServiceKind,
 )
 from app.models.repository_analysis import RepositoryAnalysis
+from app.models.service import Service
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
@@ -39,6 +41,9 @@ from app.services.service_registry_service import (
     slugify_service_name,
 )
 from app.services.source_repository_service import SourceRepositoryService
+from app.services.stack_apply_service import DependencySelection, StackApplyService
+from app.services.stack_service import StackService
+from app.services.variable_validation import VariableValidation, VariableValidationService
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +66,11 @@ class UnitSelection:
 class AppliedAnalysis:
     analysis_id: int
     services: list[ServiceDetail]
+    databases: list[ServiceDetail] = field(default_factory=list)
+    stack_id: int | None = None
+    stack_deployment_id: int | None = None
+    # 환경변수 error 로 배포를 접수하지 않았으면 그 검증 결과(서비스마다). 서비스는 만들어져 있다.
+    variable_validations: list[VariableValidation] = field(default_factory=list)
 
 
 class RepositoryAnalysisService:
@@ -73,7 +83,15 @@ class RepositoryAnalysisService:
         source_repository_service: SourceRepositoryService,
         service_registry_service: ServiceRegistryService,
         manual_deployment_service: ManualDeploymentService,
+        *,
+        stack_apply_service: StackApplyService | None = None,
+        stack_service: StackService | None = None,
+        variable_validation_service: VariableValidationService | None = None,
     ) -> None:
+        # 셋이 다 있으면 분석 결과를 스택으로 적용한다(DB·참조 변수·별칭·의존 순서 배포).
+        self._stack_apply_service = stack_apply_service
+        self._stack_service = stack_service
+        self._variable_validation_service = variable_validation_service
         self._session = session
         self._project_repository = project_repository
         self._repository_analysis_repository = repository_analysis_repository
@@ -156,13 +174,125 @@ class RepositoryAnalysisService:
         should_deploy: bool,
         target_ids: list[int] | None = None,
         is_auto_deploy: bool = True,
+        dependencies: list[DependencySelection] | None = None,
+        skip_variable_validation: bool = False,
     ) -> AppliedAnalysis:
         """고른 배포 단위마다 서비스를 만든다. 이미 적용했으면 그때 만든 서비스를 돌려준다.
 
-        서비스 생성과 분석의 APPLIED 전이는 한 트랜잭션이다. 배포 요청은 그 뒤에 서비스마다
-        분석한 커밋으로 만든다. 같은 키를 쓰므로 다시 보내면 빠진 배포 요청만 새로 만든다.
+        스택으로 적용하면 같은 트랜잭션에서 DB 서비스 → 앱 서비스 → 참조 변수 → 호스트 별칭을
+        만들고(같은 레포의 스택이 있으면 unit id 로 맞춰 증분 적용), 배포는 DB 가 먼저 성공한 뒤
+        앱이
+        시작하는 스택 배포 하나로 접수한다. 환경변수 error 가 있으면 서비스는 남기고 배포를 접수하지
+        않으며 검증 결과를 돌려준다. 같은 키라 다시 보내면 빠진 배포만 새로 만든다.
         """
         analysis = await self._get_owned(owner_id, project_id, analysis_id, for_update=True)
+        if not self._is_stack_mode:
+            return await self._apply_without_stack(
+                owner_id, analysis, selections, should_deploy, target_ids, is_auto_deploy
+            )
+        assert self._stack_apply_service is not None and self._stack_service is not None
+        if analysis.status != RepositoryAnalysisStatus.APPLIED:
+            plans = self._plans(analysis, selections)
+            applied = await self._stack_apply_service.apply(
+                owner_id,
+                analysis,
+                plans,
+                dependencies,
+                target_ids,
+                is_auto_deploy=is_auto_deploy,
+            )
+            analysis.stack_id = analysis.stack_id or applied.stack.id
+            analysis.mark_as_applied(
+                [s.id for s in applied.apps] + [s.id for s in applied.databases]
+            )
+            await self._session.commit()
+            logger.info(
+                "repository analysis applied",
+                extra={
+                    "action": "apply_analysis",
+                    "repository_analysis_id": analysis.id,
+                    "stack_id": applied.stack.id,
+                    "service_ids": analysis.applied_service_ids,
+                },
+            )
+        service_ids = list(analysis.applied_service_ids or [])
+        details = await self._service_registry_service.search_services_by_ids(owner_id, service_ids)
+        stack_id = details[0].service.stack_id if details else analysis.stack_id
+        stack_deployment_id: int | None = None
+        validations: list[VariableValidation] = []
+        if should_deploy and analysis.source_sha is not None and stack_id is not None:
+            stack_deployment_id, validations = await self._deploy_stack(
+                owner_id, analysis, stack_id, [d.service for d in details], skip_variable_validation
+            )
+            details = await self._service_registry_service.search_services_by_ids(
+                owner_id, service_ids
+            )
+        return AppliedAnalysis(
+            analysis_id=analysis_id,
+            services=[d for d in details if d.service.kind == ServiceKind.APP],
+            databases=[d for d in details if d.service.kind == ServiceKind.DATABASE],
+            stack_id=stack_id,
+            stack_deployment_id=stack_deployment_id,
+            variable_validations=validations,
+        )
+
+    @property
+    def _is_stack_mode(self) -> bool:
+        return self._stack_apply_service is not None and self._stack_service is not None
+
+    async def _deploy_stack(
+        self,
+        owner_id: int,
+        analysis: RepositoryAnalysis,
+        stack_id: int,
+        services: list[Service],
+        skip_variable_validation: bool,
+    ) -> tuple[int | None, list[VariableValidation]]:
+        assert self._stack_service is not None and analysis.source_sha is not None
+        key = f"analysis:{analysis.id}"
+        if not skip_variable_validation and self._variable_validation_service is not None:
+            validations = [await self._variable_validation_service.validate(s) for s in services]
+            failed = [v for v in validations if not v.ok]
+            if failed:
+                logger.info(
+                    "stack deployment blocked by variables",
+                    extra={
+                        "action": "apply_analysis",
+                        "repository_analysis_id": analysis.id,
+                        "service_ids": [v.service_id for v in failed],
+                    },
+                )
+                return None, failed
+        stack = await self._stack_service.get_stack_model(stack_id)
+        # 이미 떠 있는 DB 는 다시 띄우지 않는다(증분 apply).
+        services = [s for s in services if not await self._stack_service.is_live_database(s)]
+        source_sha = analysis.source_sha
+
+        async def source() -> tuple[str, str | None]:
+            return source_sha, None
+
+        created = await self._stack_service.create_stack_deployment(
+            stack,
+            services,
+            trigger_type=DeploymentTrigger.MANUAL,
+            idempotency_key=key,
+            requested_by=owner_id,
+            source=source,
+            is_strict=False,
+        )
+        await self._session.commit()
+        return created.stack_deployment.id, []
+
+    async def _apply_without_stack(
+        self,
+        owner_id: int,
+        analysis: RepositoryAnalysis,
+        selections: list[UnitSelection],
+        should_deploy: bool,
+        target_ids: list[int] | None,
+        is_auto_deploy: bool,
+    ) -> AppliedAnalysis:
+        """스택 구성 요소가 없을 때(이전 동작): 서비스만 만들고 서비스마다 배포 요청을 만든다."""
         if analysis.status != RepositoryAnalysisStatus.APPLIED:
             await self._create_services(owner_id, analysis, selections, target_ids, is_auto_deploy)
         service_ids = list(analysis.applied_service_ids or [])
@@ -174,21 +304,16 @@ class RepositoryAnalysisService:
                     service_id,
                     trigger_type=DeploymentTrigger.MANUAL,
                     source_sha=source_sha,
-                    idempotency_key=f"analysis-{analysis_id}",
+                    idempotency_key=f"analysis-{analysis.id}",
                 )
         services = await self._service_registry_service.search_services_by_ids(
             owner_id, service_ids
         )
-        return AppliedAnalysis(analysis_id=analysis_id, services=services)
+        return AppliedAnalysis(analysis_id=analysis.id, services=services)
 
-    async def _create_services(
-        self,
-        owner_id: int,
-        analysis: RepositoryAnalysis,
-        selections: list[UnitSelection],
-        target_ids: list[int] | None,
-        is_auto_deploy: bool,
-    ) -> None:
+    def _plans(
+        self, analysis: RepositoryAnalysis, selections: list[UnitSelection]
+    ) -> list[AnalyzedServicePlan]:
         if (
             analysis.status != RepositoryAnalysisStatus.SUCCEEDED
             or analysis.decision != AnalysisGateDecision.ANALYZE
@@ -214,6 +339,17 @@ class RepositoryAnalysisService:
                     "unit not found in analysis", field="units", unit_id=selection.unit_id
                 )
             plans.append(_to_plan(analysis, unit, selection))
+        return plans
+
+    async def _create_services(
+        self,
+        owner_id: int,
+        analysis: RepositoryAnalysis,
+        selections: list[UnitSelection],
+        target_ids: list[int] | None,
+        is_auto_deploy: bool,
+    ) -> None:
+        plans = self._plans(analysis, selections)
         services = await self._service_registry_service.create_analyzed_services(
             owner_id,
             analysis.project_id,
@@ -291,6 +427,7 @@ def _to_plan(
         port=port,
         start_command=start_command,
         build_command=build_command,
+        stack_unit_id=unit.id,
         analysis_plan={
             "gate": analysis.build_gate_plan(unit.id),
             # 분석기가 준 단위 원문(role·env·dependsOn·evidence 포함)과 실제로 쓴 값.

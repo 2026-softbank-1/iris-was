@@ -2,7 +2,7 @@
 
 from itertools import count
 
-from app.enums import DeploymentStrategy, TargetKind
+from app.enums import DeploymentStrategy, ServiceKind, TargetKind
 from app.models.base import now_utc
 from app.models.project import Project
 from app.models.service import Service
@@ -58,6 +58,7 @@ class FakeServiceRepository:
     def __init__(self, projects: FakeProjectRepository) -> None:
         self._projects = projects
         self.services: dict[int, Service] = {}
+        self.target_kinds: dict[int, TargetKind] = {}
         self.targets: dict[int, set[int]] = {}
         self._ids = count(1)
 
@@ -114,6 +115,7 @@ class FakeServiceRepository:
             service.is_deleted = False
             service.platform = service.platform or "linux/amd64"
             service.deployment_strategy = service.deployment_strategy or DeploymentStrategy.ROLLING
+            service.kind = service.kind or ServiceKind.APP
             if service.is_auto_deploy is None:
                 service.is_auto_deploy = True
         self.services[service.id] = service
@@ -121,6 +123,19 @@ class FakeServiceRepository:
 
     async def replace_targets(self, service_id: int, target_ids: set[int]) -> None:
         self.targets[service_id] = set(target_ids)
+
+    async def find_active_by_id(self, service_id: int) -> Service | None:
+        service = self.services.get(service_id)
+        return service if service is not None and not service.is_deleted else None
+
+    async def find_target_kind(self, service_id: int) -> TargetKind:
+        return self.target_kinds.get(service_id, TargetKind.AWS)
+
+    async def search_by_stack_id(self, stack_id: int) -> list[Service]:
+        return [s for s in self.services.values() if s.stack_id == stack_id and not s.is_deleted]
+
+    async def flush(self) -> None:
+        return None
 
     async def mark_as_deleted_by_project_id(self, project_id: int) -> None:
         for service in self.services.values():

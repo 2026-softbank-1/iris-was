@@ -11,6 +11,7 @@ from app.models.project import Project
 from app.models.release import Release
 from app.models.repository_analysis import RepositoryAnalysis
 from app.models.service import Service
+from app.models.service_stack import ServiceStack, StackDeployment, StackDeploymentStep
 from app.models.service_upload import ServiceUpload
 from app.models.service_variable import ServiceVariable
 from app.models.target import ServiceTarget, Target
@@ -30,9 +31,12 @@ __all__ = [
     "Release",
     "RepositoryAnalysis",
     "Service",
+    "ServiceStack",
     "ServiceTarget",
     "ServiceUpload",
     "ServiceVariable",
+    "StackDeployment",
+    "StackDeploymentStep",
     "Target",
     "User",
     "UserGithubInstallation",

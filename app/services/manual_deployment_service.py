@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,13 @@ from app.core.exceptions import (
     UploadNotFoundError,
     UploadUnavailableError,
 )
-from app.enums import BuildStatus, DeploymentStatus, DeploymentTrigger
+from app.enums import (
+    BuildStatus,
+    DatabaseEngine,
+    DeploymentStatus,
+    DeploymentTrigger,
+    ServiceKind,
+)
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.service import Service
@@ -22,10 +29,12 @@ from app.repositories.build_repository import BuildRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.service_upload_repository import ServiceUploadRepository
+from app.services.database_engines import resolve_image
 from app.services.deployment_request_service import DeploymentRequestService
 from app.services.repository_url import parse_repository_url
 from app.services.source_repository_service import SourceRepositoryService
 from app.services.upload_source import build_upload_source_sha, is_upload_source_sha
+from app.services.variable_validation import VariableValidationService
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +44,19 @@ _SOURCE_COPYING_TRIGGERS = frozenset({DeploymentTrigger.REDEPLOY, DeploymentTrig
 _IMAGE_REUSING_TRIGGERS = frozenset({DeploymentTrigger.ROLLBACK, DeploymentTrigger.RESTART})
 # 지금 떠 있는(마지막으로 성공한) 배포를 대상으로 하는 요청.
 _LIVE_DEPLOYMENT_TRIGGERS = frozenset({DeploymentTrigger.RESTART, DeploymentTrigger.REMOVE})
+# 지금 서비스 변수로 앱을 띄우는 요청. 만들기 전에 환경변수를 검증한다(롤백은 그때의 변수다).
+_VALIDATED_TRIGGERS = frozenset(
+    {
+        DeploymentTrigger.MANUAL,
+        DeploymentTrigger.CLI,
+        DeploymentTrigger.REDEPLOY,
+        DeploymentTrigger.RESTART,
+    }
+)
+# 관리형 DB 에서 고정 이미지로 새로 배포하는 요청(소스를 빌드하는 요청 대신).
+_DATABASE_REBUILD_TRIGGERS = frozenset(
+    {DeploymentTrigger.MANUAL, DeploymentTrigger.REDEPLOY, DeploymentTrigger.CLI}
+)
 _MANUAL_TRIGGERS = (
     frozenset({DeploymentTrigger.MANUAL, DeploymentTrigger.CLI})
     | _SOURCE_COPYING_TRIGGERS
@@ -60,7 +82,12 @@ class ManualDeploymentService:
         deployment_request_service: DeploymentRequestService,
         source_repository_service: SourceRepositoryService,
         upload_repository: ServiceUploadRepository,
+        variable_validation_service: VariableValidationService | None = None,
+        *,
+        database_images: Mapping[str, str] | None = None,
     ) -> None:
+        self._variable_validation_service = variable_validation_service
+        self._database_images = dict(database_images or {})
         self._session = session
         self._service_repository = service_repository
         self._deployment_request_repository = deployment_request_repository
@@ -79,8 +106,13 @@ class ManualDeploymentService:
         source_deployment_request_id: int | None = None,
         upload_id: str | None = None,
         idempotency_key: str | None = None,
+        skip_variable_validation: bool = False,
     ) -> DeploymentRequest:
         """같은 `idempotency_key` 로 다시 요청하면 처음 만든 배포 요청을 그대로 돌려준다.
+
+        지금 변수로 앱을 띄우는 요청(MANUAL·CLI·REDEPLOY·RESTART)은 만들기 전에 환경변수를
+        검증해 error 가 있으면 422 VARIABLES_INVALID 다(`skip_variable_validation` 로 건너뛴다).
+        관리형 DB 는 MANUAL·REDEPLOY 가 고정 이미지로 다시 배포하고 CLI 는 받지 않는다.
 
         CLI 는 `upload_id` 의 업로드를 이 요청에 묶는다. 묶는 일과 요청 생성은 한 트랜잭션이라,
         요청을 만들지 못하면(진행 중인 배포가 있으면) 업로드는 다시 쓸 수 있다.
@@ -90,8 +122,30 @@ class ManualDeploymentService:
         service = await self._get_owned(owner_id, service_id)
         # 전역으로 유일한 키라서 서비스 id 를 붙여 다른 서비스의 키와 섞이지 않게 한다.
         key = f"manual:{service.id}:{idempotency_key or uuid.uuid4()}"
+        if (
+            trigger_type in _VALIDATED_TRIGGERS
+            and not skip_variable_validation
+            and self._variable_validation_service is not None
+            and await self._deployment_request_repository.find_by_idempotency_key(key) is None
+        ):
+            await self._variable_validation_service.check_deployable([service])
 
-        if trigger_type == DeploymentTrigger.REMOVE:
+        if service.kind == ServiceKind.DATABASE and trigger_type in _DATABASE_REBUILD_TRIGGERS:
+            if trigger_type == DeploymentTrigger.CLI:
+                raise InvalidInputError(
+                    "database services cannot be deployed from an upload",
+                    field="triggerType",
+                    service_id=service.id,
+                )
+            assert service.database_engine is not None
+            request = await self._deployment_request_service.create_database_deployment_request(
+                service,
+                image=resolve_image(DatabaseEngine(service.database_engine), self._database_images),
+                trigger_type=trigger_type,
+                idempotency_key=key,
+                requested_by=owner_id,
+            )
+        elif trigger_type == DeploymentTrigger.REMOVE:
             live = await self._get_live_deployment(service)
             request = await self._deployment_request_service.create_removal_request(
                 service,

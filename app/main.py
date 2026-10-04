@@ -30,6 +30,7 @@ from app.routers import (
     repository_analysis_router,
     scaling_router,
     service_router,
+    stack_router,
     target_router,
     upload_router,
     user_router,
@@ -120,6 +121,13 @@ OPENAPI_TAGS = [
             " 배포 단위마다 서비스를 만든다"
         ),
     },
+    {
+        "name": "stacks",
+        "description": (
+            "한 레포 분석에서 만든 서비스 묶음(앱 + 관리형 DB): DB 생성,"
+            " 의존 순서(DB → 앱 → 나머지) 재배포, 구성·상태·푸시 재분석 변경 감지 조회"
+        ),
+    },
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {
         "name": "uploads",
@@ -171,6 +179,7 @@ app.include_router(github_router.router)
 app.include_router(project_router.router)
 app.include_router(service_router.router)
 app.include_router(repository_analysis_router.router)
+app.include_router(stack_router.router)
 app.include_router(deployment_router.router)
 app.include_router(upload_router.router)
 app.include_router(diagnosis_router.router)

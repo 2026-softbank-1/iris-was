@@ -4,7 +4,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DeploymentStrategy, TargetKind
+from app.enums import DeploymentStrategy, ServiceKind, TargetKind
 from app.models.base import now_utc
 from app.models.project import Project
 from app.models.service import Service
@@ -77,6 +77,49 @@ class ServiceRepository:
         scaling_config, deployment_strategy, kind = (await self._session.execute(stmt)).one()
         return DeploymentSettings(scaling_config, deployment_strategy, kind or TargetKind.AWS)
 
+    async def find_active_by_id(self, service_id: int) -> Service | None:
+        """지워지지 않은 서비스(프로젝트도 지워지지 않은 것)."""
+        stmt = (
+            select(Service)
+            .join(Project, Project.id == Service.project_id)
+            .where(
+                Service.id == service_id,
+                Service.is_deleted.is_(False),
+                Project.is_deleted.is_(False),
+            )
+        )
+        return (await self._session.scalars(stmt)).one_or_none()
+
+    async def find_target_kind(self, service_id: int) -> TargetKind:
+        """서비스가 배포되는 타깃의 종류. 타깃이 없으면 `aws` 에 배포하므로 AWS 다."""
+        stmt = (
+            select(Target.kind)
+            .join(ServiceTarget, ServiceTarget.target_id == Target.id)
+            .where(ServiceTarget.service_id == service_id)
+            .order_by(Target.id)
+            .limit(1)
+        )
+        return (await self._session.scalar(stmt)) or TargetKind.AWS
+
+    async def search_by_stack_id(self, stack_id: int) -> list[Service]:
+        stmt = (
+            select(Service)
+            .where(Service.stack_id == stack_id, Service.is_deleted.is_(False))
+            .order_by(Service.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
+    async def search_by_ids(self, service_ids: list[int]) -> list[Service]:
+        """지워지지 않은 서비스만 id 순서로."""
+        if not service_ids:
+            return []
+        stmt = (
+            select(Service)
+            .where(Service.id.in_(service_ids), Service.is_deleted.is_(False))
+            .order_by(Service.id)
+        )
+        return list((await self._session.scalars(stmt)).all())
+
     async def find_by_project_id_and_name(self, project_id: int, name: str) -> Service | None:
         stmt = select(Service).where(
             Service.project_id == project_id, Service.name == name, Service.is_deleted.is_(False)
@@ -94,6 +137,8 @@ class ServiceRepository:
                 func.lower(Service.source_repository_url) == repository_url.lower(),
                 Service.source_branch == branch,
                 Service.is_auto_deploy.is_(True),
+                # 관리형 DB 는 소스가 없어 푸시로 다시 배포하지 않는다.
+                Service.kind == ServiceKind.APP,
                 Service.is_deleted.is_(False),
                 Project.is_deleted.is_(False),
             )
@@ -121,6 +166,9 @@ class ServiceRepository:
         for service_id, target_id in (await self._session.execute(stmt)).all():
             target_ids[service_id].append(target_id)
         return target_ids
+
+    async def flush(self) -> None:
+        await self._session.flush()
 
     async def save(self, service: Service) -> Service:
         self._session.add(service)

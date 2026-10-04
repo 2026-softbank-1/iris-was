@@ -1,0 +1,240 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "iris-service values",
+  "description": "Deploy Worker 가 쓰는 배포별 값과 chart·타겟 기본값. 모르는 키는 거절합니다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["release"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "tag": { "type": "string", "minLength": 1 }
+      },
+      "oneOf": [{ "required": ["digest"] }, { "required": ["tag"] }]
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "app: Rollout·Ingress(기본). database: 고정 공식 이미지 StatefulSet·PVC. 0.8.0 부터.",
+          "enum": ["app", "database"]
+        }
+      }
+    },
+    "projectId": {
+      "description": "Pod 라벨 iris.io/project-id. 같은 값의 Pod 끼리 namespace 를 넘어 통신합니다. 0.8.0 부터.",
+      "oneOf": [
+        { "type": "string", "maxLength": 63, "pattern": "^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$" },
+        { "type": "integer", "minimum": 1 }
+      ]
+    },
+    "replicas": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "deploymentStrategy": {
+      "description": "배포 방식. 단계·대기 시간은 chart 가 정하고, replicas 가 2 미만이면 ROLLING 으로 렌더링합니다.",
+      "enum": ["ROLLING", "CANARY", "BLUE_GREEN"]
+    },
+    "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeoutSeconds"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/\\S*$", "maxLength": 1024 },
+        "timeoutSeconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "$ref": "#/definitions/quantities" },
+        "limits": { "$ref": "#/definitions/quantities" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "exposeContainerPort": {
+          "description": "true 면 app Service 에 name container, port containerPort 를 더합니다. 0.8.0 부터.",
+          "type": "boolean"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+        },
+        "className": { "type": "string", "minLength": 1 },
+        "groupName": { "type": "string" }
+      }
+    },
+    "iris": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceName": { "$ref": "#/definitions/dnsLabel" },
+        "targetName": { "$ref": "#/definitions/dnsLabel" },
+        "deploymentId": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "encryptedData"],
+      "properties": {
+        "name": { "$ref": "#/definitions/dnsLabel" },
+        "encryptedData": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 100,
+          "propertyNames": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "not": { "pattern": "^(PORT|IRIS_.*)$" }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 98304,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          }
+        }
+      }
+    },
+    "hostAliases": {
+      "description": "이 namespace 의 ExternalName Service. 다른 서비스의 app Service(svc-* namespace)로만 잇습니다. 0.8.0 부터.",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "target"],
+        "properties": {
+          "name": {
+            "description": "DNS-1035 label. 이 chart 의 Service 이름 app 은 쓸 수 없습니다.",
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$",
+            "not": { "const": "app" }
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^app\\.svc-[a-z0-9]([-a-z0-9]*[a-z0-9])?\\.svc\\.cluster\\.local$"
+          }
+        }
+      }
+    },
+    "database": {
+      "description": "workload.kind 가 database 일 때만 씁니다. 자격 증명은 variables 로 받습니다. 0.8.0 부터.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine": { "enum": ["postgres", "mysql", "mongodb", "redis"] },
+        "image": {
+          "description": "엔진별 Docker 공식 이미지(docker.io/library/{postgres,mysql,mongo,redis})만, digest 고정",
+          "type": "string",
+          "maxLength": 255
+        },
+        "storage": { "description": "1Gi~20Gi. 만든 뒤에는 바꿀 수 없습니다", "type": "string", "pattern": "^([1-9]|1[0-9]|20)Gi$" },
+        "storageClassName": { "type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$" },
+        "port": { "description": "app Service 포트. 없으면 엔진 기본 포트", "type": "integer", "minimum": 1, "maximum": 65535 },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": { "$ref": "#/definitions/quantities" },
+            "limits": { "$ref": "#/definitions/quantities" }
+          }
+        }
+      },
+      "allOf": [
+        { "$ref": "#/definitions/databaseImage/postgres" },
+        { "$ref": "#/definitions/databaseImage/mysql" },
+        { "$ref": "#/definitions/databaseImage/mongodb" },
+        { "$ref": "#/definitions/databaseImage/redis" }
+      ]
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowedCidrs": { "type": "array", "items": { "type": "string" } },
+        "egressDeniedCidrs": { "type": "array", "items": { "type": "string" } },
+        "egressAllowed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cidr", "port"],
+            "properties": {
+              "cidr": { "type": "string" },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["workload"],
+        "properties": { "workload": { "required": ["kind"], "properties": { "kind": { "const": "database" } } } }
+      },
+      "then": {
+        "required": ["database", "projectId"],
+        "properties": { "database": { "required": ["engine", "image", "storage", "storageClassName"] } },
+        "not": { "anyOf": [{ "required": ["image"] }, { "required": ["command"] }] }
+      },
+      "else": {
+        "required": ["image", "containerPort", "health", "route"],
+        "properties": { "route": { "required": ["host", "className"] } }
+      }
+    }
+  ],
+  "definitions": {
+    "databaseImage": {
+      "postgres": { "if": { "required": ["engine"], "properties": { "engine": { "const": "postgres" } } }, "then": { "properties": { "image": { "pattern": "^(docker\\.io/)?(library/)?postgres(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$" } } } },
+      "mysql": { "if": { "required": ["engine"], "properties": { "engine": { "const": "mysql" } } }, "then": { "properties": { "image": { "pattern": "^(docker\\.io/)?(library/)?mysql(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$" } } } },
+      "mongodb": { "if": { "required": ["engine"], "properties": { "engine": { "const": "mongodb" } } }, "then": { "properties": { "image": { "pattern": "^(docker\\.io/)?(library/)?mongo(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$" } } } },
+      "redis": { "if": { "required": ["engine"], "properties": { "engine": { "const": "redis" } } }, "then": { "properties": { "image": { "pattern": "^(docker\\.io/)?(library/)?redis(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$" } } } }
+    },
+    "dnsLabel": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+    },
+    "quantities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": { "type": ["string", "number"] },
+        "memory": { "type": "string" }
+      }
+    }
+  }
+}
