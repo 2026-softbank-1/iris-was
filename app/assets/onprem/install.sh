@@ -4,6 +4,9 @@
 #   curl -fsSL https://api.likelion.uk/api/v1/onprem-servers/install.sh \
 #     | sudo bash -s -- --token <registrationToken> [--api-url <URL>] [--dry-run]
 #
+# 이미 연결된 서버의 배포용 ServiceAccount 권한만 최신으로 갱신할 때(토큰 불필요):
+#   curl -fsSL https://api.likelion.uk/api/v1/onprem-servers/install.sh | sudo bash -s -- --rbac-only
+#
 # 단계와 API 계약: iris-was docs/onprem-server-registration-contract.md §5·§6
 # 등록 토큰·Tailscale 가입 키·SA 토큰·serverSecret 은 출력하지 않는다. set -x 를 쓰지 않는다.
 set -euo pipefail
@@ -11,6 +14,7 @@ set -euo pipefail
 API_URL="https://api.likelion.uk"
 TOKEN=""
 DRY_RUN=0
+RBAC_ONLY=0
 TOTAL_STEPS=8
 SYSTEM_NAMESPACE="iris-system"
 
@@ -36,9 +40,12 @@ kc() { k3s kubectl "$@"; }
 usage() {
   cat <<'EOF'
 사용법: install.sh --token <registrationToken> [--api-url <URL>] [--dry-run]
-  --token     웹·CLI 에서 서버를 등록할 때 받은 등록 토큰 (필수)
-  --api-url   likelion API 주소 (기본 https://api.likelion.uk)
-  --dry-run   아무것도 바꾸지 않고 실행할 단계만 출력
+        install.sh --rbac-only [--dry-run]
+  --token      웹·CLI 에서 서버를 등록할 때 받은 등록 토큰 (설치에는 필수)
+  --api-url    likelion API 주소 (기본 https://api.likelion.uk)
+  --rbac-only  이미 연결된 서버의 배포용 ServiceAccount 권한(ClusterRole)만 최신으로 갱신한다.
+               토큰이 필요 없다. 새 기능(서비스 콘솔 등)이 권한을 더할 때 한 번 실행한다
+  --dry-run    아무것도 바꾸지 않고 실행할 단계만 출력
 EOF
 }
 
@@ -56,13 +63,18 @@ parse_args() {
       --api-url) [ $# -ge 2 ] || usage_error "--api-url 값이 필요합니다"; API_URL=$2; shift 2 ;;
       --api-url=*) API_URL=${1#*=}; shift ;;
       --dry-run) DRY_RUN=1; shift ;;
+      --rbac-only) RBAC_ONLY=1; shift ;;
       -h | --help) usage; exit 0 ;;
       # 잘못 넣은 값이 토큰일 수 있어 옵션 이름만 보여 준다.
       -*) usage_error "알 수 없는 옵션입니다: ${1%%=*}" ;;
       *) usage_error "알 수 없는 인자입니다 (값은 표시하지 않습니다)" ;;
     esac
   done
-  [ -n "$TOKEN" ] || usage_error "--token 이 필요합니다"
+  if [ "$RBAC_ONLY" -eq 1 ]; then
+    [ -z "$TOKEN" ] || usage_error "--rbac-only 는 --token 과 함께 쓰지 않습니다"
+  else
+    [ -n "$TOKEN" ] || usage_error "--token 이 필요합니다"
+  fi
   API_URL=${API_URL%/}
   [[ $API_URL =~ ^https?://[A-Za-z0-9.:-]+$ ]] || usage_error "--api-url 은 http(s)://호스트 형식이어야 합니다"
 }
@@ -253,7 +265,14 @@ sa_token_ready() {
 grant_deploy_access() {
   step 5 "배포 권한(ServiceAccount) 만드는 중"
   if is_dry; then plan "namespace $SYSTEM_NAMESPACE, SA iris-argocd, ClusterRole iris-onprem-service-deployer, 만료 없는 토큰 Secret"; return; fi
+  apply_deploy_access
+  wait_until 60 "ServiceAccount 토큰" sa_token_ready
+}
+
+# 서비스 배포용 SA·ClusterRole 을 만들거나 최신 규칙으로 갱신한다. kubectl apply 라 다시 실행해도 안전하다.
+apply_deploy_access() {
   # ClusterRole 규칙은 iris-infra clusters/onprem-workload/argocd-service-deployer.yaml 과 같아야 한다.
+  # pods/exec 는 Argo CD 터미널(서비스 콘솔, ADR 0035)이 쓴다. SPDY(POST)는 create, WebSocket(GET)은 get 이다.
   # 첫 규칙(apiGroups·resources "*" 의 get·list·watch)은 Secret 을 포함한 클러스터 전체 읽기다.
   # 이 SA 토큰을 가진 Argo CD(management)는 iris-system/iris-server-secret 도 읽을 수 있다(ADR 0029 위험).
   kc apply -f - >/dev/null <<'EOF'
@@ -303,6 +322,9 @@ rules:
   - apiGroups: [argoproj.io]
     resources: [rollouts]
     verbs: [create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [get, create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -344,7 +366,21 @@ subjects:
     name: iris-argocd
     namespace: iris-system
 EOF
-  wait_until 60 "ServiceAccount 토큰" sa_token_ready
+}
+
+# 이미 연결된 서버는 등록 토큰이 1회용이라 설치를 다시 실행할 수 없다. 권한만 최신으로 맞춘다.
+update_rbac() {
+  log "likelion 온프레미스 서버 권한 갱신 (--rbac-only)"
+  if is_dry; then
+    plan "ClusterRole iris-onprem-service-deployer 를 최신 규칙으로 갱신 (이미 설치된 서버에서만)"
+    return 0
+  fi
+  [ "$(id -u)" -eq 0 ] || die "root 권한이 필요합니다. sudo 로 실행하세요"
+  command -v k3s >/dev/null || die "K3s 가 없습니다. 이 모드는 이미 등록한 서버용입니다. 등록 명령(--token)으로 설치하세요"
+  kc -n "$SYSTEM_NAMESPACE" get serviceaccount iris-argocd >/dev/null 2>&1 ||
+    die "이 서버에는 likelion 배포 권한(iris-argocd)이 없습니다. 등록 명령(--token)으로 설치하세요"
+  apply_deploy_access
+  log "권한을 갱신했습니다."
 }
 
 # 다른 경로(Helm 등)로 이미 설치된 controller 가 있으면 "namespace/이름" 을 출력한다.
@@ -627,6 +663,10 @@ finish() {
 # curl | bash 로 받는 도중 끊겨도 일부만 실행되지 않도록 모든 동작을 main 안에 둔다.
 main() {
   parse_args "$@"
+  if [ "$RBAC_ONLY" -eq 1 ]; then
+    update_rbac
+    return 0
+  fi
   WORK_DIR=$(mktemp -d)
   chmod 700 "$WORK_DIR"
   trap 'rm -rf "$WORK_DIR"' EXIT
