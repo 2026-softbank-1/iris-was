@@ -136,10 +136,10 @@ sequenceDiagram
 ### `POST /api/v1/onprem-servers/registry-credentials`
 헤더 `Authorization: Bearer <serverSecret>` · `CONNECTED` 일 때만.
 응답 `data`: `{ "registry": "<계정>.dkr.ecr.ap-northeast-2.amazonaws.com", "username": "AWS", "password": "<ECR 토큰>", "expiresAt": "...", "serviceIds": [12, 15] }`
-- `expiresAt` 은 ECR 토큰 만료와 임시 자격증명 만료 중 이른 쪽이다. Control API 자격 증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션이 1시간이고, ECR 토큰도 그 안에서 끝날 수 있다. CronJob 이 5분마다 갱신하므로 문제없다.
+- `expiresAt` 은 ECR 토큰 만료와 임시 자격증명 만료 중 이른 쪽이다. Control API 자격 증명이 이미 role 세션이라 AssumeRole 이 연쇄되어 세션이 1시간이고, ECR 토큰도 그 안에서 끝날 수 있다. CronJob 이 1분마다 갱신하므로 문제없다.
 - Control API 가 ECR pull 전용 Role 을 AssumeRole 하면서 세션 정책으로 이 서버 타깃에 붙은 서비스들의 저장소만 허용한다. 붙은 서비스가 없으면 `serviceIds: []`, password 없음.
 - 확인 순서는 401(서버 비밀이 틀리거나 재발급으로 무효) → 409 `ONPREM_SERVER_NOT_CONNECTED`(`CONNECTED` 전) → 503 `NOT_CONFIGURED`(WAS 에 ECR pull Role 설정이 없음)다. CronJob 은 409·503 을 실패로 남기지 않고 다음 회차를 기다린다.
-- 서버의 CronJob(설치 스크립트가 만든다)이 5분마다 불러 `svc-{id}/iris-ecr-pull` Secret 을 갱신하고 default SA 에 `imagePullSecrets` 로 붙인다.
+- 서버의 CronJob(설치 스크립트가 만든다)이 1분마다 불러 `svc-{id}/iris-ecr-pull` Secret 을 갱신하고 default SA 에 `imagePullSecrets` 로 붙인다.
 
 ## 6. 설치 스크립트 (`install.sh`, Ubuntu 22.04/24.04 x86_64·arm64)
 
@@ -152,7 +152,7 @@ sequenceDiagram
 5. 배포 권한: namespace `iris-system`, SA `iris-argocd`, ClusterRole `iris-onprem-service-deployer`(iris-infra `clusters/onprem-workload/argocd-service-deployer.yaml` 과 같은 규칙) + `iris-system` 의 ConfigMap 쓰기 권한(probe 용), 만료 없는 토큰 Secret(`kubernetes.io/service-account-token`). 복사한 ClusterRole 은 Secret 을 포함해 클러스터 전체를 읽으므로 이 토큰을 쓰는 management Argo CD 는 `iris-system/iris-server-secret` 도 읽을 수 있다(알려진 위험, ADR 0029). 토큰 교체: 이 legacy SA 토큰 Secret 은 `iat`·`jti` 가 없어 Secret 만 다시 만들면 같은 JWT 가 나온다. 바꾸려면 SA `iris-system/iris-argocd` 와 토큰 Secret `iris-argocd-token` 을 지우고, 등록 토큰을 재발급받아 `install.sh` 를 다시 실행한다
 6. Argo Rollouts·Sealed Secrets controller 설치(버전 고정)
 7. `connect` 호출 → `serverSecret` 을 `iris-system/iris-server-secret` 에 저장
-8. ECR 갱신 CronJob(`iris-system/iris-ecr-refresh`, 5분) 설치·1회 실행. `ONPREM_SERVER_NOT_CONNECTED`(409)·`NOT_CONFIGURED`(503) 응답은 로그 한 줄만 남기고 성공으로 끝낸다(실패한 Job 을 쌓지 않는다). 5분인 이유: 새 서비스의 `svc-{id}` namespace 가 생긴 뒤 첫 pull 까지 기다리는 시간을 줄인다. 첫 Pod 가 Secret 보다 먼저 뜨면 ImagePullBackOff 로 재시도하다 Secret 이 생기면 받아진다(§7.1)
+8. ECR 갱신 CronJob(`iris-system/iris-ecr-refresh`, 1분) 설치·1회 실행. `ONPREM_SERVER_NOT_CONNECTED`(409)·`NOT_CONFIGURED`(503) 응답은 로그 한 줄만 남기고 성공으로 끝낸다(실패한 Job 을 쌓지 않는다). 1분인 이유: 새 서비스의 `svc-{id}` namespace 가 생긴 뒤 다음 회차까지 첫 pull 을 기다리므로 주기가 곧 첫 배포 대기다(5분 주기에서 운영 E2E 첫 배포가 약 3분 기다렸다). 대기를 없애는 kubelet credential provider 는 다음 단계(§10)다. 첫 Pod 가 Secret 보다 먼저 뜨면 ImagePullBackOff 로 재시도하다 Secret 이 생기면 받아진다(§7.1)
 9. 상태를 `GET` 할 수단은 없으므로 "웹·CLI 에서 연결 상태를 확인하세요" 를 출력하고 끝
 
 다시 실행해도 같은 결과가 되어야 한다(이미 설치된 것은 건너뜀). 토큰·가입 키는 출력하지 않는다(`set +x`).
@@ -206,3 +206,4 @@ cluster:
 - 서버 쪽 로그·메트릭 수집
 - 서버 연결 끊김 감지(`CONNECTED` 이후 재확인)
 - Ubuntu 외 배포판(Debian·RHEL)
+- 이미지 pull 자격증명을 kubelet credential provider 로 받기(첫 배포의 Secret 대기·namespace 마다 남는 Secret·CronJob 제거)
