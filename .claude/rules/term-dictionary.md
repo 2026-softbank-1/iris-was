@@ -36,6 +36,7 @@
 | Master Cluster | — | Control Plane·Argo CD 가 도는 EKS |
 | Prod Cluster | — | 사용자 서비스가 도는 EKS. Argo CD 만 접근한다 |
 | GitOps 저장소 | `gitops-environments` (별도 레포) | 서비스·환경별 manifest. image digest 만 바뀐다 |
+| Console Gateway | `app/console_gateway/` | 서비스 콘솔(실행 중인 Pod 의 셸) 연결을 중계한다. Control API 가 서명한 ticket 을 검증하고 Prod 클러스터의 `pods/exec` 로 이어 준다. 같은 이미지에 실행 명령만 다르며 DB 접속 정보를 갖지 않는다 (ADR 0033) |
 | 에러 진단 에이전트 | `iris-error-check-agent` (별도 레포·서버) | 로그·소스를 받아 원인과 해결책을 제안한다. Control API 가 `POST /diagnose` 로 호출한다 (ADR 0020). 코드 식별자는 `diagnosis_agent` |
 | 코드 분석 에이전트 | `iris-code-analyzer-agent` (별도 레포) | 소스를 분석해 빌더·포트·실행 명령·환경변수를 제안한다. 식별자는 `analyzer_agent` |
 
@@ -60,6 +61,8 @@ erDiagram
   services ||--o{ service_uploads : "CLI 업로드"
   service_uploads |o--o| deployment_requests : "소스로 쓰임 (한 번)"
   users ||--o{ onprem_servers : "등록"
+  users ||--o{ console_sessions : "콘솔 연결 발급"
+  services ||--o{ console_sessions : "콘솔 연결 대상"
   onprem_servers ||--|| targets : "전용 타깃"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
@@ -406,6 +409,21 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `sha256`\* | 내용의 sha256(hex). 기본 키 |
 | `size_bytes`\*, `content`\* | 바이트 수(1 MiB 이하)와 원본 바이트(bytea, `.sql.gz` 도 그대로) |
 
+### 4.20 콘솔 세션 (ConsoleSession) — `console_sessions`\*
+
+사용자가 서비스 콘솔(실행 중인 Pod 의 셸)에 붙으려고 Control API 에서 연결 ticket 을 받은 1회다. 이 행은 **발급 감사 기록**이다. 셸 입출력은 어디에도 남기지 않고, 실제로 붙었는지·언제 끝났는지는 Console Gateway 의 구조화 로그(`console_session_started`·`console_session_ended`)에 남는다 (ADR 0033).
+
+| 필드 | 설명 |
+|---|---|
+| `public_id`\* | 응답의 `sessionId` 이자 ticket 의 `jti`(UUID). 추측 불가한 공개 ID. unique |
+| `user_id`\* | 발급받은 사용자 |
+| `service_id`\*, `target_id`\* | 붙을 서비스와 타깃 |
+| `release_id`\* | 발급 시점에 떠 있던(lastKnownGood) release. 어느 배포의 Pod 에 붙으려 했는지 남긴다 |
+| `expires_at`\* | ticket 만료 시각. 발급한 때부터 60초 |
+
+- 쓰기만 하고 고치지 않는다. 소프트 삭제를 쓰지 않는다(감사 기록이라 지우지 않는다).
+- 화면은 Pod 목록 조회용과 연결용으로 ticket 을 따로 받으므로, 콘솔을 한 번 열면 행이 두 건 생긴다.
+
 ---
 
 ## 5. Enum 값 정의
@@ -538,6 +556,26 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 - 결정: `skip`(기존 단일 서비스 생성) · `analyze`(unit 마다 서비스). 복잡도: `simple` · `complex` · `unsupported`
 - 실패 코드: `SOURCE_NOT_ACCESSIBLE` · `SOURCE_REF_NOT_FOUND` · `SOURCE_TOO_LARGE` · `SOURCE_INVALID` · `ANALYZER_UNAVAILABLE` · `ANALYZER_TIMED_OUT` · `ANALYZER_FAILED` · `ANALYSIS_INTERRUPTED`(처리 중 Worker 가 3번 넘게 죽음)
 
+### 콘솔 사용 불가 사유 (`console_unavailable_reason`)\* — API 응답 `reason`
+
+`NO_RUNNING_DEPLOYMENT`(그 타깃에 떠 있는 release 가 없다) · `TARGET_NOT_SUPPORTED`(`ONPREM` 타깃은 아직 지원하지 않는다) · `NOT_CONFIGURED`(Control API 에 콘솔 설정이 없다). 저장하지 않는 응답 값이다.
+
+### 콘솔 오류 코드 (`console_error_code`)\* — Console Gateway 가 내보내는 `code`
+
+REST 오류 본문의 `code` 이자 WebSocket `error` 프레임의 `code` 다. 저장하지 않는다. §5 `failure_code`·`diagnosis` 의 `error_code` 와 다르다.
+
+| 코드 | 의미 |
+|---|---|
+| `UNAUTHORIZED` | ticket 이 없거나 서명·발급자·대상이 맞지 않는다. 5초 안에 `auth` 프레임이 없는 경우도 같다 |
+| `TOKEN_EXPIRED` | ticket 이 만료됐다 |
+| `TOKEN_REUSED` | 연결에 이미 쓴 ticket 이다(WebSocket 연결은 `jti` 당 1번) |
+| `POD_NOT_FOUND` · `POD_NOT_READY` | 그 namespace 에 그 Pod 가 없다 · Pod 가 `Running` 이 아니거나 `app` 컨테이너가 준비되지 않았다 |
+| `SHELL_NOT_FOUND` | 이미지에 `/bin/sh` 가 없다(distroless 등) |
+| `SESSION_LIMIT_EXCEEDED` | 한 사용자의 동시 콘솔 연결 한도(기본 3)를 넘었다 |
+| `IDLE_TIMEOUT` · `MAX_DURATION_EXCEEDED` | 입력 없이 15분 · 연결 후 1시간 |
+| `CLUSTER_UNAVAILABLE` | 클러스터 API 에 닿지 못했거나 인증에 실패했다 |
+| `INTERNAL_ERROR` | 그 밖의 오류 |
+
 ### 서비스 종류 (`service_kind`)\* — `services.kind`
 
 `APP`(소스를 빌드하는 앱, 기본) · `DATABASE`(고정 공식 이미지의 개발용 관리형 DB)
@@ -590,6 +628,8 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | 서버 비밀 | `server_secret`\* | connect 응답으로 서버가 받는 비밀. ECR pull 자격증명(`registry-credentials`)을 받을 때 Bearer 로 보낸다. 서버에는 해시만 둔다 |
 | probe Application | `probe_application_name`\* | `iris-onprem-probe-{key}`. management 의 Argo CD 가 서버 클러스터에 ConfigMap 하나를 동기화해 연결을 확인한다. Synced+Healthy 면 `CONNECTED` |
 | 연결 세대 | `connect_generation`\* | 서버가 connect 를 다시 보낼 때마다 올라가는 번호. Worker 가 그 사이에 만든 결과(커밋 기록·상태)를 버리는 기준이다 |
+| 콘솔 ticket | `console_ticket`\* | Control API 가 Ed25519 개인키로 서명하는 60초짜리 JWT(`iss=iris-control-api`, `aud=iris-console-gateway`). Console Gateway 만 공개키로 검증한다. Pod 목록 조회는 만료 전까지 여러 번, WebSocket 연결은 `jti` 당 1번 쓸 수 있다. 서버 비밀·등록 토큰과 달리 서버에 해시를 두지 않는다(서명으로 검증) |
+| 콘솔 연결 | `console_connection`\* | 사용자가 Console Gateway WebSocket(`/v1/exec`)으로 Pod 의 `app` 컨테이너에 연 셸 1개. 입력 없이 15분, 연결 후 1시간이 지나면 Gateway 가 끊는다 |
 
 ---
 
@@ -605,7 +645,8 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | Release | GitOps 반영 결과 (`Release`) | Helm release | Helm 쪽은 `helm_release` |
 | Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `variable`(엔티티 `ServiceVariable`, §4.11), 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
-| Session | 로그인 상태를 나르는 세션 토큰(JWT). 변수·함수는 `session_token`, `SessionService` | CLI 로그인 세션(`CliLoginSession`), DB 세션(`AsyncSession`) | CLI 로그인 세션은 토큰을 CLI 로 넘기려고 기다리는 행이라 항상 `cli_login_session`. DB 세션 변수는 `session`(Repository·Service 관례) |
+| Session | 로그인 상태를 나르는 세션 토큰(JWT). 변수·함수는 `session_token`, `SessionService` | CLI 로그인 세션(`CliLoginSession`), 콘솔 세션(`ConsoleSession`), DB 세션(`AsyncSession`) | CLI 로그인 세션은 토큰을 CLI 로 넘기려고 기다리는 행이라 항상 `cli_login_session`. 콘솔 세션은 콘솔 ticket 발급 감사 행이라 항상 `console_session`(로그인 상태와 무관하다). DB 세션 변수는 `session`(Repository·Service 관례) |
+| Console | 서비스의 실행 중 Pod 에 여는 셸(서비스 콘솔). 코드·테이블은 `console` | 웹 화면 전체(관리 콘솔), AWS 콘솔 | 이 레포에서 `console` 은 항상 Pod 셸이다. 컴포넌트는 `Console Gateway`(`app/console_gateway/`), 서비스 로직은 `ConsoleService` |
 | Rollout | Argo Rollouts 의 `Rollout` 리소스 (chart 0.7.0 이 `Deployment` 대신 만든다) | 배포 요청·release 의 "배포", K8s `Deployment` 의 rollout | 리소스는 `argo_rollout`. 롤링·카나리·블루그린 선택은 `deployment_strategy` |
 | Server | 사용자가 등록한 온프레미스 서버(`OnpremServer`) | 배포 타깃(Target), Argo CD cluster, Control API 서버 | 엔티티·변수는 `onprem_server`. 그 서버로 배포할 때 고르는 것은 전용 `target`. Argo 쪽 이름은 `onprem-{serverKey}` |
 | Rollback | job `ROLLBACK` = revert commit(자동). 트리거 `ROLLBACK` = 사용자가 이전 이미지로 시작한 새 배포 요청 | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분. 요청은 `deployment_request`, revert 는 `revert_commit` |
