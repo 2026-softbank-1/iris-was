@@ -114,6 +114,7 @@ INVALID_SERVER_NAMES: list[tuple[str, str]] = [
 class FakeOnpremServerRepository:
     def __init__(self) -> None:
         self.servers: list[OnpremServer] = []
+        self.touches = 0
         self._ids = count(1)
 
     def _active(self) -> list[OnpremServer]:
@@ -145,6 +146,12 @@ class FakeOnpremServerRepository:
 
     async def find_by_server_secret_hash(self, secret_hash: str) -> OnpremServer | None:
         return next((s for s in self._active() if s.server_secret_hash == secret_hash), None)
+
+    async def touch_last_seen(self, server_id: int, now: datetime, min_interval: timedelta) -> None:
+        self.touches += 1
+        server = next(s for s in self.servers if s.id == server_id)
+        if server.last_seen_at is None or server.last_seen_at <= now - min_interval:
+            server.last_seen_at = now
 
     async def save(self, server: OnpremServer) -> OnpremServer:
         if server.id is None:

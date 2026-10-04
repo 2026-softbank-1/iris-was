@@ -1,6 +1,8 @@
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.core.config import DEFAULT_ONPREM_SERVER_OFFLINE_AFTER_SECONDS
 from app.core.exceptions import TargetNotConnectedError
 from app.enums import (
     BuildStatus,
@@ -9,7 +11,7 @@ from app.enums import (
     DeploymentTrigger,
     Environment,
     JobKind,
-    OnpremServerStatus,
+    OnpremServerConnectionStatus,
 )
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
@@ -83,6 +85,9 @@ class DeploymentRequestService:
         service_repository: ServiceRepository,
         *,
         deployment_strategy_enabled: bool = False,
+        onprem_offline_after: timedelta = timedelta(
+            seconds=DEFAULT_ONPREM_SERVER_OFFLINE_AFTER_SECONDS
+        ),
     ) -> None:
         self._deployment_request_repository = deployment_request_repository
         self._job_repository = job_repository
@@ -91,6 +96,7 @@ class DeploymentRequestService:
         self._service_variable_repository = service_variable_repository
         self._service_repository = service_repository
         self._deployment_strategy_enabled = deployment_strategy_enabled
+        self._onprem_offline_after = onprem_offline_after
 
     async def create_deployment_request(
         self,
@@ -274,7 +280,11 @@ class DeploymentRequestService:
 
     async def _check_target_connected(self, service: Service) -> None:
         server = await self._service_repository.find_deploy_target_server(service.id)
-        if server is not None and server.status != OnpremServerStatus.CONNECTED:
+        # 하트비트가 끊긴 서버(DISCONNECTED)로도 배포하지 않는다.
+        if server is not None and (
+            server.connection_status(datetime.now(UTC), self._onprem_offline_after)
+            != OnpremServerConnectionStatus.CONNECTED
+        ):
             raise TargetNotConnectedError(
                 "deploy target is not connected",
                 service_id=service.id,

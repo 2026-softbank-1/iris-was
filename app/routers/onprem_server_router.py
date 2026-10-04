@@ -165,7 +165,9 @@ async def search_onprem_servers(
 ) -> ApiResponse[list[OnpremServerResponse]]:
     """최근 등록한 순서다."""
     servers = await service.search_servers(user.id)
-    return ApiResponse(data=[OnpremServerResponse.from_model(s) for s in servers])
+    return ApiResponse(
+        data=[OnpremServerResponse.from_model(s, service.connection_status(s)) for s in servers]
+    )
 
 
 @router.get(
@@ -178,9 +180,13 @@ async def search_onprem_servers(
 async def get_onprem_server(
     server_id: int, user: CurrentUserDep, service: OnpremServerServiceDep
 ) -> ApiResponse[OnpremServerResponse]:
-    """연결 상태(`status`)를 확인할 때 쓴다. 남의 서버는 404 다."""
+    """연결 상태(`status`)를 확인할 때 쓴다. 연결됐던 서버의 하트비트가 끊기면 `DISCONNECTED` 다.
+    남의 서버는 404 다.
+    """
     server = await service.get_server(user.id, server_id)
-    return ApiResponse(data=OnpremServerResponse.from_model(server))
+    return ApiResponse(
+        data=OnpremServerResponse.from_model(server, service.connection_status(server))
+    )
 
 
 @router.post(

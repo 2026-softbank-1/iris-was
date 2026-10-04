@@ -7,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 소스 스냅샷·업로드 아카이브(압축한 바이트)의 한도 기본값. Control API·Build Worker 가 같게 쓴다.
 DEFAULT_SNAPSHOT_MAX_BYTES = 250 * 1024 * 1024
+# 하트비트가 끊긴 CONNECTED 서버를 DISCONNECTED 로 보는 기본 기준(초).
+DEFAULT_ONPREM_SERVER_OFFLINE_AFTER_SECONDS = 180
 # iris-infra 가 서비스 외부 트래픽 지표에 붙이는 workload 클러스터 라벨 값(dev).
 DEFAULT_TRAFFIC_CLUSTER = "iris-dev-workload"
 
@@ -80,6 +82,11 @@ class Settings(BaseSettings):
     onprem_k3s_version: str = "v1.33.13+k3s2"
     onprem_argo_rollouts_version: str = "v1.10.0"
     onprem_sealed_secrets_version: str = "0.40.0"
+    # CONNECTED 서버의 하트비트가 이만큼(초) 없으면 API 가 DISCONNECTED 로 알리고 배포를 막는다.
+    # 서버 CronJob 이 1분마다 부르므로 두 번 넘게 놓친 뒤다.
+    onprem_server_offline_after_seconds: int = Field(
+        default=DEFAULT_ONPREM_SERVER_OFFLINE_AFTER_SECONDS, gt=0
+    )
 
     # 서비스 콘솔(Pod 셸, ADR 0033). Control API 는 ticket 을 서명하고 Console Gateway 주소를
     # 알려 줄 뿐이고 클러스터에는 닿지 않는다. 셋 중 하나라도 없으면 콘솔은 꺼진다(가능 여부
