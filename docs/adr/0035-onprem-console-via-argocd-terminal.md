@@ -26,13 +26,13 @@
 ### Argo CD v3.5.3 터미널 (소스로 확인한 사실)
 `server/application/terminal.go`·`websocket.go`·`util/session/sessionmanager.go`·`server/server.go` 를 v3.5.3 태그에서 읽어 확인했다.
 - **경로·쿼리**: `GET /terminal?pod=&container=&appName=&appNamespace=&projectName=&namespace=`(+선택 `shell`). `pod`·`container`·`appName`·`projectName`·`namespace` 는 필수다. `shell` 은 허용 목록(`exec.shells`, 기본 `bash,sh,powershell,cmd`)에 있을 때만 쓰고, 없으면 목록을 차례로 시도한다.
-- **인증**: `/terminal` 은 `WithAuthMiddleware` 로 감싸이고, 이 미들웨어와 `getToken` 은 JWT 를 **쿠키 `argocd.token` 에서만** 읽는다(`Authorization` 헤더는 보지 않는다). 프로젝트 role 토큰도 이 쿠키로 넣으면 된다. 그래서 Gateway 는 WebSocket 핸드셰이크에 `Cookie: argocd.token=<토큰>` 을 붙인다. Pod 목록(REST `resource-tree`)은 기존대로 `Authorization: Bearer` 다.
+- **인증**: `/terminal` 은 `WithAuthMiddleware` 로 감싸이고, 이 미들웨어와 `getToken` 은 JWT 를 **쿠키 `argocd.token` 에서만** 읽는다(`Authorization` 헤더는 보지 않는다). 프로젝트 role 토큰도 이 쿠키로 넣으면 된다. 그래서 Gateway 는 WebSocket 핸드셰이크에 `Cookie: argocd.token=<토큰>` 을 붙인다(토큰 앞뒤 공백·개행은 뺀다). 쿠키가 없으면 400 `Auth cookie not found`, 토큰이 틀리면 401 이다(iris-infra 가 소스에서 확인한 값). Pod 목록(REST `resource-tree`)은 기존대로 `Authorization: Bearer` 다.
 - **권한**: `applications, get` 과 `exec, create` 를 `<project>/<app>` 대상으로 검사하고 둘 중 하나라도 없으면 **401** 이다(403 이 아니다). 정책 문자열은 `p, proj:iris-svc-project:iris-console, applications, get, iris-svc-project/*, allow` 와 `p, proj:iris-svc-project:iris-console, exec, create, iris-svc-project/*, allow`.
-- **범위 검사**: 핸드셰이크 전에 Application 이 그 project 에 속하는지, Pod 가 **Application 의 리소스 트리에 있는지**(`Pod doesn't belong to specified app` → 400), Pod 가 존재하는지(`Cannot find pod` → 400), 컨테이너가 실행 중인지(`container find running` → 400)를 본다. Application 이 없으면 404(본문 `App not found`).
+- **범위 검사**: 핸드셰이크 전에 Application 이 그 project 에 속하는지, Pod 가 **Application 의 리소스 트리에 있는지**(UID 가 있는 Pod 노드만 인정한다. 없으면 `Pod doesn't belong to specified app` → 400), Pod 가 존재하는지(`Cannot find pod` → 400), 컨테이너가 실행 중인지(`container find running` → 400)를 본다. Application 이 없으면 404(본문 `App not found`).
 - **기능 꺼짐**: `exec.enabled` 가 꺼져 있으면 본문 없이 **404** 다(Application 없음과 본문으로 구분한다).
 - **메시지**(JSON 텍스트 프레임, `TerminalMessage{operation, data, rows, cols}`): 클라이언트→서버 `{"operation":"stdin","data":"…"}`·`{"operation":"resize","cols":N,"rows":N}`, 서버→클라이언트 `{"operation":"stdout","data":"…"}`(stdout 과 stderr 가 합쳐진 TTY 출력). 토큰 갱신 때 `{"Code":1}` 같은 제어 프레임이 올 수 있어 `operation` 이 없는 프레임은 무시한다. 서버는 5초마다 WebSocket ping 을 보내고 `CheckOrigin` 은 항상 true 다.
 - **종료**: 셸이 끝나거나 모든 셸 시도가 실패하면 서버가 연결을 닫는다(종료 코드를 알려 주지 않고, 업그레이드 뒤라 HTTP 오류 본문도 갈 수 없다). 그래서 on-prem 의 `exit` 프레임은 `code` 가 없다.
-- **exec 방식**: SPDY(POST, `create pods/exec`)를 먼저 시도하고 WebSocket(GET, `get pods/exec`)을 폴백으로 쓴다. 서버 SA 의 ClusterRole 에는 `get` 과 `create` 를 모두 준다.
+- **exec 방식**: kube API 로는 WebSocket(GET, `get pods/exec`)을 먼저 시도하고 업그레이드가 안 되면 SPDY(POST, `create pods/exec`)로 폴백한다(`NewFallbackExecutor`). 서버 SA 의 ClusterRole 에는 `get` 과 `create` 를 모두 준다.
 - **Pod 목록**: `GET /api/v1/applications/svc-{id}/resource-tree?appNamespace=argocd`. 노드 중 `kind: Pod`·`group` 없음·namespace `svc-{id}` 가 대상이고, `info` 의 `Status Reason`(Running·Pending·CrashLoopBackOff·Terminating 등)이 단계, `health.status == Healthy` 와 `Status Reason == Running` 이 준비 여부, `createdAt` 이 시작 시각이다. 노드에는 Pod 라벨이 없어(`resource.customLabels` 를 설정하지 않는 한) `releaseId` 는 모른다. 이 값은 응답에서 생략한다(계약 §4: 모르면 생략).
 
 ### 변경
@@ -48,7 +48,7 @@
 ## 결과
 - 사용자는 on-prem 서비스에도 같은 화면에서 셸을 연다. 새 자격증명 저장·등록 계약 변경·DB 변경이 없다. Control API 는 여전히 클러스터와 Argo CD 를 부르지 않는다(ticket 서명뿐). Gateway 만 Argo CD 를 부른다.
 - **Argo CD 터미널이 켜진다.** `exec.enabled` 는 Argo 전체 설정이라, `exec` 권한이 있는 모든 Argo 계정(admin 포함)이 터미널을 쓸 수 있게 된다. 지금 Argo 접근은 플랫폼 관리자만이다. 이 결정은 Argo 의 `exec` RBAC 을 `iris-console` role 외에 새로 주지 않는 것을 전제로 한다.
-- **`iris-console` role 은 project `iris-svc-project` 의 모든 Application 에 exec 를 허용한다.** 어느 Application·Pod 에 붙는지는 Gateway 가 ticket(`svc`)에서 계산해 고정하므로, Gateway 가 침해되면 그 범위가 곧 피해 범위다(AWS 서비스 Application 도 같은 project 이지만 AWS workload 의 Argo SA 에는 `pods/exec` 가 없어 거절된다). 토큰은 만료를 두고 주기적으로 교체한다(iris-infra runbook).
+- **`iris-console` role 은 project `iris-svc-project` 의 모든 Application 에 exec 를 허용한다.** 이 project 에는 AWS workload 의 서비스 Application 도 있고, Argo 의 workload 클러스터 접속(EKS Access Entry)은 cluster-admin 이라 이 토큰으로 AWS 사용자 Pod 에도 Argo 를 거쳐 exec 할 수 있다. AWS 쪽 admission policy(ADR 0033)는 Argo 라는 caller 를 막지 않는다. 그래서 Gateway 는 ticket 의 `cluster` 가 `onprem` 일 때만 Argo 를 부르고, Application·namespace·컨테이너를 ticket 의 `svc` 에서만 계산한다(요청에서 받지 않는다). Gateway 가 침해되면 이 토큰의 범위(project 전체)가 곧 피해 범위이고, 이는 AWS 경로에서 Gateway 가 이미 갖는 권한(`svc-*` 전체 exec)과 같은 크기다. on-prem 서비스 Application 을 별도 AppProject 로 나누면 role 범위를 줄일 수 있다(후속). 토큰은 만료를 두고 주기적으로 교체한다(iris-infra runbook).
 - 서버 SA 의 ClusterRole 이 사용자 서버의 모든 Pod 에 대한 exec 를 허용한다. SA 가 이미 Secret 읽기와 워크로드 생성 권한을 갖고 있어 사용자 서버에서 플랫폼이 할 수 있는 일이 크게 늘지는 않지만, 코드 실행 권한이 더해지는 것은 사실이다. 1차 방어는 Argo 의 Application 범위 검사이고 컨테이너는 Gateway 가 `app` 으로 고정한다. AWS 타깃에 있는 admission policy 같은 2차 방어는 사용자 서버에 없다.
 - 터미널 프로토콜은 Argo UI 의 내부 인터페이스다. Argo 를 올릴 때(chart 갱신) 프레임 형식·인증이 바뀌지 않았는지 이 문서의 사실과 대조해야 한다.
 - 셸 입출력은 기록하지 않는다(ADR 0033 과 같다). Argo 서버 로그에는 접속 사실(`terminal session starting`, Application·Pod·사용자 이름)이 남는다.
