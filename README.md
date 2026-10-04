@@ -24,15 +24,16 @@ flowchart LR
 
 ## 구성
 
-한 Python 패키지(`app/`)에서 세 컴포넌트를 실행 명령만 달리해 띄운다. 운영에서는 모두 management EKS 에서 돌고, Deployment·IAM Role 은 컴포넌트마다 따로 둔다.
+한 Python 패키지(`app/`)에서 네 컴포넌트를 실행 명령만 달리해 띄운다. 운영에서는 모두 management EKS 에서 돌고, Deployment·IAM Role 은 컴포넌트마다 따로 둔다.
 
 | 컴포넌트 | 진입점 | 하는 일 |
 |---|---|---|
 | Control API | `app/main.py` | 배포 요청 접수·상태 조회, 로그·메트릭 조회, AI 진단·수정 조정 |
 | Build Worker | `app/workers/build_worker.py` | `BUILD` job 을 선점해 CodeBuild 빌드를 시작하고 image digest 를 기록한다. 서비스 생성 전 레포 구성 분석(`repository_analyses`)도 선점해 분석기(vendored `iris-analyzer` wheel)를 실행한다([ADR 0030](docs/adr/0030-repository-analysis-gate.md)) |
 | Deploy Worker | `app/workers/deploy_worker.py` | `DEPLOY`·`ROLLBACK`·`RECONCILE` job 을 선점해 GitOps 저장소를 바꾸고 Argo CD 상태를 수집한다 |
+| Console Gateway | `app/console_gateway/main.py` | 서비스 콘솔(실행 중인 Pod 의 셸). Control API 가 서명한 ticket 을 검증해 Prod 클러스터의 `pods/exec` 로 중계한다. DB 접속 정보가 없고 replica 는 1 이다([ADR 0033](docs/adr/0033-service-console-via-console-gateway.md)) |
 
-CodeBuild·GitOps·Argo CD 호출은 Worker 에서만 한다. Control API 는 GitHub 로그인·저장소 조회, 읽기 전용 Loki·Prometheus 조회, 진단·수정 에이전트 호출, 온프레미스 서버용 ECR pull 자격증명 발급(STS AssumeRole)만 한다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md)).
+CodeBuild·GitOps·Argo CD 호출은 Worker 에서만 한다. Control API 는 GitHub 로그인·저장소 조회, 읽기 전용 Loki·Prometheus 조회, 진단·수정 에이전트 호출, 온프레미스 서버용 ECR pull 자격증명 발급(STS AssumeRole), 서비스 콘솔 ticket 서명(클러스터에는 접근하지 않는다)만 한다([ADR 0020](docs/adr/0020-ai-error-diagnosis-via-agent-server.md), [ADR 0033](docs/adr/0033-service-console-via-console-gateway.md)).
 
 ## 배포 요청과 상태
 
@@ -111,6 +112,7 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --reload           # Control API (GET /readyz 204 면 DB 연결 정상)
 uv run python -m app.workers.build_worker      # Build Worker
 uv run python -m app.workers.deploy_worker     # Deploy Worker
+uv run uvicorn app.console_gateway.main:app --port 8080   # Console Gateway (CONSOLE_* 설정 필요, docs/configuration.md)
 uv run pytest                                  # DB 없이 도는 테스트
 ```
 
@@ -147,6 +149,6 @@ GitHub Actions **Deploy platform**(`workflow_dispatch`, main 전용)으로만 �
 
 ## 문서
 
-- [설정](docs/configuration.md) · [API](docs/api.md) · [온프레미스 서버 등록 계약](docs/onprem-server-registration-contract.md) · [운영](docs/operations.md) · [배포 상세 API](docs/deployment-details-api.md) · [관측 API](docs/observability-api.md) · [스케일링 API](docs/service-scaling-api.md) · [업로드 API](docs/upload-api.md)
+- [설정](docs/configuration.md) · [API](docs/api.md) · [온프레미스 서버 등록 계약](docs/onprem-server-registration-contract.md) · [운영](docs/operations.md) · [배포 상세 API](docs/deployment-details-api.md) · [관측 API](docs/observability-api.md) · [콘솔 API](docs/console-api.md) · [스케일링 API](docs/service-scaling-api.md) · [업로드 API](docs/upload-api.md)
 - [ADR 목록](docs/adr/README.md) · [Deploy Worker 로컬 테스트](docs/deploy-worker-test-guide.md) · [로깅·응답 구조](docs/api-response-logging-template.md)
 - 내부 설계 메모: [.claude/docs/control-plane-build-deploy-flow.md](.claude/docs/control-plane-build-deploy-flow.md)

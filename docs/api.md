@@ -6,6 +6,8 @@ README 에서 옮긴 전체 엔드포인트 목록과 규칙이다.
 
 서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 운영 명세는 [Swagger](https://api.likelion.uk/docs), [ReDoc](https://api.likelion.uk/redoc), [OpenAPI JSON](https://api.likelion.uk/openapi.json) 에서 확인한다. 서버 없이 보려면 저장소의 [docs/openapi.json](openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
 
+서비스 콘솔(실행 중인 Pod 의 셸) 가능 여부 조회(`GET /services/{id}/console`)와 연결 ticket 발급(`POST /services/{id}/console/sessions`), 그리고 Console Gateway 의 REST·WebSocket 은 [콘솔 API 문서](console-api.md)를 따른다.
+
 코드수정·GitHub 쓰기 인증의 운영 요청/응답·오류·권한 설정은 [코드수정 운영 API 명세](repair-api.md)를 따른다.
 
 인증은 쿠키(`anydeploy_session`, 웹) 또는 `Authorization: Bearer <token>`(CLI). 응답은 `ApiResponse` 봉투, JSON 은 camelCase 다.
