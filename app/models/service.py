@@ -45,6 +45,8 @@ class Service(TimestampMixin, SoftDeleteMixin, Base):
     # 빌더는 코드 분석으로 확정하기 전까지 None 이다. 확정 전에는 배포하지 않는다.
     builder: Mapped[Builder | None] = mapped_column(enum_column(Builder, "builder"))
     dockerfile_path: Mapped[str | None] = mapped_column(String(255))
+    # Dockerfile 멀티 스테이지 빌드의 `--target`. 비면 마지막 스테이지. dockerfile 빌더만 쓴다.
+    docker_target: Mapped[str | None] = mapped_column(String(128))
     platform: Mapped[str] = mapped_column(
         String(32), server_default="linux/amd64", default="linux/amd64"
     )

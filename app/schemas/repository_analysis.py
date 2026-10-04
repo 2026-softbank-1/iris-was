@@ -13,7 +13,15 @@ from app.enums import (
 )
 from app.models.repository_analysis import RepositoryAnalysis
 from app.schemas.response import ApiModel
-from app.schemas.service import Branch, Command, PathText, Port, ServiceName, ServiceResponse
+from app.schemas.service import (
+    Branch,
+    Command,
+    DockerTarget,
+    PathText,
+    Port,
+    ServiceName,
+    ServiceResponse,
+)
 from app.schemas.stack import StackChangeResponse
 from app.schemas.variable import VariablesValidationResponse
 from app.services.repository_analysis_service import AppliedAnalysis, UnitSelection
@@ -109,6 +117,10 @@ class ApplyRepositoryAnalysisUnitRequest(ApiModel):
     root_directory: PathText | None = Field(default=None, description="저장소 루트 기준.")
     builder: Builder | None = None
     dockerfile_path: PathText | None = Field(default=None, description="unit 루트 기준.")
+    docker_target: DockerTarget | None = Field(
+        default=None,
+        description="Dockerfile `--target` 스테이지. 생략하면 분석의 `buildTarget` 을 쓴다.",
+    )
     port: Port | None = None
     start_command: Command | None = None
     build_command: Command | None = None
@@ -120,6 +132,7 @@ class ApplyRepositoryAnalysisUnitRequest(ApiModel):
             root_directory=self.root_directory,
             builder=self.builder,
             dockerfile_path=self.dockerfile_path,
+            docker_target=self.docker_target,
             port=self.port,
             start_command=self.start_command,
             build_command=self.build_command,

@@ -79,6 +79,7 @@ CREATE TABLE services (
     is_auto_deploy BOOLEAN DEFAULT true NOT NULL,
     builder VARCHAR(32),
     dockerfile_path VARCHAR(255),
+    docker_target VARCHAR(128),
     platform VARCHAR(32) DEFAULT 'linux/amd64' NOT NULL,
     railpack_version VARCHAR(32),
     analysis_plan JSONB,
@@ -315,7 +316,7 @@ CREATE TABLE service_variables (
     service_id BIGINT NOT NULL,
     key VARCHAR(128) NOT NULL,
     encrypted_value TEXT,
-    -- 참조 변수 {serviceId, property}. 값과 참조 중 하나만 있다.
+    -- 참조 변수 {serviceId, property, scheme?, suffix?}. 값과 참조 중 하나만 있다.
     reference JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,

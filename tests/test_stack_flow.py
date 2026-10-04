@@ -416,11 +416,22 @@ async def test_apply_creates_databases_apps_references_aliases_and_ordered_stack
 
     # 참조 변수: env binding → 같은 스택 DB 의 url. 값은 담지 않는다.
     api, worker, web = services["api"], services["worker"], services["web"]
-    assert by_service[api.id]["DATABASE_URL"].reference == {"serviceId": pg.id, "property": "url"}
-    assert by_service[api.id]["REDIS_URL"].reference == {"serviceId": redis.id, "property": "url"}
+    # url 은 코드가 쓴 스킴과 경로(쿼리)를 함께 담는다. 자격 증명은 담지 않는다.
+    assert by_service[api.id]["DATABASE_URL"].reference == {
+        "serviceId": pg.id,
+        "property": "url",
+        "scheme": "postgres",
+        "suffix": "/shop",
+    }
+    assert by_service[api.id]["REDIS_URL"].reference == {
+        "serviceId": redis.id,
+        "property": "url",
+        "scheme": "redis",
+    }
     assert by_service[worker.id]["REDIS_URL"].reference == {
         "serviceId": redis.id,
         "property": "url",
+        "scheme": "redis",
     }
     assert by_service[api.id]["DATABASE_URL"].encrypted_value is None
     # 호스트 별칭: compose 호스트명 → 대상 서비스.
@@ -481,7 +492,7 @@ async def test_apply_creates_databases_apps_references_aliases_and_ordered_stack
         v for v in api_vars.json()["data"]["variables"] if v["key"] == "DATABASE_URL"
     )
     assert database_url["resolved"] == (
-        f"postgresql://shop:****@app.svc-{pg.id}.svc.cluster.local:5432/shop"
+        f"postgres://shop:****@app.svc-{pg.id}.svc.cluster.local:5432/shop"
     )
     assert "value" not in database_url
     port_variable = next(
@@ -1183,7 +1194,7 @@ async def test_deploy_worker_commits_database_and_stack_app_values_with_resolved
     api_sealed = api_values["variables"]["encryptedData"]
     api_name = api_values["variables"]["name"]
     assert unseal(key, api_sealed["DATABASE_URL"], f"svc-{api.id}", api_name) == (
-        f"postgresql://shop:{password}@app.svc-{pg.id}.svc.cluster.local:5432/shop"
+        f"postgres://shop:{password}@app.svc-{pg.id}.svc.cluster.local:5432/shop"
     )
     assert unseal(key, api_sealed["REDIS_URL"], f"svc-{api.id}", api_name).startswith(
         "redis://default:"

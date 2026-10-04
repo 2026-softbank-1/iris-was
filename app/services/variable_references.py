@@ -4,11 +4,12 @@
 프로젝트의 지워지지 않은 다른 서비스여야 한다. 아니면 `VariableReferenceBrokenError` 다.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from app.core.crypto import VariableCipher
@@ -31,21 +32,83 @@ from app.services.service_networking import (
     supported_properties,
 )
 
+MAX_SUFFIX_LENGTH = 2048
+_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*$")
+_SUFFIX_FORBIDDEN = re.compile(r"[\s\x00-\x1f\x7f]")
+
+
+def check_scheme(value: str | None) -> str | None:
+    if value is not None and not _SCHEME.fullmatch(value):
+        raise ValueError("scheme must match ^[a-z][a-z0-9+.-]*$")
+    return value
+
+
+def check_suffix(value: str | None) -> str | None:
+    """경로·쿼리·프래그먼트(`/api/v1?tenant=demo`). 빈 값은 없는 것과 같아 None 으로 정리한다."""
+    if not value:
+        return None
+    if len(value) > MAX_SUFFIX_LENGTH:
+        raise ValueError(f"suffix must be at most {MAX_SUFFIX_LENGTH} characters")
+    if value[0] not in "/?#":
+        raise ValueError("suffix must start with /, ? or #")
+    if _SUFFIX_FORBIDDEN.search(value):
+        raise ValueError("suffix must not contain whitespace or control characters")
+    return value
+
+
+ReferenceScheme = Annotated[str | None, AfterValidator(check_scheme)]
+ReferenceSuffix = Annotated[str | None, AfterValidator(check_suffix)]
+
 
 class VariableReference(BaseModel):
-    """저장 형태이자 API 형태(camelCase). 값은 담지 않는다."""
+    """저장 형태이자 API 형태(camelCase). 값은 담지 않는다.
+
+    `scheme`·`suffix` 는 property=url 일 때만 있다. 코드가 쓴 URL 의 스킴과 경로·쿼리·프래그먼트라
+    풀 때 호스트·포트 뒤에 그대로 붙는다(없으면 기본 스킴, 접미사 없음).
+    """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
     service_id: int = Field(gt=0)
     property: ReferenceProperty
+    scheme: ReferenceScheme = None
+    suffix: ReferenceSuffix = None
+
+    @model_validator(mode="after")
+    def _url_only(self) -> "VariableReference":
+        if self.property != ReferenceProperty.URL and (self.scheme or self.suffix):
+            raise ValueError("scheme and suffix are only for the url property")
+        return self
 
     def to_json(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", by_alias=True)
+        return self.model_dump(mode="json", by_alias=True, exclude_none=True)
 
     @classmethod
     def from_json(cls, value: Mapping[str, Any]) -> "VariableReference":
         return cls.model_validate(value)
+
+
+def reference_from_parts(
+    service_id: int, prop: ReferenceProperty, scheme: object, suffix: object
+) -> VariableReference:
+    """분석기 binding 의 scheme·urlSuffix(신뢰하지 않는 입력)로 참조를 만든다. 틀린 값은 버린다."""
+    if prop != ReferenceProperty.URL:
+        return VariableReference(service_id=service_id, property=prop)
+    safe_scheme: str | None = None
+    safe_suffix: str | None = None
+    if isinstance(scheme, str):
+        try:
+            safe_scheme = check_scheme(scheme)
+        except ValueError:
+            pass
+    if isinstance(suffix, str):
+        try:
+            safe_suffix = check_suffix(suffix)
+        except ValueError:
+            pass
+    return VariableReference(
+        service_id=service_id, property=prop, scheme=safe_scheme, suffix=safe_suffix
+    )
 
 
 @dataclass(frozen=True)
@@ -96,14 +159,16 @@ class ReferenceResolver:
             self._is_networking_enabled, await self._service_repository.find_target_kind(target.id)
         )
         if target.kind != ServiceKind.DATABASE or target.database_engine is None:
-            value = app_connection(target, is_networking=networking).property(reference.property)
+            value = app_connection(target, is_networking=networking).property(
+                reference.property, scheme=reference.scheme, suffix=reference.suffix
+            )
             assert value is not None
             return ResolvedReference(target, value)
         engine = target.database_engine
         host = internal_host(target.id)
         port = internal_port(target, is_networking=networking)
         if masked:
-            return ResolvedReference(target, self._preview(target, reference.property, host, port))
+            return ResolvedReference(target, self._preview(target, reference, host, port))
         if self._cipher is None:
             raise VariableReferenceBrokenError(
                 "database credentials cannot be decrypted", target_service_id=target.id
@@ -114,7 +179,9 @@ class ReferenceResolver:
             for v in await self._service_variable_repository.search_by_service_id(target.id)
             if v.key in spec.managed_keys and v.encrypted_value is not None
         }
-        value = build_connection(engine, host, port, variables).property(reference.property)
+        value = build_connection(engine, host, port, variables).property(
+            reference.property, scheme=reference.scheme, suffix=reference.suffix
+        )
         if value is None:
             raise VariableReferenceBrokenError(
                 "referenced service has no such property",
@@ -124,13 +191,20 @@ class ReferenceResolver:
         return ResolvedReference(target, value)
 
     @staticmethod
-    def _preview(target: Service, name: ReferenceProperty, host: str, port: int) -> str:
+    def _preview(target: Service, reference: VariableReference, host: str, port: int) -> str:
         """비밀을 가린 값. DB 사용자·데이터베이스 이름은 설정에 남긴 값을 쓴다."""
         assert target.database_engine is not None
         config = target.database_config or {}
-        match name:
+        match reference.property:
             case ReferenceProperty.URL:
-                return url_template(target.database_engine, host, port, config)
+                return url_template(
+                    target.database_engine,
+                    host,
+                    port,
+                    config,
+                    scheme=reference.scheme,
+                    suffix=reference.suffix,
+                )
             case ReferenceProperty.HOST:
                 return host
             case ReferenceProperty.PORT:

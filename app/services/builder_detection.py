@@ -1,6 +1,7 @@
 """빌더 결정 규칙. 우선순위: 코드 설정(iris.json) > 서비스 설정(코드 분석 결과) > 자동 감지."""
 
 import posixpath
+import re
 import shlex
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,6 +15,13 @@ from app.models import Service
 
 CONFIG_FILE_NAME = "iris.json"
 DEFAULT_DOCKERFILE_PATH = "Dockerfile"
+# buildspec 이 `docker buildx build --target` 에 넘기기 전에 같은 규칙으로 검사한다(iris-infra).
+DOCKER_TARGET_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+_DOCKER_TARGET = re.compile(DOCKER_TARGET_PATTERN)
+
+
+def is_valid_docker_target(value: str) -> bool:
+    return _DOCKER_TARGET.fullmatch(value) is not None
 
 
 class _IrisBuildConfig(BaseModel):
@@ -21,6 +29,7 @@ class _IrisBuildConfig(BaseModel):
 
     builder: Builder | None = None
     dockerfile_path: str | None = None
+    docker_target: str | None = None
     build_command: str | None = None
 
 
@@ -64,6 +73,8 @@ class IrisConfig(BaseModel):
 class BuildPlan:
     builder: Builder
     dockerfile_path: str
+    # dockerfile 빌더일 때만 값이 있다(CodeBuild DOCKER_TARGET).
+    docker_target: str | None = None
     railpack_env: dict[str, str] = field(default_factory=dict)
     deploy_config: dict[str, Any] = field(default_factory=dict)
 
@@ -95,6 +106,16 @@ def detect_builder(file_names: set[str], config: IrisConfig | None, service: Ser
             dockerfile_path=dockerfile_path,
         )
 
+    docker_target: str | None = None
+    if builder == Builder.DOCKERFILE:
+        docker_target = config.build.docker_target or service.docker_target or None
+        if docker_target is not None and not is_valid_docker_target(docker_target):
+            raise BuildFailedError(
+                FailureCode.BUILD_CONFIG_REQUIRED,
+                "invalid docker target",
+                docker_target=docker_target,
+            )
+
     # 코드 설정이 없으면 서비스에 저장된 실행 설정(코드 분석 결과)을 쓴다.
     build_command = config.build.build_command or service.build_command
     start_command = config.deploy.start_command or service.start_command
@@ -113,4 +134,4 @@ def detect_builder(file_names: set[str], config: IrisConfig | None, service: Ser
             raise BuildFailedError(
                 FailureCode.BUILD_CONFIG_REQUIRED, "invalid service start command"
             ) from exc
-    return BuildPlan(builder, dockerfile_path, railpack_env, deploy_config)
+    return BuildPlan(builder, dockerfile_path, docker_target, railpack_env, deploy_config)

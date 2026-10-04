@@ -12,7 +12,7 @@ from typing import Any
 from app.services.database_init_scripts import init_scripts_change, init_scripts_fingerprint
 
 # 바뀌면 알리는 unit 필드(analysis-gate.v1 표기).
-_UNIT_FIELDS = ("port", "rootDirectory", "builder", "dockerfilePath")
+_UNIT_FIELDS = ("port", "rootDirectory", "builder", "dockerfilePath", "buildTarget")
 
 
 def _by_id(items: object) -> dict[str, Mapping[str, Any]]:

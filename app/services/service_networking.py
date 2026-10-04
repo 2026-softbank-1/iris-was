@@ -62,10 +62,13 @@ class AppConnection:
     host: str
     port: int
 
-    def property(self, name: ReferenceProperty) -> str | None:
+    def property(
+        self, name: ReferenceProperty, *, scheme: str | None = None, suffix: str | None = None
+    ) -> str | None:
+        """url 은 코드가 쓴 스킴·경로·쿼리(`suffix`)를 그대로 쓴다. 앱 URL 에는 자격 증명이 없다."""
         match name:
             case ReferenceProperty.URL:
-                return f"http://{self.host}:{self.port}"
+                return f"{scheme or 'http'}://{self.host}:{self.port}{suffix or ''}"
             case ReferenceProperty.HOST:
                 return self.host
             case ReferenceProperty.PORT:
