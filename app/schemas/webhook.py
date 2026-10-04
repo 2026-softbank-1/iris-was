@@ -45,3 +45,8 @@ class WebhookReceiptResponse(ApiModel):
     deployment_request_ids: list[int] = Field(
         default_factory=list, description="push 로 새로 만든 배포 요청 ID", examples=[[12]]
     )
+    repository_analysis_ids: list[int] = Field(
+        default_factory=list,
+        description="스택 레포 push 로 같은 커밋에 다시 접수한 레포 구성 분석 ID",
+        examples=[[7]],
+    )

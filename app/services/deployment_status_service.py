@@ -4,13 +4,14 @@ from collections.abc import Mapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import InvalidInputError, InvalidStatusTransitionError
-from app.enums import DeploymentStatus, FailureCode
+from app.enums import ACTIVE_DEPLOYMENT_STATUSES, DeploymentStatus, FailureCode
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
 from app.repositories.deployment_status_history_repository import (
     DeploymentStatusHistoryRepository,
 )
+from app.services.stack_progress import StackDeploymentProgress
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +61,21 @@ class DeploymentStatusService:
         self,
         deployment_request_repository: DeploymentRequestRepository,
         deployment_status_history_repository: DeploymentStatusHistoryRepository,
+        stack_progress: StackDeploymentProgress | None = None,
     ) -> None:
         self._deployment_request_repository = deployment_request_repository
         self._deployment_status_history_repository = deployment_status_history_repository
+        # 스택 배포의 다음 단계 진행(시작·보류). 끝난 상태로 옮길 때만 쓴다.
+        self._stack_progress = stack_progress
 
     @classmethod
     def create(cls, session: AsyncSession) -> "DeploymentStatusService":
         """같은 세션(=같은 트랜잭션)에서 상태를 옮기려는 Worker 용."""
-        return cls(DeploymentRequestRepository(session), DeploymentStatusHistoryRepository(session))
+        return cls(
+            DeploymentRequestRepository(session),
+            DeploymentStatusHistoryRepository(session),
+            StackDeploymentProgress(session),
+        )
 
     async def transition_status(
         self,
@@ -125,4 +133,6 @@ class DeploymentStatusService:
                 "to_status": to_status,
             },
         )
+        if self._stack_progress is not None and to_status not in ACTIVE_DEPLOYMENT_STATUSES:
+            await self._stack_progress.on_request_finished(request, self)
         return request

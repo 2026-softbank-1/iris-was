@@ -1,14 +1,15 @@
 """프로젝트·서비스 계층 테스트용 인메모리 Repository."""
 
 from itertools import count
-from typing import Any
 
-from app.enums import TargetKind
+from app.enums import DeploymentStrategy, ServiceKind, TargetKind
 from app.models.base import now_utc
+from app.models.onprem_server import OnpremServer
 from app.models.project import Project
 from app.models.service import Service
 from app.models.target import Target
 from app.repositories.project_repository import ServiceCounts
+from app.repositories.service_repository import DeploymentSettings
 
 
 class FakeProjectRepository:
@@ -51,15 +52,44 @@ class FakeProjectRepository:
         return project
 
 
+TARGET_KINDS = {1: TargetKind.AWS, 2: TargetKind.ONPREM}
+
+
 class FakeServiceRepository:
     def __init__(self, projects: FakeProjectRepository) -> None:
         self._projects = projects
         self.services: dict[int, Service] = {}
+        self.target_kinds: dict[int, TargetKind] = {}
         self.targets: dict[int, set[int]] = {}
+        # 서비스 id → 그 서비스의 배포 타깃인 등록 서버.
+        self.servers: dict[int, OnpremServer] = {}
         self._ids = count(1)
 
-    async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
-        return self.services[service_id].scaling_config
+    async def find_deploy_target_server(self, service_id: int) -> OnpremServer | None:
+        return self.servers.get(service_id)
+
+    async def search_ids_by_target_id(self, target_id: int) -> list[int]:
+        return sorted(
+            service_id
+            for service_id, target_ids in self.targets.items()
+            if target_id in target_ids and not self.services[service_id].is_deleted
+        )
+
+    async def is_target_in_use(self, target_id: int) -> bool:
+        return bool(await self.search_ids_by_target_id(target_id))
+
+    async def get_deployment_settings_for_update(self, service_id: int) -> DeploymentSettings:
+        service = self.services[service_id]
+        # FakeTargetRepository 와 같은 id 다: 1 = aws(AWS), 2 = onprem(ONPREM).
+        # 그 밖의 id 는 테스트가 붙인 등록 서버 타깃(ONPREM)이다.
+        kinds = {
+            TARGET_KINDS.get(t, TargetKind.ONPREM) for t in self.targets.get(service_id, set())
+        }
+        return DeploymentSettings(
+            service.scaling_config,
+            service.deployment_strategy or DeploymentStrategy.ROLLING,
+            TargetKind.ONPREM if TargetKind.ONPREM in kinds else TargetKind.AWS,
+        )
 
     async def find_by_id_and_owner_id(
         self, service_id: int, owner_id: int, *, for_update: bool = False
@@ -103,6 +133,8 @@ class FakeServiceRepository:
             service.created_at = service.updated_at = now_utc()
             service.is_deleted = False
             service.platform = service.platform or "linux/amd64"
+            service.deployment_strategy = service.deployment_strategy or DeploymentStrategy.ROLLING
+            service.kind = service.kind or ServiceKind.APP
             if service.is_auto_deploy is None:
                 service.is_auto_deploy = True
         self.services[service.id] = service
@@ -110,6 +142,19 @@ class FakeServiceRepository:
 
     async def replace_targets(self, service_id: int, target_ids: set[int]) -> None:
         self.targets[service_id] = set(target_ids)
+
+    async def find_active_by_id(self, service_id: int) -> Service | None:
+        service = self.services.get(service_id)
+        return service if service is not None and not service.is_deleted else None
+
+    async def find_target_kind(self, service_id: int) -> TargetKind:
+        return self.target_kinds.get(service_id, TargetKind.AWS)
+
+    async def search_by_stack_id(self, stack_id: int) -> list[Service]:
+        return [s for s in self.services.values() if s.stack_id == stack_id and not s.is_deleted]
+
+    async def flush(self) -> None:
+        return None
 
     async def mark_as_deleted_by_project_id(self, project_id: int) -> None:
         for service in self.services.values():
@@ -119,17 +164,29 @@ class FakeServiceRepository:
 
 class FakeTargetRepository:
     def __init__(self) -> None:
-        aws = Target(name="aws", kind=TargetKind.AWS)
+        aws = Target(name="aws", kind=TargetKind.AWS, is_deleted=False)
         aws.id = 1
-        local = Target(name="local", kind=TargetKind.LOCAL)
-        local.id = 2
-        self.targets = [aws, local]
+        onprem = Target(name="onprem", kind=TargetKind.ONPREM, is_deleted=False)
+        onprem.id = 2
+        self.targets = [aws, onprem]
 
     async def search_all(self) -> list[Target]:
         return list(self.targets)
 
     async def search_by_ids(self, target_ids: list[int]) -> list[Target]:
         return [t for t in self.targets if t.id in target_ids]
+
+    async def search_visible(self, owner_id: int) -> list[Target]:
+        return [t for t in self.targets if not t.is_deleted and t.owner_id in (None, owner_id)]
+
+    async def search_visible_by_ids(self, target_ids: list[int], owner_id: int) -> list[Target]:
+        return [t for t in await self.search_visible(owner_id) if t.id in target_ids]
+
+    async def add(self, target: Target) -> Target:
+        target.id = max(t.id for t in self.targets) + 1
+        target.is_deleted = False
+        self.targets.append(target)
+        return target
 
 
 class FakeTeardownService:

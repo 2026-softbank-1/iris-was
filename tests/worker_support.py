@@ -1,7 +1,7 @@
 """Build·Deploy Worker 통합 테스트가 함께 쓰는 데이터 정리·시드 도우미.
 
 `alembic upgrade head` 가 끝난 TEST_DATABASE_URL 의 PostgreSQL 이 필요하다. 스키마는 건드리지 않고
-테스트 데이터 테이블만 비운다(`targets` 의 기본 타깃은 마이그레이션이 넣은 그대로 둔다). Worker 는
+테스트 데이터 테이블만 비운다(`targets` 의 공용 타깃은 마이그레이션이 넣은 그대로 둔다). Worker 는
 여러 트랜잭션을 실제로 커밋하므로 롤백 대신 이 도우미로 정리한다. 개발 DB 에는 쓰지 않는다.
 """
 
@@ -23,9 +23,13 @@ from app.models import GithubInstallation, Project, Service, User
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 requires_database = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
 
+# users 는 TRUNCATE 하지 않는다. targets 가 users 를 참조해 CASCADE 가 공용 타깃까지 비운다.
 _DATA_TABLES = (
+    "onprem_servers, stack_deployment_steps, stack_deployments, service_variables, "
     "jobs, releases, builds, deployment_status_histories, deployment_requests, service_uploads, "
-    "service_targets, services, projects, user_github_installations, github_installations, users"
+    "service_targets, services, repository_analyses, service_stacks, projects, "
+    "user_github_installations, database_init_scripts, "
+    "github_installations, cli_login_sessions"
 )
 
 
@@ -41,6 +45,10 @@ async def session_factory_with_clean_data() -> AsyncIterator[async_sessionmaker[
 async def _truncate(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
         await connection.execute(text(f"TRUNCATE TABLE {_DATA_TABLES} RESTART IDENTITY CASCADE"))
+        # 사용자가 등록한 서버의 타깃만 지우고 마이그레이션이 넣은 공용 타깃은 남긴다.
+        await connection.execute(text("DELETE FROM targets WHERE owner_id IS NOT NULL"))
+        await connection.execute(text("DELETE FROM users"))
+        await connection.execute(text("ALTER TABLE users ALTER COLUMN id RESTART WITH 1"))
 
 
 async def add[T](session: AsyncSession, instance: T) -> T:

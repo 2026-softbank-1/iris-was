@@ -17,6 +17,8 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
+# 레포 구성 분석기 wheel(uv path 의존성). 버전·sha256 은 vendor/iris-analyzer-manifest.json
+COPY vendor ./vendor
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 

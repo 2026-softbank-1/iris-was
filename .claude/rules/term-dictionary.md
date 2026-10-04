@@ -51,9 +51,16 @@ erDiagram
   projects ||--o{ services : "포함"
   github_installations ||--o{ services : "소스 접근"
   services }o--o{ targets : "service_targets"
-  services ||--o{ service_variables : "환경변수"
+  services ||--o{ service_variables : "환경변수(값·참조)"
+  projects ||--o{ service_stacks : "스택"
+  service_stacks ||--o{ services : "앱·DB 묶음"
+  service_stacks ||--o{ stack_deployments : "의존 순서 배포"
+  stack_deployments ||--o{ stack_deployment_steps : "서비스별 단계"
+  stack_deployment_steps |o--|| deployment_requests : "배포 요청"
   services ||--o{ service_uploads : "CLI 업로드"
   service_uploads |o--o| deployment_requests : "소스로 쓰임 (한 번)"
+  users ||--o{ onprem_servers : "등록"
+  onprem_servers ||--|| targets : "전용 타깃"
   services ||--o{ deployment_requests : "배포 요청"
   deployment_requests ||--o{ jobs : "BUILD·DEPLOY·ROLLBACK…"
   deployment_requests ||--o{ deployment_status_histories : "상태 전이 이력"
@@ -89,6 +96,12 @@ erDiagram
 | `dockerfile_path` | `builder=dockerfile` 일 때 Dockerfile 경로 |
 | `platform` | 빌드 플랫폼 (`linux/amd64`) |
 | `railpack_version` | `builder=railpack` 일 때 고정할 Railpack 버전 |
+| `scaling_config`\* | 원하는 Pod 수(replicas 0~10)와 Pod 당 리소스(jsonb). 비어 있으면 replicas 1 이다 |
+| `kind`\* | `service_kind` Enum (§5). 기본 `APP`. `DATABASE` 는 빌드 없이 고정 공식 이미지로 띄우는 개발용 관리형 DB 다(단일 인스턴스, 백업 없음, 삭제 시 데이터 소실). DB 는 `github_installation_id` 가 없고 저장소 주소·브랜치가 빈 문자열이며 push 로 다시 배포하지 않는다 (ADR 0031) |
+| `database_engine`\*, `database_config`\* | DB 엔진(`database_engine` Enum, §5)과 설정(jsonb `{image, storageGi, port, user, database, initScripts?}`). 자격 증명은 여기 두지 않고 암호화한 서비스 변수(`POSTGRES_PASSWORD` 등)로 둔다. `initScripts`(`[{name, path, kind, sha256, size}]`)는 apply 가 분석에서 복사한 초기화 스크립트로, 내용은 `database_init_scripts`(§4.19)에 있고 데이터 디렉터리가 빈 첫 기동에만 실행된다 (ADR 0032) |
+| `host_aliases`\* | 서비스 namespace 의 호스트 별칭(jsonb `[{name, targetServiceId, port}]`). 코드가 compose 호스트명(`api`, `postgres`)을 그대로 쓰게 같은 프로젝트 서비스의 `app` Service 로 잇는다(chart 0.9.0 ExternalName) |
+| `stack_id`\*, `stack_unit_id`\* | 소속 스택(§4.17)과 그 안의 분석기 unit·dependency id. 스택 안에서 unit id 는 유일하다(증분 apply 의 매칭 기준) |
+| `deployment_strategy`\* | `deployment_strategy` Enum (§5). 기본 `ROLLING`. 저장만 하고 다음 배포부터 적용한다. `CANARY`·`BLUE_GREEN` 은 AWS 타깃이고 저장된 replicas 가 2 이상이고 기능 플래그(`DEPLOYMENT_STRATEGY_ENABLED`)가 켜져 있을 때만 저장할 수 있다 (ADR 0028) |
 
 ### 4.2 배포 요청 (DeploymentRequest) — `deployment_requests`
 
@@ -108,6 +121,9 @@ erDiagram
 | `variables_snapshot`\* | 요청 시점의 환경변수(jsonb, `{key: 암호문}`). 평문은 담지 않는다. 롤백은 원본 요청의 값을 그대로 가져오고, 그 밖의 요청(재배포·재시작 포함)은 그 시점의 서비스 변수를 담는다 (§4.11) |
 | `source_deployment_request_id`\* | 재배포·롤백·재시작이 따라가는 원본 배포 요청 (`deployment_requests.id`). 직접 만든 요청은 비어 있다 |
 | `service_upload_id`\* | `CLI` 요청이 GitHub 대신 소스로 쓰는 업로드 (`service_uploads.id`). 업로드 하나는 요청 하나에만 묶인다(UNIQUE). 다른 트리거의 요청은 비어 있다 |
+| `scaling_snapshot`\* | 요청 시점의 `services.scaling_config`(없으면 기본값). 롤백을 포함해 모든 요청이 그 시점의 서비스 설정을 담는다 |
+| `requested_deployment_strategy`\* | 요청 시점에 서비스가 고른 배포 방식 (`deployment_strategy` Enum, §5) |
+| `deployment_strategy`\* | 실제로 적용한 배포 방식. 적용 replicas(`scaling_snapshot`)가 2 미만이거나, 타깃이 `ONPREM` 이거나, 기능 플래그가 꺼져 있으면 `ROLLING` 이다(롤링 대체). `REMOVE` 요청과 기능 도입 전 요청은 둘 다 비어 있다 (ADR 0028) |
 
 서비스·환경마다 진행 중(`QUEUED`·`BUILDING`·`DEPLOYING`)인 요청은 하나만 둘 수 있다 (부분 unique index).
 
@@ -213,12 +229,15 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 
 | 필드 | 설명 |
 |---|---|
-| `name`\* | 타깃 이름. unique (`aws`·`local`) |
+| `name`\* | 타깃 이름. unique (`aws`·`onprem`, 등록한 서버는 `onprem-{serverKey}`) |
 | `kind`\* | `target_kind` Enum (§5) |
 | `region`\*, `domain_suffix`\* | 리전, 서비스 도메인 접미사. 점이 하나인 `likelion.uk` 꼴이다(와일드카드 인증서가 label 한 단계만 덮는다). 비어 있으면 그 타깃엔 도메인이 없다. 서비스 주소는 `{서비스 이름}-{service_id}.{domain_suffix}` 로 계산하며 저장하지 않는다 |
 | `cluster_ref`\* | 클러스터 접속 정보의 비밀 저장소 참조 이름. 접속 정보 자체는 담지 않는다 |
+| `owner_id`\* | 비어 있으면 모두가 쓰는 공용 타깃, 있으면 그 사용자가 등록한 온프레미스 서버(§4.15)의 전용 타깃이다. 사용자는 공용 타깃과 자기 서버 타깃만 보고 고른다(남의 서버 타깃은 없는 타깃과 같다) |
 
-`service_targets` 는 서비스가 배포되는 타깃을 잇는다.
+`service_targets` 는 서비스가 배포되는 타깃을 잇는다. 서비스당 타깃 1개, 기본 `aws`. GitOps 경로 aws=`prod`, 그 외=타깃 이름(`services/{id}/onprem`, `services/{id}/onprem-{serverKey}`).
+
+등록한 서버 타깃의 서비스 주소는 `{서비스 이름}-{service_id}-{serverKey}.internal.likelion.uk` 다. 라벨이 63자를 넘으면 서비스 이름 부분을 줄인다. `build_service_host`(`app/services/domain_service.py`) 한 곳에서 계산한다.
 
 ### 4.10 배포 상태 이력 (DeploymentStatusHistory) — `deployment_status_histories`\*
 
@@ -240,16 +259,17 @@ GitHub 계정으로 로그인한 사람이다. 이메일 로그인은 없다. Gi
 |---|---|
 | `service_id`\* | 소속 서비스. `(service_id, key)` 는 유일하다 |
 | `key`\* | 변수 이름. 영문·숫자·밑줄이고 숫자로 시작하지 않으며 128자 이하다. `PORT` 와 `IRIS_` 로 시작하는 이름은 플랫폼이 쓰므로 만들 수 없다 |
-| `encrypted_value`\* | 값의 Fernet 암호문. 평문은 저장하지 않고 응답을 만들 때만 복호화한다 |
+| `encrypted_value`\* | 값의 Fernet 암호문. 평문은 저장하지 않고 응답을 만들 때만 복호화한다. 참조 변수는 비어 있다 |
+| `reference`\* | 참조 변수(jsonb `{serviceId, property}`). 값 대신 같은 프로젝트 다른 서비스의 연결 정보(`reference_property`, §5)를 가리킨다. 값과 참조 중 하나만 있다(CHECK). Deploy Worker 가 봉인 직전에 대상의 지금 값으로 푼다 (ADR 0031) |
 
 - 한 서비스에 최대 100개, 값은 최대 32KiB 다. 삭제는 소프트 삭제가 아니라 물리 삭제다(값을 남기지 않는다).
-- **배포 스냅샷**: 배포 요청을 만들 때 `deployment_requests.variables_snapshot` 에 `{key: encrypted_value}` 를 복사한다. `ROLLBACK` 요청은 원본 요청의 스냅샷을, 그 밖의 요청(`MANUAL`·`PUSH`·`REDEPLOY`·`RESTART`)은 그 시점의 서비스 변수를 담는다. 그래서 변수를 고친 뒤 재배포하면 고친 값이 반영된다.
+- **배포 스냅샷**: 배포 요청을 만들 때 `deployment_requests.variables_snapshot` 에 `{key: encrypted_value}` 를 복사한다(참조 변수는 `{key: {"reference": {serviceId, property}}}`). `ROLLBACK` 요청은 원본 요청의 스냅샷을, 그 밖의 요청(`MANUAL`·`PUSH`·`REDEPLOY`·`RESTART`)은 그 시점의 서비스 변수를 담는다. 그래서 변수를 고친 뒤 재배포하면 고친 값이 반영된다.
 - **앱 전달**: Deploy Worker 가 스냅샷을 풀어 Sealed Secrets controller 공개 인증서로 다시 봉인한다(namespace `svc-{service_id}`, Secret 이름 `vars-r{release_id}`). (`SEALED_SECRETS_CERT` 를 설정해 이 기능을 켠 Worker 만. chart 0.6.0 이상이 필요하다.) 결과를 `values.yaml` 의 `variables.name`·`variables.encryptedData` 로 커밋하고, iris-service chart 가 SealedSecret 과 `envFrom` 을 만든다. 평문은 메모리에만 있고 Git 에 남지 않는다 (ADR 0017).
 - **자동 주입 변수**(system variables): 플랫폼이 배포할 때 앱에 넣는다. 사용자 변수보다 우선해 덮어쓸 수 없다. 저장하지 않고 `build_system_variables`(`app/services/variable_service.py`)가 이름·설명을 만든다.
 
 | 이름 | 값 | 주입 |
 |---|---|---|
-| `PORT` | `APP_PORT`(8080) | chart |
+| `PORT` | `APP_PORT`(8080). `PROJECT_NETWORKING_ENABLED` 를 켠 AWS 타깃의 스택 앱은 분석한 포트(`services.port`) | chart (values `containerPort`) |
 | `IRIS_SERVICE_NAME` | 서비스 이름 | chart 0.6.0 (values `iris.serviceName`) |
 | `IRIS_TARGET_NAME` | 배포되는 타깃 이름 | chart 0.6.0 (values `iris.targetName`) |
 | `IRIS_DEPLOYMENT_ID` | 앱을 띄운 배포 요청 id | chart 0.6.0 (values `iris.deploymentId`) |
@@ -304,6 +324,87 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 - 아카이브의 루트가 서비스 소스의 루트다. `services.root_directory` 는 업로드에 적용하지 않는다.
 - 쓰이지 못하고 만료된 지 1일이 지난 행은 새 업로드를 받을 때 지운다(쓰인 행은 배포 요청이 가리켜 남긴다). S3 객체는 버킷 lifecycle(1일)이 지운다.
 
+### 4.15 온프레미스 서버 (OnpremServer) — `onprem_servers`\*
+
+사용자가 배포 대상으로 직접 붙인 서버(Ubuntu + K3s) 1대다. 등록하면 전용 타깃(`targets`, `kind=ONPREM`, `owner_id`=사용자)이 함께 생긴다. 설치 스크립트가 등록 토큰으로 설정을 받고(bootstrap) 클러스터 접속 정보를 보내면(connect), Deploy Worker 가 GitOps 에 반영하고 probe Application 으로 연결을 확인한다 (ADR 0029, [계약](../../docs/onprem-server-registration-contract.md)).
+
+| 필드 | 설명 |
+|---|---|
+| `owner_id`\*, `name`\* | 소유자, 이름(1~63자). 이름은 소유자 안에서 유일하다(삭제되지 않은 것끼리) |
+| `server_key`\* | `[a-z][a-z0-9]{7}` 무작위 8자. unique. 타깃 이름(`onprem-{key}`)·Tailscale hostname(`iris-{key}`)·Argo cluster(`onprem-{key}`)·host 의 기준이다. 비밀이 아니다 |
+| `target_id`\* | 이 서버 전용 타깃. unique |
+| `status`\*, `failure_code`\* | `onprem_server_status`·`onprem_server_failure_code` Enum (§5) |
+| `registration_token_hash`\*, `registration_expires_at`\* | 1회용 등록 토큰(`secrets.token_urlsafe(32)`)의 SHA-256(hex)과 만료(만든 때부터 24시간). 평문은 등록·재발급 응답에서만 보인다 |
+| `tailnet_fqdn`\*, `api_ca_cert`\*, `sealed_secrets_cert`\* | 서버가 connect 로 보낸 tailnet 주소(`iris-{key}.` 로 시작), K3s API CA, 서버 Sealed Secrets controller 인증서(모두 공개값). 이 서버로 가는 서비스 변수는 이 인증서로 봉인한다 |
+| `encrypted_service_account_token`\* | Argo CD 가 쓸 만료 없는 SA 토큰의 Fernet 암호문(`VARIABLES_ENCRYPTION_KEY`) |
+| `server_secret_hash`\* | 서버 비밀의 SHA-256(hex). 서버가 ECR pull 자격증명을 받을 때 Bearer 로 보낸다(아직 `CONNECTED` 가 아니면 `ONPREM_SERVER_NOT_CONNECTED`). 평문은 connect 응답에서만 보인다 |
+| `connect_generation`\* | connect 를 받을 때마다 +1. Worker 는 선점할 때의 값과 같을 때만 결과를 쓴다 |
+| `gitops_commit_sha`\*, `gitops_attempts`\* | `platform/onprem-servers/{key}/` 를 바꾸거나(등록) 지운(삭제) GitOps 커밋, 지금 커밋을 위해 실패한 횟수 |
+| `connect_deadline_at`\* | 커밋이 main 에 반영된 뒤 정한다(+15분). 값이 있으면 커밋이 반영된 것이다 |
+| `connected_at`\* | `CONNECTED` 가 된 시각 |
+| `next_check_at`\*, `locked_by`\*, `locked_until`\* | Worker 가 할 일이 있는 시각(없으면 비어 있다)과 lease. jobs 큐 대신 이 행을 `FOR UPDATE SKIP LOCKED` 로 선점한다 |
+| `last_error`\* | Worker 의 마지막 실패 메시지 |
+
+- 서버를 지우면 서버와 타깃을 소프트 삭제하고 Worker 가 GitOps 의 서버 디렉터리를 지운다. 삭제되지 않은 서비스가 붙어 있거나 붙은 서비스의 배포가 진행 중이면 지울 수 없다(`ONPREM_SERVER_IN_USE`).
+- 서버 타깃으로의 배포 요청은 서버가 `CONNECTED` 일 때만 만든다(`TARGET_NOT_CONNECTED`). 서비스를 내리는 `REMOVE` 요청은 막지 않는다.
+- bootstrap·connect 는 `PENDING`·`REGISTERING`·`FAILED` 에서 받는다(설치 재실행). bootstrap 은 상태를 바꾸지 않고, connect 는 `REGISTERING` 으로 만든다.
+- 서버 타깃은 `kind=ONPREM` 이라 공용 `onprem` 처럼 롤링만 쓴다(`CANARY`·`BLUE_GREEN` 저장 거절, 적용 방식 `ROLLING`, values 에 `deploymentStrategy` 없음. ADR 0028).
+- 서버 타깃 서비스의 values 에는 `imagePullSecrets: [{name: iris-ecr-pull}]`(서버 CronJob 이 `svc-{id}` 에 만드는 ECR pull Secret)를 더한다.
+
+### 4.16 레포 구성 분석 (RepositoryAnalysis) — `repository_analyses`\*
+
+서비스를 만들기 전에 레포가 단순(이미지 1개)한지 복합(이미지 여러 개)한지 정적 분석기(`iris_analyzer.gate`)로 판정한 1건이다. 화면·설계 용어는 Analysis Gate 다. Build Worker 가 선점해 실행한다 (ADR 0030).
+
+| 필드 | 설명 |
+|---|---|
+| `project_id`\*, `user_id`\* | 분석을 요청한 프로젝트·사용자 |
+| `source_repository_url`\*, `github_installation_id`\*, `source_branch`\* | 분석할 저장소·접근 설치·브랜치 |
+| `source_sha`\* | 접수 때 고정한 브랜치 최신 커밋. apply 의 배포 요청도 이 커밋이다 |
+| `root_directory`\* | 저장소 안의 분석 위치. 비어 있으면 루트 |
+| `mode`\* | `analysis_gate_mode` Enum (§5) |
+| `status`\* | `repository_analysis_status` Enum (§5) |
+| `decision`\*, `complexity`\* | 분석 결과(§5). SUCCEEDED 뒤에만 있다 |
+| `result`\* | 분석기 응답(`iris.analysis-gate.v1`) 원문(jsonb) |
+| `error_code`\*, `error_message`\* | FAILED 사유 (`analysis_error_code`, §5) |
+| `applied_service_ids`\* | apply 로 만든 서비스 id 목록(jsonb). 다시 apply 하면 이 서비스를 돌려준다 |
+| `attempts`, `locked_by`, `locked_until` | 선점 횟수·lease. 만료된 RUNNING 은 다른 Worker 가 다시 가져간다 |
+
+- 분석으로 만든 서비스는 `services.analysis_plan.gate`(`analysisId`·`decision`·`complexity`·`unitId`·`sourceSha`)에 근거를 남기고, unit 으로 만들었으면 `analysis_plan.unit` 에 분석기 unit 원문을 둔다. API 응답의 `analysisGate` 다.
+
+### 4.17 스택 (ServiceStack) — `service_stacks`\*
+
+같은 레포(저장소·브랜치·위치) 분석에서 만든 서비스(앱 + 관리형 DB) 묶음이다. 배포 순서와 재분석 기준이다 (ADR 0031).
+
+| 필드 | 설명 |
+|---|---|
+| `project_id`\*, `source_repository_url`\*, `source_branch`\*, `root_directory`\*, `github_installation_id`\* | 소속 프로젝트와 분석한 저장소·브랜치·위치 |
+| `analysis_id`\* | 기준 분석(마지막으로 apply 한 분석) |
+| `pending_changes`\*, `pending_analysis_id`\* | push 재분석 결과가 기준과 다를 때의 변경(jsonb `{analysisId, sourceSha, detectedAt, changes: [{type, unitId, field?, from?, to?}]}`, type: `UNIT_ADDED`·`UNIT_REMOVED`·`UNIT_CHANGED`·`DEPENDENCY_ADDED`·`DEPENDENCY_REMOVED`·`DEPENDENCY_CHANGED`(초기화 스크립트가 바뀜, `reason: init_scripts_changed`. 이미 있는 DB 에는 다시 실행하지 않는다)). 그 분석을 apply 하면 지워진다 |
+
+- **의존 그래프**: 호스트 별칭 대상 ∪ 참조 변수 대상 ∪ 분석기 `dependsOn`. 순서(order)는 깊이 + 1 이다(DB 1 → DB 를 쓰는 앱 2 → 그 앱을 쓰는 앱 3).
+- push 는 스택 레포면 같은 커밋으로 force 모드 재분석을 접수한다(`repository_analyses.stack_id`, 스택·커밋마다 한 번).
+
+### 4.18 스택 배포 (StackDeployment) — `stack_deployments`\*, `stack_deployment_steps`\*
+
+스택 서비스를 의존 순서대로 배포하는 1회다. 서비스마다 기존 경로로 배포 요청을 하나씩 만들고(`stack_deployment_steps.deployment_request_id`), 앞 단계가 없는 요청만 바로 첫 job 을 만든다.
+
+| 필드 | 설명 |
+|---|---|
+| `trigger_type`\*, `idempotency_key`\*, `requested_by`\* | 시작 방식(`MANUAL`·`PUSH`)·중복 차단 키·요청자 |
+| `step_order`\* | 순서(1 = DB …) |
+| `depends_on_deployment_request_ids`\* | 이 요청이 시작하기 전에 SUCCEEDED 여야 하는 같은 스택 배포의 요청 id |
+| `status`\* | `stack_deployment_step_status` Enum (§5) |
+| `held_by_deployment_request_id`\* | HELD 일 때 막은 앞 단계 요청 |
+
+### 4.19 DB 초기화 스크립트 (DatabaseInitScript) — `database_init_scripts`\*
+
+관리형 DB 의 `/docker-entrypoint-initdb.d` 스크립트 내용 1건이다. sha256 으로 찾고 같은 내용은 한 번만 둔다. Build Worker 가 분석할 때 풀어 둔 소스에서 읽어 해시·크기를 다시 확인한 뒤 넣는다. 분석 결과(`dependencies[].initScripts`)와 DB 서비스(`database_config.initScripts`)가 sha256 으로 가리키고, Deploy Worker 만 values(`database.initScripts`)로 옮긴다. 응답에 내용을 내지 않는다 (ADR 0032).
+
+| 필드 | 설명 |
+|---|---|
+| `sha256`\* | 내용의 sha256(hex). 기본 키 |
+| `size_bytes`\*, `content`\* | 바이트 수(1 MiB 이하)와 원본 바이트(bytea, `.sql.gz` 도 그대로) |
+
 ---
 
 ## 5. Enum 값 정의
@@ -345,7 +446,7 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 ### 타깃 종류 (`target_kind`)\* — `targets.kind`
 
-`AWS`(클러스터) · `LOCAL`(로컬 머신·VM, 터널로 노출)
+`AWS`(클러스터) · `ONPREM`(온프레미스 클러스터, Tailscale 경유. 공용 `onprem` 과 사용자가 등록한 서버의 `onprem-{serverKey}`)
 
 ### 배포 요청 상태 (`deployment_status`)\* — `deployment_requests.status`
 
@@ -365,9 +466,36 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 
 `QUEUED → DEPLOYING` 은 빌드를 건너뛰는 `ROLLBACK`·`RESTART`·`REMOVE` 요청이 만들어지는 순간에만 쓴다. 이 요청은 `BUILDING` 을 거치지 않는다. `REMOVE` 요청은 Application 이 사라지면 `SUCCEEDED`, 기한 안에 사라지지 않거나 GitOps 를 바꾼 뒤 실패하면 `MANUAL_INTERVENTION`, GitOps 를 바꾸기 전에 재시도를 소진하면 `FAILED` 다.
 
+### 배포 방식 (`deployment_strategy`)\* — `services.deployment_strategy`, `deployment_requests.requested_deployment_strategy`·`deployment_strategy`
+
+단계와 대기 시간은 iris-service chart 0.7.0(Argo Rollouts `Rollout`)이 정한다. Deploy Worker 는 AWS 타깃 release 에만 values 의 `deploymentStrategy` 로 넘긴다. on-prem(`ONPREM`) 타깃은 chart 0.6.0 에 남아 `ROLLING` 만 쓴다.
+
+| 코드 | 의미 |
+|---|---|
+| `ROLLING` | 기본. 새 Pod 를 하나씩 올리고 이전 Pod 를 내린다 (maxSurge 1, maxUnavailable 0) |
+| `CANARY` | 새 Pod 1개 → 60초 관찰 → 나머지를 롤링으로 교체. replicas 2 이상 |
+| `BLUE_GREEN` | 새 묶음 전체 Ready → 30초 뒤 전환 → 이전 묶음 30초 뒤 내림. 배포 중 Pod 가 최대 2배. replicas 2 이상 |
+
+`CANARY`·`BLUE_GREEN` 은 release `deadline_at` 에 고정 대기 시간 60초를 더한다. 진행 중 Rollout 이 멈춘 동안의 Argo health(`Suspended`·`Progressing`)는 대기로 본다.
+
 ### 빌드 상태 (`build_status`)\* — `builds.status`
 
 `PENDING`(Worker 대기) → `SNAPSHOTTING`(소스 스냅샷 중) → `BUILDING`(CodeBuild 실행 중) → `SUCCEEDED` / `FAILED` / `CANCELLED`. 요청의 `status` 는 빌드가 직접 바꾸지 않고 Worker 가 `DeploymentStatusService` 로 옮긴다.
+
+### 온프레미스 서버 상태 (`onprem_server_status`)\* — `onprem_servers.status`
+
+| 코드 | 의미 | 다음 |
+|---|---|---|
+| `PENDING` | 등록만 했다. 서버에서 명령을 아직 실행하지 않았다 | `REGISTERING`, (토큰 재발급 시 그대로 `PENDING`) |
+| `REGISTERING` | 서버가 connect 를 보냈다. Worker 가 GitOps 반영·연결 확인 중 | `CONNECTED`, `FAILED`, (토큰 재발급 시 `PENDING`) |
+| `CONNECTED` | probe Application 이 Synced+Healthy. 배포할 수 있다 | (끝, 삭제만) |
+| `FAILED` | 기한 안에 연결되지 않았거나 GitOps 반영에 실패했다 | 토큰 재발급 → `PENDING`, 같은 토큰이 만료 전이면 명령 재실행 → `REGISTERING` |
+
+토큰 재발급은 `PENDING`·`REGISTERING`·`FAILED` 에서 된다(`CONNECTED` 는 `INVALID_STATUS_TRANSITION`). `REGISTERING` 에서 재발급하면 `connect_generation` 을 올리고 lease 를 비워 Worker 가 하던 일을 버린다. 사용자마다 서버는 5대까지다(`ONPREM_SERVER_LIMIT_EXCEEDED`).
+
+### 온프레미스 서버 실패 코드 (`onprem_server_failure_code`)\* — `onprem_servers.failure_code`
+
+`CONNECT_TIMED_OUT`(커밋 반영 후 15분 안에 probe 가 정상화되지 않았다) · `GITOPS_COMMIT_FAILED`(서버 values 커밋 재시도 5번을 소진했다). §5 `failure_code`(배포)와 다르다.
 
 ### CLI 로그인 세션 상태 (`cli_login_session_status`)\* — `cli_login_sessions.status`
 
@@ -399,6 +527,35 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | `DEPLOY_FAILED`\* | Sync·readiness·smoke test 실패 |
 | `DEPLOY_TIMED_OUT`\* | Argo CD 가 `deadline_at` 까지 정상화하지 못했다 |
 | `DEPLOY_INFRA_ERROR`\* | 배포 인프라 오류로 재시도를 소진했다 |
+| `VARIABLES_INVALID`\* | 배포 전 환경변수 검증 error. push 자동 배포만 이 코드로 요청을 남긴다(빌드 안 함). 자동 진단하지 않는다 |
+| `DEPENDENCY_FAILED`\* | 스택 배포에서 기다리던 앞 단계(DB·의존 앱) 배포가 실패해 시작하지 않았다(보류). 자동 진단하지 않는다 |
+
+### 레포 구성 분석 (`repository_analysis_status`·`analysis_gate_mode`·`decision`·`complexity`·`analysis_error_code`)\* — `repository_analyses`
+
+- 상태: `QUEUED` → `RUNNING` → `SUCCEEDED` / `FAILED`. `SUCCEEDED`·`analyze` 를 apply 하면 `APPLIED`.
+- 모드(분석기 표기, 소문자): `auto`(단순하면 분석 생략) · `force`(단순해도 배포 단위 분석)
+- 결정: `skip`(기존 단일 서비스 생성) · `analyze`(unit 마다 서비스). 복잡도: `simple` · `complex` · `unsupported`
+- 실패 코드: `SOURCE_NOT_ACCESSIBLE` · `SOURCE_REF_NOT_FOUND` · `SOURCE_TOO_LARGE` · `SOURCE_INVALID` · `ANALYZER_UNAVAILABLE` · `ANALYZER_TIMED_OUT` · `ANALYZER_FAILED` · `ANALYSIS_INTERRUPTED`(처리 중 Worker 가 3번 넘게 죽음)
+
+### 서비스 종류 (`service_kind`)\* — `services.kind`
+
+`APP`(소스를 빌드하는 앱, 기본) · `DATABASE`(고정 공식 이미지의 개발용 관리형 DB)
+
+### DB 엔진 (`database_engine`)\* — `services.database_engine`
+
+분석기·chart 표기 그대로 소문자: `postgres` · `mysql` · `mongodb` · `redis`. 자격 증명 변수: postgres `POSTGRES_USER`·`POSTGRES_PASSWORD`·`POSTGRES_DB`, mysql `MYSQL_USER`·`MYSQL_PASSWORD`·`MYSQL_DATABASE`·`MYSQL_ROOT_PASSWORD`, mongodb `MONGO_INITDB_ROOT_USERNAME`·`MONGO_INITDB_ROOT_PASSWORD`·`MONGO_INITDB_DATABASE`, redis `REDIS_PASSWORD`(사용자는 `default`).
+
+### 참조 속성 (`reference_property`)\* — `service_variables.reference.property`
+
+`url` · `host` · `port` · `user` · `password` · `database`. 앱 대상은 `url`(`http://app.svc-{id}.svc.cluster.local:{port}`)·`host`·`port` 만, redis 는 `database` 가 없다.
+
+### 환경변수 검증 (`variable_issue_code`·`severity`)\*
+
+`REQUIRED_MISSING`(error, 분석으로 만든 서비스만) · `LOCALHOST_ADDRESS`(error, `*_URL`·`*_URI`·`*_HOST`·`*_ADDR` 키) · `UNRESOLVABLE_HOST`(error, 점 없는 호스트가 별칭이 아님) · `SCHEME_MISMATCH`(warning) · `REFERENCE_BROKEN`(error). error 가 있으면 배포 요청은 `422 VARIABLES_INVALID`.
+
+### 스택 배포 단계 (`stack_deployment_step_status`)\* — `stack_deployment_steps.status`
+
+`WAITING`(앞 단계 성공을 기다림, 요청은 QUEUED·job 없음) → `STARTED`(첫 job 을 만듦) / `HELD`(앞 단계 실패로 시작 안 함, 요청은 `FAILED`·`DEPENDENCY_FAILED`)
 
 ### Argo CD 상태 (외부 값, 원본 표기 그대로 저장)
 
@@ -421,11 +578,17 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | Sync | `argo_sync_status` | Argo CD 가 desired state 를 클러스터에 적용하는 것. Control Plane 은 직접 호출하지 않고 Git 변경으로 유도한다 |
 | lastKnownGood | `last_known_good`\* | service + environment 에서 마지막으로 `SUCCEEDED` 된 release (파생 개념). 그 뒤에 성공한 `REMOVE` 요청이 있으면 서비스가 내려간 것이라 없다 |
 | revert commit | `create_revert_commit`\* | 실패한 digest 만 이전 digest 로 되돌리는 새 커밋. force push 는 쓰지 않는다 |
+| 롤링 대체 | `resolve_deployment_strategy`\* | 서비스가 `CANARY`·`BLUE_GREEN` 이어도 적용 replicas 가 2 미만이거나, 타깃이 `ONPREM` 이거나, 기능 플래그가 꺼져 있으면 그 배포 요청은 `ROLLING` 으로 배포한다. 요청 방식은 그대로 남긴다 |
 | 자동 rollback 조건 | — | 현재 manifest digest = 실패 digest, lastKnownGood = 이전 digest, 더 최신 진행 배포 없음. 셋 다 만족해야 한다 |
 | 빌드 설정 | `.anydeploy/build.yaml` | 서비스 소스 저장소에 두는 빌더 설정 파일 |
 | 소스 재패킹 | `repack_source_archive`\* | 업로드 아카이브를 항목마다 검사하며 GitHub tarball 처럼 최상위 디렉터리 아래로 다시 묶는 일. buildspec 이 `--strip-components=1` 로 풀기 때문이고, 경로 이탈·링크·압축 폭탄 방어선이다 (ADR 0023) |
 | pollSecret | `poll_secret`\* | CLI 로그인 세션을 만든 CLI 만 아는 폴링 비밀. 서버에는 해시(`poll_secret_hash`)만 둔다 |
 | 폴링 간격 | `interval`\* | CLI 가 `/token` 을 부르는 간격(2초). 이보다 빠르면 `429` 와 `Retry-After` 로 답한다 |
+| serverKey | `server_key`\* | 등록한 온프레미스 서버를 가리키는 8자 키(§4.15). 비밀이 아니다 |
+| 등록 토큰 | `registration_token`\* | 서버 설치 명령에 들어가는 1회용 비밀(24시간). bootstrap·connect 에만 쓴다. 서버에는 해시만 둔다 |
+| 서버 비밀 | `server_secret`\* | connect 응답으로 서버가 받는 비밀. ECR pull 자격증명(`registry-credentials`)을 받을 때 Bearer 로 보낸다. 서버에는 해시만 둔다 |
+| probe Application | `probe_application_name`\* | `iris-onprem-probe-{key}`. management 의 Argo CD 가 서버 클러스터에 ConfigMap 하나를 동기화해 연결을 확인한다. Synced+Healthy 면 `CONNECTED` |
+| 연결 세대 | `connect_generation`\* | 서버가 connect 를 다시 보낼 때마다 올라가는 번호. Worker 가 그 사이에 만든 결과(커밋 기록·상태)를 버리는 기준이다 |
 
 ---
 
@@ -442,4 +605,6 @@ CLI 가 시작해 브라우저의 GitHub 로그인으로 승인받는 로그인 
 | Environment | 배포 환경 (`prod`) | 환경변수, 배포 대상(Target) | 환경변수는 `variable`(엔티티 `ServiceVariable`, §4.11), 배포 대상은 `target` |
 | Project | 서비스를 묶는 단위 (`Project`) | GitHub·Argo CD 의 project | Argo CD 쪽은 `argo_project` |
 | Session | 로그인 상태를 나르는 세션 토큰(JWT). 변수·함수는 `session_token`, `SessionService` | CLI 로그인 세션(`CliLoginSession`), DB 세션(`AsyncSession`) | CLI 로그인 세션은 토큰을 CLI 로 넘기려고 기다리는 행이라 항상 `cli_login_session`. DB 세션 변수는 `session`(Repository·Service 관례) |
+| Rollout | Argo Rollouts 의 `Rollout` 리소스 (chart 0.7.0 이 `Deployment` 대신 만든다) | 배포 요청·release 의 "배포", K8s `Deployment` 의 rollout | 리소스는 `argo_rollout`. 롤링·카나리·블루그린 선택은 `deployment_strategy` |
+| Server | 사용자가 등록한 온프레미스 서버(`OnpremServer`) | 배포 타깃(Target), Argo CD cluster, Control API 서버 | 엔티티·변수는 `onprem_server`. 그 서버로 배포할 때 고르는 것은 전용 `target`. Argo 쪽 이름은 `onprem-{serverKey}` |
 | Rollback | job `ROLLBACK` = revert commit(자동). 트리거 `ROLLBACK` = 사용자가 이전 이미지로 시작한 새 배포 요청 | Argo Rollouts 의 트래픽 자동 복귀 | Rollouts 쪽은 `rollout_abort` 등으로 구분. 요청은 `deployment_request`, revert 는 `revert_commit` |

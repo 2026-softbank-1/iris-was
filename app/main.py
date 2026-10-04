@@ -25,10 +25,13 @@ from app.routers import (
     domain_router,
     github_router,
     observability_router,
+    onprem_server_router,
     project_router,
     repair_router,
+    repository_analysis_router,
     scaling_router,
     service_router,
+    stack_router,
     target_router,
     upload_router,
     user_router,
@@ -112,6 +115,20 @@ OPENAPI_TAGS = [
     {"name": "github", "description": "GitHub App 설치와 저장소·브랜치 조회"},
     {"name": "projects", "description": "서비스를 묶는 프로젝트"},
     {"name": "services", "description": "저장소와 연결된 서비스(사용자 앱)"},
+    {
+        "name": "repository-analyses",
+        "description": (
+            "서비스 생성 전 레포 구성 분석(Analysis Gate). 단순 레포는 분석을 생략하고, 복합 레포는"
+            " 배포 단위마다 서비스를 만든다"
+        ),
+    },
+    {
+        "name": "stacks",
+        "description": (
+            "한 레포 분석에서 만든 서비스 묶음(앱 + 관리형 DB): DB 생성,"
+            " 의존 순서(DB → 앱 → 나머지) 재배포, 구성·상태·푸시 재분석 변경 감지 조회"
+        ),
+    },
     {"name": "deployments", "description": "서비스의 배포 요청 생성·목록·상세(상태 이력)"},
     {
         "name": "uploads",
@@ -121,7 +138,17 @@ OPENAPI_TAGS = [
         "name": "diagnosis",
         "description": "실패한 배포를 AI 에이전트로 진단해 원인·해결책을 받는다",
     },
-    {"name": "targets", "description": "배포 타깃(aws · local)"},
+    {
+        "name": "targets",
+        "description": "배포 타깃. 공용(aws · onprem)과 내가 등록한 온프레미스 서버의 타깃",
+    },
+    {
+        "name": "onprem-servers",
+        "description": (
+            "사용자가 배포 대상으로 직접 붙이는 온프레미스 서버 등록·조회·삭제와, "
+            "서버의 설치 스크립트가 부르는 설치·연결·ECR 자격증명 API"
+        ),
+    },
     {"name": "domains", "description": "서비스가 타깃별로 열리는 공개 도메인 발급·조회"},
     {
         "name": "variables",
@@ -162,11 +189,14 @@ app.include_router(user_router.router)
 app.include_router(github_router.router)
 app.include_router(project_router.router)
 app.include_router(service_router.router)
+app.include_router(repository_analysis_router.router)
+app.include_router(stack_router.router)
 app.include_router(deployment_router.router)
 app.include_router(upload_router.router)
 app.include_router(diagnosis_router.router)
 app.include_router(repair_router.router)
 app.include_router(target_router.router)
+app.include_router(onprem_server_router.router)
 app.include_router(domain_router.router)
 app.include_router(variable_router.router)
 app.include_router(webhook_router.router)

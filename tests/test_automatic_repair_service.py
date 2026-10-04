@@ -256,3 +256,140 @@ async def test_unsubmitted_queued_job_gets_model_timeout_on_claim_not_enqueue(pu
     assert (
         len(setup.repair_agent.requests) == 2
     )  # The existing fixture and one new queued generation.
+
+
+def session_secret_plan(setup, repair, key="SESSION_SECRET"):
+    diagnosis = next(d for d in setup.diagnoses.rows if d.id == repair.diagnosis_id)
+    diagnosis.result["analysis"]["remediation"]["plans"][0]["changes"] = [
+        {"kind": "configuration", "target": key, "instruction": "Add runtime configuration"}
+    ]
+    return diagnosis
+
+
+@pytest.mark.parametrize("key", ["SESSION_SECRET", "MONGO_URI", "EXTERNAL_API_KEY"])
+async def test_environment_configuration_never_generates_values_or_deployments(
+    publication_setup, key
+):
+    from app.services.automatic_repair_service import ConfigurationRequiredError
+
+    setup, _, original, auth, calls, _, _ = publication_setup
+    session_secret_plan(setup, original, key)
+    # Configuration guidance does not require GitHub write access.
+    auth.issue_token.side_effect = ForbiddenError("no repository write access")
+    count = len(setup.requests.requests)
+    with pytest.raises(ConfigurationRequiredError) as error:
+        await automatic(publication_setup).start(
+            OWNER,
+            setup.service.id,
+            original.deployment_request_id,
+            original.diagnosis_id,
+            "developer-env",
+        )
+    assert error.value.code == "CONFIGURATION_VALUES_REQUIRED"
+    assert [i.field for i in error.value.issues] == [key]
+    assert setup.variables.variables == []
+    assert len(setup.requests.requests) == count
+    assert len(setup.repairs.rows) == 1 and len(setup.repair_agent.requests) == 1
+    assert calls == []
+
+
+async def test_diagnosis_without_code_requires_developer_configuration(publication_setup):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.enums import DiagnosisStatus
+
+    setup, publication, original, _, calls, _, _ = publication_setup
+    finished = session_secret_plan(setup, original).result
+    diagnosis = setup.diagnoses.seed(original.deployment_request_id, DiagnosisStatus.RUNNING)
+    diagnostics = AsyncMock()
+    diagnostics.start_diagnosis.return_value = SimpleNamespace(diagnosis=diagnosis, is_started=True)
+
+    async def finish(*args):
+        diagnosis.status = DiagnosisStatus.SUCCEEDED
+        diagnosis.result = finished
+
+    diagnostics.run_diagnosis.side_effect = finish
+    service = AutomaticRepairService(
+        setup.session,
+        setup.repairs,
+        setup.repair_service(),
+        publication,
+        diagnostics,
+        setup.deployment_request_service(),
+    )
+    count = len(setup.requests.requests)
+    started = await service.start(
+        OWNER, setup.service.id, original.deployment_request_id, None, "diagnose-env"
+    )
+    await service.advance(OWNER, setup.service.id, started.repair.id)
+    assert started.repair.result == {
+        "status": "configuration_required",
+        "variableNames": ["SESSION_SECRET"],
+    }
+    assert started.repair.request_metadata["publication"]["status"] == "SKIPPED"
+    assert setup.variables.variables == [] and len(setup.requests.requests) == count
+    assert diagnostics.run_diagnosis.await_count == 1 and len(setup.repair_agent.requests) == 1
+    assert calls == []
+
+
+async def test_queued_legacy_variable_strategy_is_stopped_without_modification(publication_setup):
+    setup, _, repair, _, calls, _, _ = publication_setup
+    service = automatic(publication_setup)
+    await service.resume(OWNER, setup.service.id, repair.id)
+    repair.request_metadata = {
+        **repair.request_metadata,
+        "strategy": "variables",
+        "configurationKeys": ["SESSION_SECRET"],
+    }
+    count = len(setup.requests.requests)
+    await service.advance(OWNER, setup.service.id, repair.id)
+    assert repair.result["status"] == "configuration_required"
+    assert repair.result["variableNames"] == ["SESSION_SECRET"]
+    assert len(setup.requests.requests) == count and setup.variables.variables == []
+    assert calls == []
+
+
+async def test_code_merge_requests_redeployment_even_when_webhook_auto_deploy_is_off(
+    publication_setup,
+):
+    setup, publication, repair, _, _, _, _ = publication_setup
+    setup.service.is_auto_deploy = False
+    service = AutomaticRepairService(
+        setup.session,
+        setup.repairs,
+        setup.repair_service(),
+        publication,
+        deployer=setup.deployment_request_service(),
+    )
+    await service.resume(OWNER, setup.service.id, repair.id)
+    await service.advance(OWNER, setup.service.id, repair.id)
+    state = repair.request_metadata["publication"]
+    assert state["status"] == "MERGED" and state["redeploymentId"]
+    deployment = await setup.requests.find_by_id_and_service_id(
+        state["redeploymentId"], setup.service.id
+    )
+    assert deployment.source_sha == state["mergeCommitSha"]
+
+
+async def test_missing_env_log_blocks_repair_even_with_code_plan(publication_setup):
+    from app.services.automatic_repair_service import ConfigurationRequiredError
+
+    setup, _, repair, _, calls, _, _ = publication_setup
+    diagnosis = next(d for d in setup.diagnoses.rows if d.id == repair.diagnosis_id)
+    diagnosis.result["evidence"] = [
+        {
+            "text": '"path": ["SESSION_SECRET"], '
+            '"message": "Invalid input: expected string, received undefined"'
+        }
+    ]
+    with pytest.raises(ConfigurationRequiredError) as error:
+        await automatic(publication_setup).start(
+            OWNER,
+            setup.service.id,
+            repair.deployment_request_id,
+            repair.diagnosis_id,
+            "missing-env-code",
+        )
+    assert [i.field for i in error.value.issues] == ["SESSION_SECRET"]
+    assert calls == [] and len(setup.repair_agent.requests) == 1

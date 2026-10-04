@@ -1,0 +1,55 @@
+# Control API (`/api/v1`)
+
+README 에서 옮긴 전체 엔드포인트 목록과 규칙이다.
+
+서비스 런타임 로그 조회(`GET /services/{id}/logs`), 로그 SSE(`/services/{id}/logs/stream`), CPU·메모리·네트워크 메트릭(`/services/{id}/metrics`)는 [관측 API 문서](observability-api.md)를 따른다.
+
+서버를 띄우면 `/docs`(Swagger UI), `/redoc`, `/openapi.json` 에서 전체 명세를 볼 수 있다. 운영 명세는 [Swagger](https://api.likelion.uk/docs), [ReDoc](https://api.likelion.uk/redoc), [OpenAPI JSON](https://api.likelion.uk/openapi.json) 에서 확인한다. 서버 없이 보려면 저장소의 [docs/openapi.json](openapi.json) 을 쓴다(`uv run python -m scripts.export_openapi` 로 갱신, 엔드포인트를 바꾸면 반드시 갱신 — 테스트가 검사한다). Swagger 의 Authorize 에 Bearer 토큰을 넣으면 보호된 API 도 호출해 볼 수 있다.
+
+코드수정·GitHub 쓰기 인증의 운영 요청/응답·오류·권한 설정은 [코드수정 운영 API 명세](repair-api.md)를 따른다.
+
+인증은 쿠키(`anydeploy_session`, 웹) 또는 `Authorization: Bearer <token>`(CLI). 응답은 `ApiResponse` 봉투, JSON 은 camelCase 다.
+
+| 메서드·경로 | 설명 |
+|---|---|
+| `GET /auth/github` · `GET /auth/github/callback` · `POST /auth/logout` | GitHub 로그인 시작·콜백·로그아웃 |
+| `POST /auth/cli/sessions` · `GET /auth/cli/sessions/{sessionId}/authorize` · `POST /auth/cli/sessions/{sessionId}/token` | CLI 로그인: 세션 생성(인증 없음) · 브라우저 승인(GitHub 로그인으로 이동) · 폴링으로 토큰 수령(승인 뒤 처음 한 번만, `interval` 보다 빠르면 `429`). 계약은 iris-cli 의 `docs/login-contract.md`, 설계는 [ADR 0018](adr/0018-cli-login-session-table-and-polling.md) |
+| `GET /me` | 현재 사용자 (`likelion whoami`) |
+| `GET /github/install` · `GET /github/installations` | GitHub App 설치 시작 · 내 설치 목록 |
+| `GET /github/repos?q&installationId&page&size` | 접근 가능한 저장소 검색 |
+| `GET /github/repos/resolve?url=` | 붙여넣은 GitHub 주소 해석·권한 확인 |
+| `GET /github/repos/{owner}/{repo}/branches` | 브랜치 목록 |
+| `POST·GET /projects` · `GET·PATCH·DELETE /projects/{id}` | 프로젝트 (목록은 서비스 수·online 수 포함) |
+| `POST·GET /projects/{id}/services` | 서비스 생성(저장소 연결)·목록. 생성의 선택 필드 `analysisId` 는 끝난 레포 구성 분석을 붙인다(분석 생략이면 분석기가 고른 빌더·Dockerfile 경로가 기본값). 응답의 `analysisGate` 는 분석으로 만든 서비스에만 있다 |
+| `POST /projects/{id}/repository-analyses` · `GET /projects/{id}/repository-analyses/{analysisId}` | 서비스 생성 전 레포 구성 분석 접수(`202`, 브랜치 최신 커밋 고정)·조회(폴링). Build Worker 가 분석기를 실행해 `decision`(`skip`·`analyze`)과 분석기 응답 원문 `result` 를 남긴다. 실패는 `FAILED` + `errorCode`. [ADR 0030](adr/0030-repository-analysis-gate.md) |
+| `POST /projects/{id}/repository-analyses/{analysisId}/apply` | `analyze` 결과를 스택으로 적용(`201`, 멱등: 다시 보내면 같은 서비스). 같은 트랜잭션에서 `dependencies`(생략하면 지원 엔진 전부) DB 서비스 → unit 앱 서비스 → env binding 참조 변수 → 호스트 별칭을 만든다. 같은 레포의 스택이 있으면 unit id 로 맞춰 증분 적용(중복 없음). `deploy=true` 면 분석한 커밋으로 의존 순서 스택 배포(`stackDeploymentId`). 환경변수 error 가 있으면 서비스는 남기고 배포 없이 `variableIssues` 를 준다. 새로 만드는 DB 에는 분석이 확인한 초기화 스크립트(`dependencies[].initScripts` 중 supported)를 복사해 첫 기동에 한 번 실행하고, 이미 있는 DB 의 스크립트가 달라졌으면 `changes` 에 `DEPENDENCY_CHANGED`(reason `init_scripts_changed`, `serviceId`)로 알리기만 한다(다시 실행하지 않는다). `SUCCEEDED`·`analyze` 가 아니면 `409 REPOSITORY_ANALYSIS_NOT_READY`. [ADR 0031](adr/0031-project-stacks-databases-and-variable-references.md)·[ADR 0032](adr/0032-database-init-scripts.md) |
+| `POST /projects/{id}/databases` | 개발용 관리형 DB 서비스 생성(`201`, `{name, engine: postgres·mysql·mongodb·redis, storageGi?(1~20, 기본 5), targetIds?}`). 자격 증명을 만들어 암호화 변수로 두고 첫 배포(빌드 없음)를 접수한다. 초기화 스크립트는 없다(레포 apply 로 만든 DB 만). on-prem·기능 꺼짐은 `422`(reason `networking_unsupported_target`·`project_networking_disabled`) |
+| `GET /projects/{id}/stacks` · `GET /projects/{id}/stacks/{stackId}` | 스택 구성: 서비스별 `order`·`dependsOn`·최근 배포 상태(`HELD`·`NOT_DEPLOYED`·대기 중 `waitingFor`)·`pendingChanges`(push 재분석이 기준과 다를 때. `changes[].type`: `UNIT_ADDED`·`UNIT_REMOVED`·`UNIT_CHANGED`·`DEPENDENCY_ADDED`·`DEPENDENCY_REMOVED`·`DEPENDENCY_CHANGED`. 마지막은 초기화 스크립트가 바뀐 것으로 `field: initScripts`·`reason: init_scripts_changed`·`message`·`from`/`to`(`[{path, sha256}]`)를 담는다) |
+| `POST /projects/{id}/stacks/{stackId}/deployments` | 스택 재배포(`202`, `{serviceIds?, skipVariableValidation?}`, `Idempotency-Key`). DB → 앱 → 나머지 순서로 앞 단계가 성공하면 다음 단계가 시작하고, 실패하면 뒤 단계를 보류한다. 전체 재배포는 떠 있는 DB 를 다시 띄우지 않는다. 진행 중 배포가 있으면 `409`, 환경변수 error 면 `422 VARIABLES_INVALID` |
+| `GET·PATCH·DELETE /services/{id}` | 서비스 조회·설정 변경·삭제(앱도 함께 내림, DB 는 PVC 까지 지워 데이터가 사라진다). 응답에 `kind`·`databaseEngine`·`database`(DB 설정, `initScripts: [{name, path, sha256, size}]` 는 첫 기동에 한 번 실행되는 초기화 스크립트 메타데이터로 내용은 내지 않는다)·`internalHost`·`internalPort`·`connection`(DB, 비밀번호 가림)·`referenceProperties`·`hostAliases`·`stack`. PATCH 의 `hostAliases`(`[{name, targetServiceId, port?}]`, 전체 교체)는 같은 프로젝트 서비스로의 DNS 별칭이다. PATCH 의 `deploymentStrategy`(`ROLLING`·`CANARY`·`BLUE_GREEN`)는 다음 배포부터 적용하고, `CANARY`·`BLUE_GREEN` 은 AWS 타깃·replicas 2 이상·기능 플래그 켬일 때만 저장한다(on-prem 은 롤링만). [ADR 0028](adr/0028-deployment-strategy-selection.md) |
+| `GET·PUT /services/{id}/scaling` | 원하는 Pod 수·Pod별 CPU·메모리 조회·교체. PUT은 현재 이미지를 빌드 없이 재배포한다. [계약](service-scaling-api.md) |
+| `POST /services/{id}/uploads` | `likelion up` 소스 업로드. 본문이 곧 tar.gz(`Content-Type: application/gzip`, `Content-Length` 필수)이고 `201` 로 `uploadId`·`sizeBytes`·`sha256`·`expiresAt` 를 돌려준다. `uploadId` 는 24시간 안에 `CLI` 배포 요청 하나에만 쓴다. [계약](upload-api.md) |
+| `POST·GET /services/{id}/deployments` | 배포 요청 생성(수동·CLI 업로드·재배포·롤백·재시작·삭제)·목록(최신순) |
+| `GET /services/{id}/deployments/{deploymentId}` | 배포 요청 상세: 상태 이력·단계별 소요 시간 |
+| `POST /services/{id}/deployments/{deploymentId}/repairs` | 특정 `diagnosisId`·`planIds`로 코드 수정 후보 생성 접수. `Idempotency-Key` 필수, 신규 요청은 `202 RUNNING` |
+| `GET /services/{id}/repairs/{repairId}` · `GET /services/{id}/repairs/{repairId}/artifacts/{name}` | 수정 후보 진행 상태와 검토용 diff·변경 파일·manifest 조회. 소유권과 artifact 해시를 검사한다 |
+| `GET /services/{id}/deployments/{deploymentId}/repair-context` | 인증된 조정기에 특정 진단 원문·원본 소스 정보를 제공한다. 단기 소스 URL 응답은 캐시하지 않는다 |
+| `POST /services/{id}/repair-github-token` | 기존 WAS 세션과 App 설치로 해당 소스 저장소의 Contents·Pull requests write 단기 토큰 발급. 소유권·저장소 일치를 검사하고 응답은 no-store. [운영 명세](repair-api.md) |
+| `GET /services/{id}/deployments/{deploymentId}/diagnosis` | 배포의 가장 최근 AI 진단 조회(`RUNNING`·`SUCCEEDED`·`FAILED`). 폴링에 쓴다. 방금 실패했으면 자동 시작 전 몇 초는 `404` |
+| `GET /targets` | 배포 타깃 목록: 공용(aws·onprem) + 내가 등록한 서버의 타깃(`onpremServerId`·`connectionStatus`). 서버 타깃은 `CONNECTED` 일 때만 배포할 수 있다(아니면 배포 요청이 `409 TARGET_NOT_CONNECTED`) |
+| `POST·GET /onprem-servers` · `GET·DELETE /onprem-servers/{id}` · `POST /onprem-servers/{id}/registration-token` | 내 온프레미스 서버 등록(전용 타깃·1회용 등록 토큰·`installCommand`)·목록·조회·삭제(서비스가 붙어 있거나 지운 서비스가 아직 내려가지 않았으면 `409 ONPREM_SERVER_IN_USE`)·토큰 재발급. 사용자마다 5대까지(`409 ONPREM_SERVER_LIMIT_EXCEEDED`). [ADR 0029](adr/0029-user-registered-onprem-servers.md), [계약](onprem-server-registration-contract.md) |
+| `GET /onprem-servers/install.sh` · `POST /onprem-servers/bootstrap` · `POST /onprem-servers/connect` · `POST /onprem-servers/registry-credentials` | 서버의 설치 스크립트가 부른다(사용자 인증 없음). 등록 토큰·서버 비밀(Bearer)로 인증한다 |
+| `GET /services/{id}/domains` | 서비스 도메인: 연결한 타깃마다 `host`·`url`·`isConnected` |
+| `GET·POST /services/{id}/variables` | 환경변수 목록(`variables` + 자동 주입 `systemVariables`)·추가. 추가·수정 본문은 `{value}` 또는 `{reference: {serviceId, property}}`(같은 프로젝트 다른 서비스의 연결 정보, 배포 직전에 풀린다). 참조 변수 응답은 `reference` 와 비밀을 가린 `resolved` 다. 관리형 DB 의 자격 증명 변수는 목록 대신 `systemVariables` 에 이름만 보이고 바꿀 수 없다 |
+| `GET /services/{id}/variables/validation` | 배포 전 검증 `{ok, issues: [{key, severity, code, message, suggestion?}]}`. 코드 `REQUIRED_MISSING`(분석으로 만든 서비스만)·`LOCALHOST_ADDRESS`·`UNRESOLVABLE_HOST`·`SCHEME_MISMATCH`(warning)·`REFERENCE_BROKEN`. error 가 있으면 배포 요청은 `422 VARIABLES_INVALID` |
+| `PUT /services/{id}/variables` | Raw(`.env`) 일괄 저장: 본문 `{raw}` 가 서비스의 값 변수 전체를 교체한다(없는 키는 삭제, 텍스트에 없는 참조 변수는 그대로). 따옴표 값은 여러 줄에 걸칠 수 있고, 거부하면 422 `details` 에 줄 번호와 사유를 싣는다 |
+| `PUT·DELETE /services/{id}/variables/{key}` | 환경변수 값·참조 수정·삭제 |
+
+- 프로젝트·서비스는 소유자만 접근한다. 남의 리소스는 `404` 로 답한다. 삭제는 소프트 삭제이고, 떠 있는 앱도 함께 내린다(`REMOVE` 요청을 같이 만든다). 진행 중인 배포가 있으면 아무것도 지우지 않고 `409 DEPLOYMENT_IN_PROGRESS` 다([ADR 0022](adr/0022-delete-service-also-removes-app.md)).
+- 배포 요청 생성은 `triggerType` 이 `MANUAL`(브랜치 최신 커밋 또는 `sourceSha`)·`CLI`(`uploadId` 로 올린 로컬 폴더를 GitHub 대신 소스로 빌드, [ADR 0023](adr/0023-cli-source-upload-storage-and-archive-defense.md))·`REDEPLOY`(`sourceDeploymentId` 의 커밋을 다시 빌드, `CLI` 로 만든 배포는 소스가 남지 않아 `422`)·`ROLLBACK`(성공한 `sourceDeploymentId` 가 만든 이미지를 빌드 없이 배포)·`RESTART`(지금 떠 있는 배포의 이미지를 빌드 없이 다시 배포해 Pod 를 새로 시작, 원본은 보내지 않는다)·`REMOVE`(지금 떠 있는 배포를 클러스터에서 내림, 원본은 보내지 않는다)이다. `MANUAL`·`CLI`·`REDEPLOY`·`RESTART` 는 만들기 전에 환경변수를 검증해 error 면 `422 VARIABLES_INVALID`(`details`: `{field: 키, reason: 코드}`, `data`: 검증 결과. `skipVariableValidation: true` 로 건너뛴다). 관리형 DB 의 `MANUAL`·`REDEPLOY` 는 고정 이미지로 빌드 없이 배포한다. 롤백·재시작·삭제는 요청이 곧바로 `DEPLOYING` 이 되고 `QUEUED → BUILDING` 이 없다([ADR 0015](adr/0015-rollback-and-restart-reuse-built-image.md)·[ADR 0016](adr/0016-remove-service-deployment.md)). 삭제는 iris-infra ApplicationSet 이 디렉터리 삭제로 Application 을 정리하도록 설정돼 있어야 끝난다. `Idempotency-Key` 헤더로 중복 전송을 막고, 진행 중인 배포가 있으면 `409 DEPLOYMENT_IN_PROGRESS` 다. 상태는 `QUEUED → BUILDING → DEPLOYING → SUCCEEDED`(실패는 `FAILED`)이며 바꾸는 방법은 [ADR 0010](adr/0010-deployment-status-transitions-and-history.md).
+- AI 진단은 배포가 `FAILED`·`ROLLED_BACK`·`MANUAL_INTERVENTION` 으로 확정되면 서버가 자동으로 시작한다(Control API 가 5초마다 진단 기록이 없는 실패를 찾는다. `REMOVE` 제외, 끝난 지 10분 안의 실패만, 한 번에 하나). 그 배포의 런타임 로그(와 가능하면 소스)를 에러 진단 에이전트에 보내 결과(`analysis.hypotheses`=원인, `analysis.remediation.plans`=해결책, `evidence`=근거 로그)를 `deployment_diagnoses` 에 저장한다. 성공한 진단이 있으면 모델을 다시 부르지 않는다. 해결책은 제안일 뿐 실행하지 않고 배포 요청 상태도 바꾸지 않는다. 빌드 단계 실패는 Build Worker 가 남긴 빌드 로그(`builds.log_tail`)로 진단한다. Build Worker 역할에 CloudWatch `logs:GetLogEvents` 가 없으면 로그가 남지 않아 진단이 `FAILED`·`DIAGNOSIS_LOGS_UNAVAILABLE` 로 끝난다. 설계와 한계는 [ADR 0020](adr/0020-ai-error-diagnosis-via-agent-server.md).
+- 서비스는 타깃 하나에만 배포한다. 생성 때 `targetIds` 를 생략하면 `aws` 이고, 배포 요청이 생긴 뒤에는 바꿀 수 없다([ADR 0027](adr/0027-single-deploy-target-per-service.md)).
+- 서비스 이름은 소문자·숫자·하이픈(DNS 레이블)이다. 이후 도메인에 쓰인다.
+- 환경변수 값은 `VARIABLES_ENCRYPTION_KEY` 로 암호화해 저장하고 소유자에게만 복호화해 돌려준다. 키는 영문·숫자·밑줄이고 `PORT`·`IRIS_*` 는 플랫폼 예약이다. 배포 요청을 만들 때 변수가 `variables_snapshot` 에 암호문으로 복사된다(롤백은 원본 요청의 변수, 재배포·재시작은 지금 변수). Deploy Worker 에 `SEALED_SECRETS_CERT` 가 있으면 스냅샷을 SealedSecret 으로 다시 봉인해 values `variables` 에 넣고, `iris-service` chart 0.6.0 이상이 `envFrom` 으로 앱 컨테이너에 주입한다(운영은 2026-10-03 설정. 인증서가 없으면 전달되지 않는다). 설계는 [ADR 0017](adr/0017-service-variables-encrypted-storage-and-deploy-snapshot.md).
+- 도메인은 저장하지 않고 `{서비스 이름}-{service_id}.{타깃의 domainSuffix}` 로 계산해 보여 준다. 접미사가 없는 타깃은 `host` 가 비어 있다. 서비스 이름·도메인 변경은 MVP 범위가 아니다. 이름을 바꾸면 주소도 바뀐다. 설계는 [ADR 0014](adr/0014-service-domain-lookup.md).
+

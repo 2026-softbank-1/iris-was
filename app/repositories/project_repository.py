@@ -26,6 +26,11 @@ class ProjectRepository:
         )
         return (await self._session.scalars(stmt)).one_or_none()
 
+    async def find_by_id(self, project_id: int) -> Project | None:
+        """지우지 않은 프로젝트. 소유자 확인 없이 쓰는 내부 경로(웹훅)용이다."""
+        stmt = select(Project).where(Project.id == project_id, Project.is_deleted.is_(False))
+        return (await self._session.scalars(stmt)).one_or_none()
+
     async def find_by_owner_id_and_name(self, owner_id: int, name: str) -> Project | None:
         stmt = select(Project).where(
             Project.owner_id == owner_id, Project.name == name, Project.is_deleted.is_(False)

@@ -79,6 +79,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
         http.current = current  # type: ignore[attr-defined]
+        http.services = services  # type: ignore[attr-defined]
         http.releases = releases  # type: ignore[attr-defined]
         yield http
     app.dependency_overrides.clear()
@@ -95,13 +96,19 @@ async def _create_service(client: AsyncClient, target_ids: list[int] | None = No
     return int(created.json()["data"]["id"])
 
 
+def _link_both_targets(client: AsyncClient, service_id: int) -> None:
+    """서비스는 타깃 하나만 만들 수 있으므로, 이전에 만든 서비스처럼 두 타깃을 직접 연결한다."""
+    client.services.targets[service_id] = {1, 2}  # type: ignore[attr-defined]
+
+
 async def test_search_domains_returns_host_and_url_per_target(client: AsyncClient) -> None:
     service_id = await _create_service(client)
+    _link_both_targets(client, service_id)
 
     response = await client.get(f"/api/v1/services/{service_id}/domains")
 
     assert response.status_code == 200
-    aws, local = response.json()["data"]
+    aws, onprem = response.json()["data"]
     assert aws == {
         "targetId": 1,
         "targetName": "aws",
@@ -110,16 +117,17 @@ async def test_search_domains_returns_host_and_url_per_target(client: AsyncClien
         "url": f"https://web-{service_id}.likelion.uk",
         "isConnected": False,
     }
-    assert local == {
+    assert onprem == {
         "targetId": 2,
-        "targetName": "local",
-        "targetKind": "LOCAL",
+        "targetName": "onprem",
+        "targetKind": "ONPREM",
         "isConnected": False,
     }
 
 
 async def test_search_domains_is_connected_after_successful_release(client: AsyncClient) -> None:
     service_id = await _create_service(client)
+    _link_both_targets(client, service_id)
     client.releases.connected.add((service_id, 1))  # type: ignore[attr-defined]
 
     response = await client.get(f"/api/v1/services/{service_id}/domains")

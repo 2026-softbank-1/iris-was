@@ -5,14 +5,21 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.aws_clients import ArtifactStore, BuildLogReader, CloudWatchBuildLogClient
+from app.clients.aws_clients import (
+    ArtifactStore,
+    BuildLogReader,
+    CloudWatchBuildLogClient,
+    EcrPullCredentialClient,
+)
 from app.clients.diagnosis_agent_client import HttpDiagnosisAgentClient
 from app.clients.oauth_client import GithubOAuthClient
 from app.clients.observability_client import LokiPrometheusObservabilityClient
@@ -25,6 +32,7 @@ from app.core.exceptions import NotConfiguredError, UnauthorizedError
 from app.models.user import User
 from app.repositories.build_repository import BuildRepository
 from app.repositories.cli_login_session_repository import CliLoginSessionRepository
+from app.repositories.database_init_script_repository import DatabaseInitScriptRepository
 from app.repositories.deployment_diagnosis_repository import DeploymentDiagnosisRepository
 from app.repositories.deployment_repair_repository import DeploymentRepairRepository
 from app.repositories.deployment_request_repository import DeploymentRequestRepository
@@ -33,9 +41,15 @@ from app.repositories.deployment_status_history_repository import (
 )
 from app.repositories.github_installation_repository import GithubInstallationRepository
 from app.repositories.job_repository import JobRepository
+from app.repositories.onprem_server_repository import OnpremServerRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.release_repository import ReleaseRepository
+from app.repositories.repository_analysis_repository import RepositoryAnalysisRepository
 from app.repositories.service_repository import ServiceRepository
+from app.repositories.service_stack_repository import (
+    ServiceStackRepository,
+    StackDeploymentRepository,
+)
 from app.repositories.service_upload_repository import ServiceUploadRepository
 from app.repositories.service_variable_repository import ServiceVariableRepository
 from app.repositories.target_repository import TargetRepository
@@ -43,6 +57,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.automatic_repair_service import AutomaticRepairOpener, AutomaticRepairService
 from app.services.cli_login_service import CliLoginService
+from app.services.database_service import DatabaseService
 from app.services.deployment_history_service import DeploymentHistoryService
 from app.services.deployment_log_service import DeploymentLogService
 from app.services.deployment_request_service import DeploymentRequestService
@@ -51,19 +66,29 @@ from app.services.diagnosis_service import DiagnosisService, DiagnosisServiceOpe
 from app.services.domain_service import DomainService
 from app.services.manual_deployment_service import ManualDeploymentService
 from app.services.observability_service import ObservabilityService
+from app.services.onprem_server_service import (
+    INSTALL_SCRIPT_PATH,
+    OnpremBootstrapSettings,
+    OnpremServerService,
+)
 from app.services.project_service import ProjectService
 from app.services.repair_github_auth_service import RepairGithubAuthService
 from app.services.repair_handoff_service import RepairHandoffService
 from app.services.repair_publication_service import RepairPublicationService
 from app.services.repair_service import RepairService, RepairServiceOpener
+from app.services.repository_analysis_service import RepositoryAnalysisService
 from app.services.service_registry_service import ServiceRegistryService
 from app.services.service_scaling_service import ServiceScalingService
 from app.services.service_teardown_service import ServiceTeardownService
 from app.services.session_service import SessionService
 from app.services.source_repository_service import SourceRepositoryService
+from app.services.stack_apply_service import StackApplyService
+from app.services.stack_push_service import StackPushService
+from app.services.stack_service import StackService
 from app.services.target_service import TargetService
 from app.services.upload_service import UploadService
 from app.services.variable_service import VariableService
+from app.services.variable_validation import VariableValidationService
 from app.services.webhook_service import WebhookService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -192,7 +217,9 @@ SourceRepositoryServiceDep = Annotated[
 ]
 
 
-def get_deployment_request_service(session: SessionDep) -> DeploymentRequestService:
+def get_deployment_request_service(
+    session: SessionDep, settings: SettingsDep
+) -> DeploymentRequestService:
     return DeploymentRequestService(
         DeploymentRequestRepository(session),
         JobRepository(session),
@@ -200,6 +227,7 @@ def get_deployment_request_service(session: SessionDep) -> DeploymentRequestServ
         BuildRepository(session),
         ServiceVariableRepository(session),
         ServiceRepository(session),
+        deployment_strategy_enabled=settings.deployment_strategy_enabled,
     )
 
 
@@ -237,6 +265,7 @@ TargetServiceDep = Annotated[TargetService, Depends(get_target_service)]
 
 def get_service_registry_service(
     session: SessionDep,
+    settings: SettingsDep,
     source_repository_service: SourceRepositoryServiceDep,
     service_teardown_service: ServiceTeardownServiceDep,
 ) -> ServiceRegistryService:
@@ -250,6 +279,9 @@ def get_service_registry_service(
         source_repository_service,
         DeploymentRequestRepository(session),
         service_teardown_service,
+        deployment_strategy_enabled=settings.deployment_strategy_enabled,
+        repository_analysis_repository=RepositoryAnalysisRepository(session),
+        is_networking_enabled=settings.project_networking_enabled,
     )
 
 
@@ -265,6 +297,78 @@ def get_domain_service(session: SessionDep) -> DomainService:
 DomainServiceDep = Annotated[DomainService, Depends(get_domain_service)]
 
 
+@lru_cache
+def _get_ecr_pull_client(
+    region: str, role_arn: str, session_seconds: int
+) -> EcrPullCredentialClient:
+    # boto3 클라이언트는 만드는 데 시간이 걸려 요청마다 만들지 않는다.
+    return EcrPullCredentialClient(region, role_arn, session_seconds)
+
+
+def get_onprem_server_service(session: SessionDep, settings: SettingsDep) -> OnpremServerService:
+    # 설정이 없어도 다른 API 는 쓸 수 있어야 하므로, 없다는 사실은 그 설정을 쓰는 API 가 알린다.
+    return OnpremServerService(
+        session,
+        OnpremServerRepository(session),
+        TargetRepository(session),
+        ServiceRepository(session),
+        OnpremBootstrapSettings(
+            tailscale_auth_key=(
+                settings.onprem_tailscale_auth_key.get_secret_value()
+                if settings.onprem_tailscale_auth_key is not None
+                else None
+            ),
+            k3s_version=settings.onprem_k3s_version,
+            argo_rollouts_version=settings.onprem_argo_rollouts_version,
+            sealed_secrets_version=settings.onprem_sealed_secrets_version,
+        ),
+        cipher=(
+            VariableCipher(settings.variables_encryption_key.get_secret_value())
+            if settings.variables_encryption_key is not None
+            else None
+        ),
+        ecr_pull_client=(
+            _get_ecr_pull_client(
+                settings.aws_region,
+                settings.onprem_ecr_pull_role_arn,
+                settings.onprem_ecr_pull_session_seconds,
+            )
+            if settings.aws_region and settings.onprem_ecr_pull_role_arn
+            else None
+        ),
+    )
+
+
+OnpremServerServiceDep = Annotated[OnpremServerService, Depends(get_onprem_server_service)]
+
+
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+
+
+def get_onprem_install_base_url(settings: SettingsDep) -> str:
+    """installCommand 에 넣는 Control API 주소. 서버가 root 로 내려받아 실행하므로 요청의 Host 로
+    만들지 않고 설정에서만 읽으며, 로컬 개발이 아니면 https 만 받는다.
+    """
+    base_url = settings.api_base_url
+    if base_url is None:
+        raise NotConfiguredError("api base url is not configured", setting="API_BASE_URL")
+    parsed = urlsplit(base_url)
+    is_local_http = parsed.scheme == "http" and parsed.hostname in _LOCAL_HOSTS
+    if parsed.scheme != "https" and not is_local_http:
+        raise NotConfiguredError("api base url must use https", setting="API_BASE_URL")
+    return base_url.rstrip("/")
+
+
+OnpremInstallBaseUrlDep = Annotated[str, Depends(get_onprem_install_base_url)]
+
+
+def get_onprem_install_script_path() -> Path:
+    return INSTALL_SCRIPT_PATH
+
+
+OnpremInstallScriptPathDep = Annotated[Path, Depends(get_onprem_install_script_path)]
+
+
 def get_variable_service(session: SessionDep, settings: SettingsDep) -> VariableService:
     if settings.variables_encryption_key is None:
         raise NotConfiguredError(
@@ -275,10 +379,34 @@ def get_variable_service(session: SessionDep, settings: SettingsDep) -> Variable
         ServiceRepository(session),
         ServiceVariableRepository(session),
         VariableCipher(settings.variables_encryption_key.get_secret_value()),
+        is_networking_enabled=settings.project_networking_enabled,
     )
 
 
 VariableServiceDep = Annotated[VariableService, Depends(get_variable_service)]
+
+
+def _find_cipher(settings: Settings) -> VariableCipher | None:
+    if settings.variables_encryption_key is None:
+        return None
+    return VariableCipher(settings.variables_encryption_key.get_secret_value())
+
+
+def get_variable_validation_service(
+    session: SessionDep, settings: SettingsDep
+) -> VariableValidationService:
+    # 암호화 키가 없으면 값 검사(localhost·호스트·스킴)만 건너뛴다. 필수 키·참조는 본다.
+    return VariableValidationService(
+        ServiceRepository(session),
+        ServiceVariableRepository(session),
+        is_networking_enabled=settings.project_networking_enabled,
+        cipher=_find_cipher(settings),
+    )
+
+
+VariableValidationServiceDep = Annotated[
+    VariableValidationService, Depends(get_variable_validation_service)
+]
 
 
 def get_service_scaling_service(
@@ -297,9 +425,7 @@ ServiceScalingServiceDep = Annotated[ServiceScalingService, Depends(get_service_
 
 
 def get_deployment_status_service(session: SessionDep) -> DeploymentStatusService:
-    return DeploymentStatusService(
-        DeploymentRequestRepository(session), DeploymentStatusHistoryRepository(session)
-    )
+    return DeploymentStatusService.create(session)
 
 
 DeploymentStatusServiceDep = Annotated[
@@ -309,8 +435,10 @@ DeploymentStatusServiceDep = Annotated[
 
 def get_manual_deployment_service(
     session: SessionDep,
+    settings: SettingsDep,
     deployment_request_service: DeploymentRequestServiceDep,
     source_repository_service: SourceRepositoryServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
 ) -> ManualDeploymentService:
     # 브랜치 최신 커밋을 GitHub 에서 읽으므로 GitHub App 설정이 필요하다.
     return ManualDeploymentService(
@@ -321,11 +449,95 @@ def get_manual_deployment_service(
         deployment_request_service,
         source_repository_service,
         ServiceUploadRepository(session),
+        variable_validation_service,
+        database_images=settings.database_images,
     )
 
 
 ManualDeploymentServiceDep = Annotated[
     ManualDeploymentService, Depends(get_manual_deployment_service)
+]
+
+
+def get_database_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    service_registry_service: ServiceRegistryServiceDep,
+    deployment_request_service: DeploymentRequestServiceDep,
+) -> DatabaseService:
+    return DatabaseService(
+        session,
+        service_registry_service,
+        ServiceRepository(session),
+        ServiceVariableRepository(session),
+        deployment_request_service,
+        _find_cipher(settings),
+        is_networking_enabled=settings.project_networking_enabled,
+        database_images=settings.database_images,
+    )
+
+
+DatabaseServiceDep = Annotated[DatabaseService, Depends(get_database_service)]
+
+
+def get_stack_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    deployment_request_service: DeploymentRequestServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
+) -> StackService:
+    return StackService(
+        session,
+        ProjectRepository(session),
+        ServiceRepository(session),
+        ServiceVariableRepository(session),
+        ServiceStackRepository(session),
+        StackDeploymentRepository(session),
+        DeploymentRequestRepository(session),
+        deployment_request_service,
+        variable_validation_service,
+        database_images=settings.database_images,
+    )
+
+
+StackServiceDep = Annotated[StackService, Depends(get_stack_service)]
+
+
+def get_repository_analysis_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    source_repository_service: SourceRepositoryServiceDep,
+    service_registry_service: ServiceRegistryServiceDep,
+    manual_deployment_service: ManualDeploymentServiceDep,
+    database_service: DatabaseServiceDep,
+    stack_service: StackServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
+) -> RepositoryAnalysisService:
+    # 저장소 접근·브랜치 최신 커밋을 GitHub 에서 확인하므로 GitHub App 설정이 필요하다.
+    return RepositoryAnalysisService(
+        session,
+        ProjectRepository(session),
+        RepositoryAnalysisRepository(session),
+        GithubInstallationRepository(session),
+        source_repository_service,
+        service_registry_service,
+        manual_deployment_service,
+        stack_apply_service=StackApplyService(
+            service_registry_service,
+            database_service,
+            ServiceRepository(session),
+            ServiceVariableRepository(session),
+            ServiceStackRepository(session),
+            DatabaseInitScriptRepository(session),
+            is_networking_enabled=settings.project_networking_enabled,
+        ),
+        stack_service=stack_service,
+        variable_validation_service=variable_validation_service,
+    )
+
+
+RepositoryAnalysisServiceDep = Annotated[
+    RepositoryAnalysisService, Depends(get_repository_analysis_service)
 ]
 
 
@@ -366,6 +578,8 @@ def get_webhook_service(
     session: SessionDep,
     settings: SettingsDep,
     deployment_request_service: DeploymentRequestServiceDep,
+    stack_service: StackServiceDep,
+    variable_validation_service: VariableValidationServiceDep,
 ) -> WebhookService:
     if settings.github_webhook_secret is None:
         raise NotConfiguredError(
@@ -377,6 +591,14 @@ def get_webhook_service(
         GithubInstallationRepository(session),
         deployment_request_service,
         settings.github_webhook_secret.get_secret_value(),
+        stack_push_service=StackPushService(
+            stack_service,
+            ServiceStackRepository(session),
+            RepositoryAnalysisRepository(session),
+            ProjectRepository(session),
+            variable_validation_service,
+        ),
+        variable_validation_service=variable_validation_service,
     )
 
 
@@ -401,6 +623,24 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+_server_secret_scheme = HTTPBearer(
+    auto_error=False,
+    scheme_name="OnpremServerSecret",
+    description="온프레미스 서버 비밀(connect 응답의 serverSecret)",
+)
+
+
+async def get_onprem_server_secret(
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Security(_server_secret_scheme)] = None,
+) -> str:
+    """서버가 `Authorization: Bearer` 로 보낸 서버 비밀. 맞는지는 서비스가 확인한다."""
+    if bearer is None or not bearer.credentials:
+        raise UnauthorizedError("server secret required")
+    return bearer.credentials
+
+
+OnpremServerSecretDep = Annotated[str, Depends(get_onprem_server_secret)]
 
 
 def build_observability_service(
@@ -642,7 +882,12 @@ def build_automatic_repair_service(
         settings.github_api_base_url,
     )
     return AutomaticRepairService(
-        session, DeploymentRepairRepository(session), candidates, publication
+        session,
+        DeploymentRepairRepository(session),
+        candidates,
+        publication,
+        build_diagnosis_service(session, settings, http_client),
+        get_deployment_request_service(session, settings),
     )
 
 

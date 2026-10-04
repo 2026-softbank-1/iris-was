@@ -6,7 +6,7 @@
 
 수집·저장은 iris-infra가 맡는다(`docs/runbooks/observability.md`). workload 클러스터의 OTel agent가 `svc-*` Pod 로그와 kubelet 메트릭을 management 클러스터로 보내고, Loki와 Prometheus가 **Control API와 같은 management 클러스터**에 저장한다. 클러스터 간 조회 경로는 필요 없다.
 
-Control API에 두 주소를 환경변수로 주입한다(Secret `iris-platform-was-env`). 모든 target이 같은 백엔드를 쓴다. 수집 대상이 AWS workload 클러스터 하나라서이며, `local` target으로 조회하면 빈 결과가 나온다. 값이 없으면 `503 NOT_CONFIGURED`다.
+Control API에 두 주소를 환경변수로 주입한다(Secret `iris-platform-was-env`). 모든 target이 같은 백엔드를 쓴다. 수집 대상이 AWS workload 클러스터 하나라서이며, `onprem` target으로 조회하면 빈 결과가 나온다. 값이 없으면 `503 NOT_CONFIGURED`다.
 
 ```dotenv
 LOKI_URL=http://loki.observability:3100

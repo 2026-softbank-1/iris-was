@@ -197,7 +197,7 @@ async def test_get_deployment_request_with_release_returns_released_targets(
     )
 
     assert [r.id for r in detail.releases] == [7]
-    assert [t.name for t in detail.targets] == ["local"]
+    assert [t.name for t in detail.targets] == ["onprem"]
 
 
 async def test_get_deployment_request_replaced_by_next_succeeded_returns_replacement(

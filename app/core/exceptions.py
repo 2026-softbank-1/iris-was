@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import ClassVar
 
-from app.enums import FailureCode
+from app.enums import AnalysisErrorCode, FailureCode
 
 
 class AppError(Exception):
@@ -160,6 +160,20 @@ class ArchiveTooLargeError(ArchiveInvalidError):
     code = "ARCHIVE_TOO_LARGE"
 
 
+class RepositoryAnalysisNotFoundError(NotFoundError):
+    code = "REPOSITORY_ANALYSIS_NOT_FOUND"
+
+
+class RepositoryAnalysisNotReadyError(ConflictError):
+    """분석이 그 동작을 할 수 있는 상태가 아니다(진행 중·실패·생략 결정). 상태는 fields 에 둔다."""
+
+    code = "REPOSITORY_ANALYSIS_NOT_READY"
+
+
+class StackNotFoundError(NotFoundError):
+    code = "STACK_NOT_FOUND"
+
+
 class DiagnosisNotFoundError(NotFoundError):
     code = "DIAGNOSIS_NOT_FOUND"
 
@@ -213,6 +227,41 @@ class VariableConflictError(ConflictError):
     code = "VARIABLE_CONFLICT"
 
 
+class VariableReferenceBrokenError(InvalidInputError):
+    """참조 변수가 가리키는 서비스가 없거나(삭제·다른 프로젝트) 그 속성이 없다."""
+
+    code = "VARIABLE_REFERENCE_INVALID"
+
+    def __init__(self, message: str | None = None, **fields: object) -> None:
+        super().__init__(message, issues=[FieldIssue("reference", "reference_broken")], **fields)
+
+
+class VariablesInvalidError(InvalidInputError):
+    """배포 전 환경변수 검증에서 error 가 나왔다. 응답 `details` 는 `{field: 키, reason: 코드}`,
+    `data` 는 검증 API 와 같은 `{ok, issues}` 다(값은 담지 않는다).
+    """
+
+    code = "VARIABLES_INVALID"
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        issues: Sequence[FieldIssue] = (),
+        data: object = None,
+        **fields: object,
+    ) -> None:
+        super().__init__(message, issues=issues, **fields)
+        self.data = data
+
+
+class DatabaseInitScriptsInvalidError(AppError):
+    """DB 초기화 스크립트를 values 로 옮길 수 없다(내용 없음·해시 불일치·ConfigMap 한도 초과).
+    다시 해도 같으니 Deploy Worker 는 재시도하지 않는다."""
+
+    code = "DATABASE_INIT_SCRIPTS_INVALID"
+
+
 class VariableDecryptionError(AppError):
     """저장된 변수 값을 복호화하지 못했다. 암호화 키가 바뀌었거나 값이 손상됐다."""
 
@@ -237,6 +286,46 @@ class InvalidStatusTransitionError(ConflictError):
     code = "INVALID_STATUS_TRANSITION"
 
 
+class OnpremServerNotFoundError(NotFoundError):
+    """모르는 서버이거나 다른 사용자의 서버다. 둘을 구분해 알리지 않는다."""
+
+    code = "ONPREM_SERVER_NOT_FOUND"
+
+
+class OnpremServerNameConflictError(ConflictError):
+    code = "ONPREM_SERVER_NAME_CONFLICT"
+
+
+class OnpremServerLimitExceededError(ConflictError):
+    """사용자마다 등록할 수 있는 서버 수를 넘었다. 한도는 fields 의 limit 이다."""
+
+    code = "ONPREM_SERVER_LIMIT_EXCEEDED"
+
+
+class OnpremServerInUseError(ConflictError):
+    """서버 타깃에 서비스가 붙어 있거나 그 서비스의 배포가 진행 중이라 지울 수 없다."""
+
+    code = "ONPREM_SERVER_IN_USE"
+
+
+class OnpremServerNotConnectedError(ConflictError):
+    """서버 비밀은 맞지만 서버가 아직 CONNECTED 가 아니다. 서버는 다음 회차에 다시 부른다."""
+
+    code = "ONPREM_SERVER_NOT_CONNECTED"
+
+
+class InvalidRegistrationTokenError(UnauthorizedError):
+    """등록 토큰이 없거나 만료됐거나 이미 연결된 서버의 토큰이다. 셋을 구분해 알리지 않는다."""
+
+    code = "INVALID_REGISTRATION_TOKEN"
+
+
+class TargetNotConnectedError(ConflictError):
+    """배포 타깃이 등록한 서버인데 아직 연결되지 않았다(CONNECTED 가 아니다)."""
+
+    code = "TARGET_NOT_CONNECTED"
+
+
 class GitOpsConflictError(ConflictError):
     """GitOps 브랜치가 그새 움직여 fast-forward 할 수 없다. HEAD 위에 커밋을 다시 만든다."""
 
@@ -254,3 +343,16 @@ class BuildFailedError(AppError):
     ) -> None:
         super().__init__(message or failure_code, **fields)
         self.failure_code = failure_code
+
+
+class RepositoryAnalysisFailedError(AppError):
+    """레포 구성 분석을 끝낼 수 없는 실패. 재시도하지 않고 error_code 로 분석을 끝낸다."""
+
+    code = "REPOSITORY_ANALYSIS_FAILED"
+    status_code = 422
+
+    def __init__(
+        self, error_code: AnalysisErrorCode, message: str | None = None, **fields: object
+    ) -> None:
+        super().__init__(message or error_code, **fields)
+        self.error_code = error_code

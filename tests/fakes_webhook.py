@@ -1,26 +1,43 @@
 """웹훅·배포 요청 테스트용 가짜 Repository."""
 
 from itertools import count
-from typing import Any
 
 from app.core.exceptions import DeploymentRequestNotFoundError
-from app.enums import ACTIVE_DEPLOYMENT_STATUSES, BuildStatus, DeploymentStatus, Environment
+from app.enums import (
+    ACTIVE_DEPLOYMENT_STATUSES,
+    BuildStatus,
+    DeploymentStatus,
+    DeploymentStrategy,
+    Environment,
+    TargetKind,
+)
 from app.models.base import now_utc
 from app.models.build import Build
 from app.models.deployment_request import DeploymentRequest
 from app.models.deployment_status_history import DeploymentStatusHistory
 from app.models.job import Job
+from app.models.onprem_server import OnpremServer
 from app.models.release import Release
 from app.models.service import Service
+from app.repositories.service_repository import DeploymentSettings
 
 
 class FakeWebhookServiceRepository:
     def __init__(self, services: list[Service]) -> None:
         self.services = services
+        # 서비스 id → 그 서비스의 배포 타깃인 등록 서버.
+        self.servers: dict[int, OnpremServer] = {}
 
-    async def get_scaling_config_for_update(self, service_id: int) -> dict[str, Any] | None:
+    async def find_deploy_target_server(self, service_id: int) -> OnpremServer | None:
+        return self.servers.get(service_id)
+
+    async def get_deployment_settings_for_update(self, service_id: int) -> DeploymentSettings:
         service = next(service for service in self.services if service.id == service_id)
-        return service.scaling_config
+        return DeploymentSettings(
+            service.scaling_config,
+            service.deployment_strategy or DeploymentStrategy.ROLLING,
+            TargetKind.AWS,
+        )
 
     async def search_auto_deploy_by_repository_url_and_branch(
         self, repository_url: str, branch: str
@@ -39,6 +56,14 @@ class FakeDeploymentRequestRepository:
     def __init__(self) -> None:
         self.requests: list[DeploymentRequest] = []
         self._ids = count(1)
+
+    async def find_latest_by_source_sha(
+        self, service_id: int, source_sha: str
+    ) -> DeploymentRequest | None:
+        rows = [
+            r for r in self.requests if r.service_id == service_id and r.source_sha == source_sha
+        ]
+        return max(rows, key=lambda r: r.id) if rows else None
 
     async def find_by_idempotency_key(self, idempotency_key: str) -> DeploymentRequest | None:
         return next((r for r in self.requests if r.idempotency_key == idempotency_key), None)
@@ -119,6 +144,8 @@ class FakeDeploymentRequestRepository:
             ):
                 return None
         request.id = next(self._ids)
+        while any(r.id == request.id for r in self.requests):
+            request.id = next(self._ids)
         request.status = DeploymentStatus.QUEUED
         request.created_at = request.updated_at = now_utc()
         self.requests.append(request)
