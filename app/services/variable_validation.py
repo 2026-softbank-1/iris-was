@@ -203,9 +203,10 @@ class VariableValidationService:
         context = _Context(service, project_services)
         issues: list[VariableIssue] = []
         issues.extend(self._check_required(service, variables, context))
+        by_key = {v.key: v for v in variables}
         for variable in variables:
             if variable.reference is not None:
-                issues.extend(await self._check_reference(service, variable))
+                issues.extend(await self._check_reference(service, variable, by_key))
             elif self._cipher is not None and is_address_key(variable.key):
                 issues.extend(self._check_value(variable, context))
         return VariableValidation(service.id, issues)
@@ -239,7 +240,7 @@ class VariableValidationService:
         return issues
 
     async def _check_reference(
-        self, service: Service, variable: ServiceVariable
+        self, service: Service, variable: ServiceVariable, by_key: Mapping[str, ServiceVariable]
     ) -> list[VariableIssue]:
         assert variable.reference is not None
         try:
@@ -254,6 +255,18 @@ class VariableValidationService:
                     "referenced service no longer exists in this project",
                 )
             ]
+        if reference.password_variable is not None:
+            secret = by_key.get(reference.password_variable)
+            if secret is None or secret.encrypted_value is None:
+                return [
+                    VariableIssue(
+                        variable.key,
+                        VariableIssueSeverity.ERROR,
+                        VariableIssueCode.REFERENCE_BROKEN,
+                        f"passwordVariable {reference.password_variable} is not a value"
+                        " variable of this service",
+                    )
+                ]
         # 저장한 스킴(코드가 쓴 값)이 가리키는 DB 엔진과 다르면 연결이 안 된다.
         if reference.scheme and target.database_engine is not None:
             base = reference.scheme.split("+", 1)[0]
@@ -375,8 +388,14 @@ class _Context:
             return None
         if target is None:
             return None
+        # 비밀값 이름(passwordSecretId)은 apply 가 같은 이름의 변수로 저장한다.
         return reference_from_parts(
-            target.id, prop, binding.get("scheme"), binding.get("urlSuffix")
+            target.id,
+            prop,
+            binding.get("scheme"),
+            binding.get("urlSuffix"),
+            user=binding.get("user") if binding.get("passwordSecretId") else None,
+            password_variable=binding.get("passwordSecretId"),
         )
 
     def suggest(

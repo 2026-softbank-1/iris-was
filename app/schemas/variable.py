@@ -5,8 +5,10 @@ from pydantic import Field, StringConstraints, model_validator
 from app.enums import ReferenceProperty, VariableIssueCode, VariableIssueSeverity
 from app.schemas.response import ApiModel
 from app.services.variable_references import (
+    ReferencePasswordVariable,
     ReferenceScheme,
     ReferenceSuffix,
+    ReferenceUser,
     VariableReference,
 )
 from app.services.variable_service import (
@@ -51,11 +53,35 @@ class VariableReferenceSchema(ApiModel):
         ),
         examples=["/api/v1?tenant=demo"],
     )
+    user: ReferenceUser = Field(
+        default=None,
+        description=(
+            "property=url 이고 대상이 DB 일 때 URL 에 넣을 사용자(`^[A-Za-z0-9._~-]{1,128}$`)."
+            " 초기화 스크립트가 만든 앱 사용자처럼 코드가 쓴 사용자다. 생략하면 플랫폼이 만든"
+            " DB 사용자다. 있으면 mongodb 에 `authSource=admin` 을 더하지 않는다."
+        ),
+        examples=["archlog"],
+    )
+    password_variable: ReferencePasswordVariable = Field(
+        default=None,
+        description=(
+            "user 와 함께 쓰는 비밀번호. 이 서비스의 값 변수 키다(배포 때 그 값이 URL 인코딩되어"
+            " 들어간다). 생략하면 DB 관리 비밀번호다."
+            " 그 변수가 없으면 검증이 REFERENCE_BROKEN 이다."
+        ),
+        examples=["MONGO_APP_PASSWORD"],
+    )
 
     @model_validator(mode="after")
     def _url_only(self) -> "VariableReferenceSchema":
-        if self.property != ReferenceProperty.URL and (self.scheme or self.suffix):
-            raise ValueError("scheme and suffix are only for the url property")
+        if self.property != ReferenceProperty.URL and (
+            self.scheme or self.suffix or self.user or self.password_variable
+        ):
+            raise ValueError(
+                "scheme, suffix, user and passwordVariable are only for the url property"
+            )
+        if self.password_variable and not self.user:
+            raise ValueError("passwordVariable needs user")
         return self
 
     def to_reference(self) -> VariableReference:
@@ -64,6 +90,8 @@ class VariableReferenceSchema(ApiModel):
             property=self.property,
             scheme=self.scheme,
             suffix=self.suffix,
+            user=self.user,
+            password_variable=self.password_variable,
         )
 
     @classmethod
@@ -73,6 +101,8 @@ class VariableReferenceSchema(ApiModel):
             property=reference.property,
             scheme=reference.scheme,
             suffix=reference.suffix,
+            user=reference.user,
+            password_variable=reference.password_variable,
         )
 
 

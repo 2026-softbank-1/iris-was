@@ -9,10 +9,12 @@ unit 의 서비스는 지우지 않는다(스택 `pendingChanges` 에 UNIT_REMOV
 """
 
 import logging
+import secrets as secrets_module
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.core.exceptions import FieldIssue, InvalidInputError
+from app.core.crypto import VariableCipher
+from app.core.exceptions import FieldIssue, InvalidInputError, NotConfiguredError
 from app.enums import (
     DatabaseEngine,
     ReferenceProperty,
@@ -30,6 +32,7 @@ from app.schemas.analysis_gate import (
     AnalysisGateBinding,
     AnalysisGateDependency,
     AnalysisGateResult,
+    AnalysisGateSecret,
     AnalysisGateUnit,
 )
 from app.services.database_init_scripts import (
@@ -38,19 +41,32 @@ from app.services.database_init_scripts import (
     select_init_scripts,
 )
 from app.services.database_service import DatabasePlan, DatabaseService, check_networking
-from app.services.service_networking import is_networking_available, is_valid_alias_name
+from app.services.service_networking import (
+    is_networking_available,
+    is_valid_alias_name,
+    supported_properties,
+)
 from app.services.service_registry_service import (
     AnalyzedServicePlan,
     ServiceRegistryService,
     slugify_service_name,
 )
 from app.services.variable_references import reference_from_parts
-from app.services.variable_service import check_variable
+from app.services.variable_service import check_variable, managed_variable_keys
 
 logger = logging.getLogger(__name__)
 
 _ENGINES = frozenset(engine.value for engine in DatabaseEngine)
 _APP_PROPERTIES = frozenset({ReferenceProperty.URL, ReferenceProperty.HOST, ReferenceProperty.PORT})
+_SECRET_BYTES = 32
+
+
+@dataclass(frozen=True)
+class GeneratedSecret:
+    """이번 apply 가 만든(또는 이미 있던 값으로 채운) 공유 비밀값. 값은 담지 않는다."""
+
+    id: str
+    service_ids: list[int]
 
 
 @dataclass(frozen=True)
@@ -73,6 +89,7 @@ class AppliedStack:
     created_databases: list[Service] = field(default_factory=list)
     # 이미 있는 DB 의 초기화 스크립트가 분석과 달라진 것(DEPENDENCY_CHANGED). DB 는 그대로 둔다.
     changes: list[dict[str, Any]] = field(default_factory=list)
+    generated_secrets: list[GeneratedSecret] = field(default_factory=list)
 
 
 class StackApplyService:
@@ -86,7 +103,9 @@ class StackApplyService:
         init_script_repository: DatabaseInitScriptRepository,
         *,
         is_networking_enabled: bool,
+        cipher: VariableCipher | None = None,
     ) -> None:
+        self._cipher = cipher
         self._init_script_repository = init_script_repository
         self._service_registry_service = service_registry_service
         self._database_service = database_service
@@ -189,13 +208,19 @@ class StackApplyService:
             existing[service.stack_unit_id or ""] = service
         applied.apps.extend(created)
 
-        # 3) 참조 변수·호스트 별칭 (서비스 사이 통신이 되는 타깃에서만)
+        # 3) 비밀값: 생성한 값은 모든 consumer(앱·DB)에 같은 값, 플랫폼 관리 값은 DB 참조.
+        for secret in result.secrets:
+            generated = await self._apply_secret(result, secret, existing, networking)
+            if generated is not None:
+                applied.generated_secrets.append(generated)
+
+        # 4) 참조 변수·호스트 별칭 (서비스 사이 통신이 되는 타깃에서만)
         if networking:
             for service in applied.apps:
                 unit = result.find_unit(service.stack_unit_id or "")
                 if unit is None:
                     continue
-                await self._link_references(service, unit, existing)
+                await self._link_references(service, unit, existing, result)
                 _merge_aliases(service, unit, existing)
         stack.rebase(analysis.id)
         await self._service_repository.flush()
@@ -266,8 +291,88 @@ class StackApplyService:
             )
         )
 
+    async def _apply_secret(
+        self,
+        result: AnalysisGateResult,
+        secret: AnalysisGateSecret,
+        by_unit: dict[str, Service],
+        networking: bool,
+    ) -> GeneratedSecret | None:
+        """이미 있는 변수는 덮어쓰지 않는다(증분 apply 멱등). 값은 응답·로그에 남기지 않는다."""
+        consumers: list[tuple[Service, str]] = []
+        for target_id, key in _secret_consumers(result, secret, networking=networking):
+            service = by_unit.get(target_id)
+            if service is None or check_variable(key, "") is not None:
+                continue
+            if key in managed_variable_keys(service):
+                # DB 엔진 관리 키는 플랫폼 자격 증명이 채운다.
+                continue
+            if (service.id, key) not in {(s.id, k) for s, k in consumers}:
+                consumers.append((service, key))
+        if not consumers:
+            return None
+        if secret.platform_managed is not None:
+            await self._link_platform_managed(secret, consumers, by_unit, networking)
+            return None
+        if secret.generate != "random":
+            return None
+        if self._cipher is None:
+            raise NotConfiguredError(
+                "variables encryption is not configured", setting="VARIABLES_ENCRYPTION_KEY"
+            )
+        # 어느 consumer 에 이미 값이 있으면(이전 apply·사용자 입력) 그 값을 나눠 쓴다.
+        value: str | None = None
+        for service, key in consumers:
+            variable = await self._service_variable_repository.find_by_service_id_and_key(
+                service.id, key
+            )
+            if variable is not None and variable.encrypted_value is not None:
+                value = self._cipher.decrypt(variable.encrypted_value)
+                break
+        if value is None:
+            value = secrets_module.token_urlsafe(_SECRET_BYTES)
+        written: list[int] = []
+        for service, key in consumers:
+            created = await self._service_variable_repository.add_if_absent(
+                service.id, key, self._cipher.encrypt(value)
+            )
+            if created is not None and service.id not in written:
+                written.append(service.id)
+        if not written:
+            return None
+        return GeneratedSecret(secret.id, written)
+
+    async def _link_platform_managed(
+        self,
+        secret: AnalysisGateSecret,
+        consumers: list[tuple[Service, str]],
+        by_unit: dict[str, Service],
+        networking: bool,
+    ) -> None:
+        """DB 엔진 관리 키에 매핑된 비밀값은 그 DB 의 속성(password)을 참조로 받는다."""
+        assert secret.platform_managed is not None
+        database = by_unit.get(secret.platform_managed.dependency_id)
+        if not networking or database is None or database.kind != ServiceKind.DATABASE:
+            return
+        try:
+            prop = ReferenceProperty(secret.platform_managed.property)
+        except ValueError:
+            return
+        if prop not in supported_properties(database):
+            return
+        for service, key in consumers:
+            if service.id == database.id:
+                continue
+            await self._service_variable_repository.add_if_absent(
+                service.id, key, None, {"serviceId": database.id, "property": prop.value}
+            )
+
     async def _link_references(
-        self, service: Service, unit: AnalysisGateUnit, by_unit: dict[str, Service]
+        self,
+        service: Service,
+        unit: AnalysisGateUnit,
+        by_unit: dict[str, Service],
+        result: AnalysisGateResult,
     ) -> None:
         for env in unit.env:
             binding = env.binding
@@ -282,7 +387,12 @@ class StackApplyService:
                 continue
             if target.kind == ServiceKind.APP and prop not in _APP_PROPERTIES:
                 continue
-            reference = _binding_reference(target.id, prop, binding)
+            password_variable = (
+                secret_key_for(result, binding.password_secret_id, unit.id)
+                if binding.password_secret_id and target.kind == ServiceKind.DATABASE
+                else None
+            )
+            reference = _binding_reference(target.id, prop, binding, password_variable)
             variable = await self._service_variable_repository.find_by_service_id_and_key(
                 service.id, env.key
             )
@@ -295,13 +405,68 @@ class StackApplyService:
 
 
 def _binding_reference(
-    target_id: int, prop: ReferenceProperty, binding: AnalysisGateBinding
+    target_id: int,
+    prop: ReferenceProperty,
+    binding: AnalysisGateBinding,
+    password_variable: str | None = None,
 ) -> dict[str, Any]:
-    """분석기 binding 을 참조로. url 이면 코드가 쓴 스킴·경로·쿼리를 함께 옮긴다. 받을 수 없는 값은
-    버린다(기본 스킴·접미사 없음)."""
+    """분석기 binding 을 참조로. url 이면 코드가 쓴 스킴·경로·쿼리와 사용자(userinfo)를 함께 옮긴다.
+    받을 수 없는 값은 버린다(기본 스킴·접미사 없음, DB 관리 자격 증명)."""
     if prop != ReferenceProperty.URL:
         return {"serviceId": target_id, "property": prop.value}
-    return reference_from_parts(target_id, prop, binding.scheme, binding.url_suffix).to_json()
+    # 코드의 사용자는 비밀값(passwordSecretId)과 함께일 때만 쓴다(초기화 스크립트가 만든 앱 사용자).
+    # 비밀번호가 리터럴이면 플랫폼이 만든 사용자·비밀번호로 바꾼다(이전과 같다).
+    return reference_from_parts(
+        target_id,
+        prop,
+        binding.scheme,
+        binding.url_suffix,
+        user=binding.user if password_variable else None,
+        password_variable=password_variable,
+    ).to_json()
+
+
+def secret_key_for(result: AnalysisGateResult, secret_id: str, target_id: str) -> str:
+    """target(unit·dependency) 에서 비밀값을 담는 변수 키. env 로 받는 키가 있으면 그 키, 없으면
+    비밀값 id 다(URL 비밀번호로만 쓰는 값)."""
+    secret = next((s for s in result.secrets if s.id == secret_id), None)
+    if secret is not None:
+        for consumer in secret.consumers:
+            if consumer.target_id == target_id and consumer.via == "env":
+                return consumer.key
+    unit = result.find_unit(target_id)
+    if unit is not None:
+        for env in unit.env:
+            if env.secret_id == secret_id:
+                return env.key
+    return secret_id
+
+
+def _secret_consumers(
+    result: AnalysisGateResult, secret: AnalysisGateSecret, *, networking: bool
+) -> list[tuple[str, str]]:
+    """(unit·dependency id, 변수 키). consumers 와 units/dependencies env 의 secretId 를 합친다.
+
+    url_password 는 URL 자체가 참조 변수라 비밀값을 `secret_key_for` 키의 변수로 둔다(참조의
+    passwordVariable). 참조를 쓸 수 없는 타깃이면 두지 않는다.
+    """
+    found: list[tuple[str, str]] = []
+    for consumer in secret.consumers:
+        if consumer.kind not in ("unit", "dependency"):
+            continue
+        if consumer.via == "env":
+            found.append((consumer.target_id, consumer.key))
+        elif consumer.via == "url_password" and networking:
+            found.append(
+                (consumer.target_id, secret_key_for(result, secret.id, consumer.target_id))
+            )
+    for unit in result.units:
+        found.extend((unit.id, env.key) for env in unit.env if env.secret_id == secret.id)
+    for dependency in result.dependencies:
+        found.extend(
+            (dependency.id, env.key) for env in dependency.env if env.secret_id == secret.id
+        )
+    return found
 
 
 def _update_from_plan(service: Service, plan: AnalyzedServicePlan) -> None:

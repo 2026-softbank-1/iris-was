@@ -52,7 +52,9 @@ async def get_repository_analysis(
     service: RepositoryAnalysisServiceDep,
 ) -> ApiResponse[RepositoryAnalysisResponse]:
     analysis = await service.get_analysis(user.id, project_id, analysis_id)
-    return ApiResponse(data=RepositoryAnalysisResponse.from_model(analysis))
+    return ApiResponse(
+        data=RepositoryAnalysisResponse.from_model(analysis, service.provisioning(analysis))
+    )
 
 
 @router.post(
